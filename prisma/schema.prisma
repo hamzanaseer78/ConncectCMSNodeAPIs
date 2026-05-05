@@ -1,0 +1,457 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model areas {
+  recno                            Int            @id @default(autoincrement())
+  tenantid                         Int?
+  name                             String?
+  cityid                           Int?           @db.SmallInt
+  createdby                        Int?
+  createdat                        DateTime?      @db.Timestamp(6)
+  lastupdatedby                    Int?
+  lastupdatedat                    DateTime?      @db.Timestamp(6)
+  isactive                         Boolean?
+  cities                           cities?        @relation(fields: [cityid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_cities")
+  users_areas_createdbyTousers     users?         @relation("areas_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_areas_lastupdatedbyTousers users?         @relation("areas_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                    organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  customers                        customers[]
+
+  @@index([recno], map: "idx_jsl_areas")
+}
+
+model branches {
+  branchid                            Int                 @id @default(autoincrement())
+  tenantid                            Int?
+  name                                String?
+  phoneno                             String?
+  email                               String?
+  web                                 String?
+  country                             Int?
+  city                                Int?
+  area                                Int?
+  address                             String?
+  address2                            String?
+  logourl                             String?
+  isactive                            Boolean?
+  createdby                           Int?
+  createdat                           DateTime?           @db.Timestamp(6)
+  lastupdatedby                       Int?
+  lastupdatedat                       DateTime?           @db.Timestamp(6)
+  users_branches_createdbyTousers     users?              @relation("branches_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_branches_lastupdatedbyTousers users?              @relation("branches_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                       organizations?      @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  customers                           customers[]
+  jobcategories                       jobcategories[]
+  jobgroups                           jobgroups[]
+  jobsubcategories                    jobsubcategories[]
+  products                            products[]
+  userorganizations                   userorganizations[]
+  userpolicies                        userpolicies[]
+  userrights                          userrights[]
+
+  @@index([branchid], map: "idx_jsl_branches")
+}
+
+model cities {
+  recno                             Int            @id @default(autoincrement())
+  tenantid                          Int?
+  name                              String?
+  countryid                         Int?
+  createdby                         Int?
+  createdat                         DateTime?      @db.Timestamp(6)
+  lastupdatedby                     Int?
+  lastupdatedat                     DateTime?      @db.Timestamp(6)
+  isactive                          Boolean?
+  areas                             areas[]
+  countries                         countries?     @relation(fields: [countryid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_countries")
+  users_cities_createdbyTousers     users?         @relation("cities_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_cities_lastupdatedbyTousers users?         @relation("cities_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                     organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  customers                         customers[]
+
+  @@index([recno], map: "idx_jsl_cities")
+}
+
+model countries {
+  recno                                Int            @id @default(autoincrement())
+  tenantid                             Int?
+  name                                 String?
+  createdby                            Int?
+  createdat                            DateTime?      @db.Timestamp(6)
+  lastupdatedby                        Int?
+  lastupdatedat                        DateTime?      @db.Timestamp(6)
+  isactive                             Boolean?
+  cities                               cities[]
+  users_countries_createdbyTousers     users?         @relation("countries_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_countries_lastupdatedbyTousers users?         @relation("countries_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                        organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  customers                            customers[]
+
+  @@index([recno], map: "idx_jsl_countries")
+}
+
+model customers {
+  customerid                           Int            @id @default(autoincrement())
+  tenantid                             Int?
+  branchid                             Int?
+  name                                 String?
+  email                                String?
+  contactno                            String?
+  isactive                             Boolean?
+  createdby                            Int?
+  createdat                            DateTime?      @db.Timestamp(6)
+  lastupdatedby                        Int?
+  lastupdatedat                        DateTime?      @db.Timestamp(6)
+  country                              Int?
+  city                                 Int?
+  area                                 Int?
+  areas                                areas?         @relation(fields: [area], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_areas")
+  branches                             branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
+  cities                               cities?        @relation(fields: [city], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_cities")
+  countries                            countries?     @relation(fields: [country], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_countries")
+  users_customers_createdbyTousers     users?         @relation("customers_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_customers_lastupdatedbyTousers users?         @relation("customers_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                        organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([customerid], map: "idx_jsl_customers")
+}
+
+model jobcategories {
+  categoryid                               Int                @id @default(autoincrement())
+  groupid                                  Int?
+  tenantid                                 Int?
+  branchid                                 Int?
+  name                                     String?
+  isactive                                 Boolean?
+  color                                    String?            @db.VarChar(15)
+  createdby                                Int?
+  createdat                                DateTime?          @db.Timestamp(6)
+  lastupdatedby                            Int?
+  lastupdatedat                            DateTime?          @db.Timestamp(6)
+  branches                                 branches?          @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
+  users_jobcategories_createdbyTousers     users?             @relation("jobcategories_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  jobgroups                                jobgroups?         @relation(fields: [groupid], references: [groupid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_group")
+  users_jobcategories_lastupdatedbyTousers users?             @relation("jobcategories_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                            organizations?     @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  jobsubcategories                         jobsubcategories[]
+
+  @@index([categoryid], map: "idx_jsl_jobcategories")
+}
+
+model jobgroups {
+  groupid                              Int             @id @default(autoincrement())
+  tenantid                             Int?
+  branchid                             Int?
+  name                                 String?
+  isactive                             Boolean?
+  color                                String?         @db.VarChar(15)
+  createdby                            Int?
+  createdat                            DateTime?       @db.Timestamp(6)
+  lastupdatedby                        Int?
+  lastupdatedat                        DateTime?       @db.Timestamp(6)
+  jobcategories                        jobcategories[]
+  branches                             branches?       @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
+  users_jobgroups_createdbyTousers     users?          @relation("jobgroups_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_jobgroups_lastupdatedbyTousers users?          @relation("jobgroups_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                        organizations?  @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([groupid], map: "idx_jsl_jobgroups")
+}
+
+model jobsubcategories {
+  subcategoryid                               Int            @id @default(autoincrement())
+  categoryid                                  Int?
+  tenantid                                    Int?
+  branchid                                    Int?
+  defaultuser                                 Int?
+  name                                        String?
+  isactive                                    Boolean?
+  color                                       String?        @db.VarChar(15)
+  createdby                                   Int?
+  createdat                                   DateTime?      @db.Timestamp(6)
+  lastupdatedby                               Int?
+  lastupdatedat                               DateTime?      @db.Timestamp(6)
+  branches                                    branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
+  jobcategories                               jobcategories? @relation(fields: [categoryid], references: [categoryid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_category")
+  users_jobsubcategories_createdbyTousers     users?         @relation("jobsubcategories_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_jobsubcategories_lastupdatedbyTousers users?         @relation("jobsubcategories_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                               organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([subcategoryid], map: "idx_jsl_jobsubcategories")
+}
+
+model organizations {
+  tenantid                                 Int                    @id @default(autoincrement())
+  organizationname                         String?
+  phoneno                                  String?
+  email                                    String?
+  website                                  String?
+  defaultcurrency                          Int?
+  country                                  Int?
+  city                                     Int?
+  address                                  String?
+  address2                                 String?
+  logourl                                  String?
+  istaxregistered                          Boolean?
+  taxno                                    String?
+  createdby                                Int?
+  createdat                                DateTime?              @db.Timestamp(6)
+  lastupdatedby                            Int?
+  lastupdatedat                            DateTime?              @db.Timestamp(6)
+  financialyeartype                        Int?                   @db.SmallInt
+  roundingdigit                            Int?                   @db.SmallInt
+  weektype                                 Int?                   @db.SmallInt
+  areas                                    areas[]
+  branches                                 branches[]
+  cities                                   cities[]
+  countries                                countries[]
+  customers                                customers[]
+  jobcategories                            jobcategories[]
+  jobgroups                                jobgroups[]
+  jobstatuses                              jobstatuses[]
+  jobsubcategories                         jobsubcategories[]
+  users_organizations_createdbyTousers     users?                 @relation("organizations_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_organizations_lastupdatedbyTousers users?                 @relation("organizations_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  policies                                 policies[]
+  products                                 products[]
+  userorganizations                        userorganizations[]
+  userpolicies                             userpolicies[]
+  userrights                               userrights[]
+  userssignuptokenlogs                     userssignuptokenlogs[]
+
+  @@index([tenantid], map: "idx_jsl_organizations")
+}
+
+model policies {
+  recno                               Int            @id @default(autoincrement())
+  tenantid                            Int?
+  createdby                           Int?
+  createdat                           DateTime?      @db.Timestamp(6)
+  lastupdatedby                       Int?
+  updatedat                           DateTime?      @db.Timestamp(6)
+  description                         String?
+  isdefaultpolicy                     Boolean?
+  users_policies_createdbyTousers     users?         @relation("policies_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_policies_lastupdatedbyTousers users?         @relation("policies_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                       organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  userpolicies                        userpolicies[]
+  userrights                          userrights[]
+
+  @@index([recno], map: "idx_jsl_policies")
+}
+
+model products {
+  productid                           Int            @id @default(autoincrement())
+  tenantid                            Int?
+  branchid                            Int?
+  name                                String?
+  salerate                            Float?
+  discountvalue                       Float?
+  discounttype                        String?
+  purchaserate                        Float?
+  isactive                            Boolean?
+  isservice                           Boolean?
+  managestock                         Boolean?
+  createdby                           Int?
+  createdat                           DateTime?      @db.Timestamp(6)
+  lastupdatedby                       Int?
+  lastupdatedat                       DateTime?      @db.Timestamp(6)
+  branches                            branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
+  users_products_createdbyTousers     users?         @relation("products_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_products_lastupdatedbyTousers users?         @relation("products_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                       organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([productid], map: "idx_jsl_products")
+}
+
+model screens {
+  screenid       Int          @id @default(autoincrement())
+  screenname     String?
+  screengroup    String?
+  controllername String?
+  createdby      Int?
+  createdat      DateTime?    @db.Timestamp(6)
+  lastupdatedby  Int?
+  updatedat      DateTime?    @db.Timestamp(6)
+  isvisible      Boolean?
+  accessible     Boolean?
+  userrights     userrights[]
+
+  @@index([screenid], map: "idx_jsl_screens")
+}
+
+model userorganizations {
+  recno                                        Int            @id @default(autoincrement())
+  userid                                       Int?
+  tenantid                                     Int?
+  branchid                                     Int?
+  createdby                                    Int?
+  createdat                                    DateTime?      @db.Timestamp(6)
+  lastupdatedby                                Int?
+  lastupdatedat                                DateTime?      @db.Timestamp(6)
+  isblocked                                    Boolean?
+  blockedby                                    Int?
+  blockedat                                    DateTime?      @db.Timestamp(6)
+  users_userorganizations_blockedbyTousers     users?         @relation("userorganizations_blockedbyTousers", fields: [blockedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_blockedby")
+  branches                                     branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
+  users_userorganizations_createdbyTousers     users?         @relation("userorganizations_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_userorganizations_lastupdatedbyTousers users?         @relation("userorganizations_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                                organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  users_userorganizations_useridTousers        users?         @relation("userorganizations_useridTousers", fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_user")
+
+  @@index([recno], map: "idx_jsl_userorganizations")
+}
+
+model userpolicies {
+  recno                                   Int            @id @default(autoincrement())
+  tenantid                                Int?
+  createdby                               Int?
+  createdat                               DateTime?      @db.Timestamp(6)
+  lastupdatedby                           Int?
+  updatedat                               DateTime?      @db.Timestamp(6)
+  policyid                                Int?
+  userid                                  Int?
+  branchid                                Int?
+  branches                                branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
+  users_userpolicies_createdbyTousers     users?         @relation("userpolicies_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_userpolicies_lastupdatedbyTousers users?         @relation("userpolicies_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  policies                                policies?      @relation(fields: [policyid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_policies")
+  organizations                           organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  users_userpolicies_useridTousers        users?         @relation("userpolicies_useridTousers", fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_user")
+
+  @@index([recno], map: "idx_jsl_userpolicies")
+}
+
+model userrights {
+  recno                                 Int            @id @default(autoincrement())
+  tenantid                              Int?
+  createdby                             Int?
+  createdat                             DateTime?      @db.Timestamp(6)
+  lastupdatedby                         Int?
+  updatedat                             DateTime?      @db.Timestamp(6)
+  screenid                              Int?
+  policyid                              Int?
+  viewscreen                            Boolean?
+  addscreen                             Boolean?
+  updatescreen                          Boolean?
+  deletescreen                          Boolean?
+  others                                Boolean?
+  branchid                              Int?
+  branches                              branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
+  users_userrights_createdbyTousers     users?         @relation("userrights_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_userrights_lastupdatedbyTousers users?         @relation("userrights_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  policies                              policies?      @relation(fields: [policyid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_policies")
+  screens                               screens?       @relation(fields: [screenid], references: [screenid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_screen")
+  organizations                         organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([recno], map: "idx_jsl_userrights")
+}
+
+model users {
+  userid                                                   Int                    @id @default(autoincrement())
+  name                                                     String?
+  email                                                    String?
+  password                                                 String?
+  contactno                                                String?
+  profileimage                                             String?
+  isactive                                                 Boolean?
+  createdby                                                Int?
+  createdat                                                DateTime?              @db.Timestamp(6)
+  lastupdatedby                                            Int?
+  lastupdatedat                                            DateTime?              @db.Timestamp(6)
+  resettoken                                               String?
+  resettokengendatetime                                    DateTime?              @db.Timestamp(6)
+  isdeleted                                                Boolean?
+  signuptoken                                              String?
+  istokenused                                              Boolean?
+  tokenusedat                                              DateTime?              @db.Timestamp(6)
+  createdtenantid                                          Int?
+  country                                                  Int?                   @db.SmallInt
+  city                                                     Int?
+  istermsaccepted                                          Boolean?
+  signupip                                                 String?                @db.VarChar(50)
+  signuplatitude                                           String?                @db.VarChar(15)
+  signuplongitude                                          String?                @db.VarChar(15)
+  gender                                                   String?
+  areas_areas_createdbyTousers                             areas[]                @relation("areas_createdbyTousers")
+  areas_areas_lastupdatedbyTousers                         areas[]                @relation("areas_lastupdatedbyTousers")
+  branches_branches_createdbyTousers                       branches[]             @relation("branches_createdbyTousers")
+  branches_branches_lastupdatedbyTousers                   branches[]             @relation("branches_lastupdatedbyTousers")
+  cities_cities_createdbyTousers                           cities[]               @relation("cities_createdbyTousers")
+  cities_cities_lastupdatedbyTousers                       cities[]               @relation("cities_lastupdatedbyTousers")
+  countries_countries_createdbyTousers                     countries[]            @relation("countries_createdbyTousers")
+  countries_countries_lastupdatedbyTousers                 countries[]            @relation("countries_lastupdatedbyTousers")
+  customers_customers_createdbyTousers                     customers[]            @relation("customers_createdbyTousers")
+  customers_customers_lastupdatedbyTousers                 customers[]            @relation("customers_lastupdatedbyTousers")
+  jobcategories_jobcategories_createdbyTousers             jobcategories[]        @relation("jobcategories_createdbyTousers")
+  jobcategories_jobcategories_lastupdatedbyTousers         jobcategories[]        @relation("jobcategories_lastupdatedbyTousers")
+  jobgroups_jobgroups_createdbyTousers                     jobgroups[]            @relation("jobgroups_createdbyTousers")
+  jobgroups_jobgroups_lastupdatedbyTousers                 jobgroups[]            @relation("jobgroups_lastupdatedbyTousers")
+  jobstatuses_jobstatuses_createdbyTousers                 jobstatuses[]          @relation("jobstatuses_createdbyTousers")
+  jobstatuses_jobstatuses_lastupdatedbyTousers             jobstatuses[]          @relation("jobstatuses_lastupdatedbyTousers")
+  jobsubcategories_jobsubcategories_createdbyTousers       jobsubcategories[]     @relation("jobsubcategories_createdbyTousers")
+  jobsubcategories_jobsubcategories_lastupdatedbyTousers   jobsubcategories[]     @relation("jobsubcategories_lastupdatedbyTousers")
+  organizations_organizations_createdbyTousers             organizations[]        @relation("organizations_createdbyTousers")
+  organizations_organizations_lastupdatedbyTousers         organizations[]        @relation("organizations_lastupdatedbyTousers")
+  policies_policies_createdbyTousers                       policies[]             @relation("policies_createdbyTousers")
+  policies_policies_lastupdatedbyTousers                   policies[]             @relation("policies_lastupdatedbyTousers")
+  products_products_createdbyTousers                       products[]             @relation("products_createdbyTousers")
+  products_products_lastupdatedbyTousers                   products[]             @relation("products_lastupdatedbyTousers")
+  userorganizations_userorganizations_blockedbyTousers     userorganizations[]    @relation("userorganizations_blockedbyTousers")
+  userorganizations_userorganizations_createdbyTousers     userorganizations[]    @relation("userorganizations_createdbyTousers")
+  userorganizations_userorganizations_lastupdatedbyTousers userorganizations[]    @relation("userorganizations_lastupdatedbyTousers")
+  userorganizations_userorganizations_useridTousers        userorganizations[]    @relation("userorganizations_useridTousers")
+  userpolicies_userpolicies_createdbyTousers               userpolicies[]         @relation("userpolicies_createdbyTousers")
+  userpolicies_userpolicies_lastupdatedbyTousers           userpolicies[]         @relation("userpolicies_lastupdatedbyTousers")
+  userpolicies_userpolicies_useridTousers                  userpolicies[]         @relation("userpolicies_useridTousers")
+  userrights_userrights_createdbyTousers                   userrights[]           @relation("userrights_createdbyTousers")
+  userrights_userrights_lastupdatedbyTousers               userrights[]           @relation("userrights_lastupdatedbyTousers")
+  users_users_createdbyTousers                             users?                 @relation("users_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  other_users_users_createdbyTousers                       users[]                @relation("users_createdbyTousers")
+  users_users_lastupdatedbyTousers                         users?                 @relation("users_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  other_users_users_lastupdatedbyTousers                   users[]                @relation("users_lastupdatedbyTousers")
+  userssignuptokenlogs                                     userssignuptokenlogs[]
+
+  @@index([userid], map: "idx_jsl_users")
+}
+
+model userssignuptokenlogs {
+  recno           Int            @id @default(autoincrement())
+  signuptoken     String?
+  istokenused     Boolean?
+  createdtenantid Int?
+  tokenusedat     DateTime?      @db.Timestamp(6)
+  logcreatedat    DateTime?      @db.Timestamp(6)
+  userid          Int?
+  organizations   organizations? @relation(fields: [createdtenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  users           users?         @relation(fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_userid")
+
+  @@index([recno], map: "idx_jsl_userssignuptokenlogs")
+}
+
+model jobstatuses {
+  recno                                  Int            @id(map: "jobstauses_pkey") @default(autoincrement())
+  tenantid                               Int?
+  title                                  String?
+  createdby                              Int?
+  createdat                              DateTime?      @db.Timestamp(6)
+  lastupdatedby                          Int?
+  lastupdatedat                          DateTime?      @db.Timestamp(6)
+  isfirststatus                          Boolean?
+  iscompletedstatus                      Boolean?
+  isresolvedstatus                       Boolean?
+  color                                  String?        @db.VarChar(10)
+  sort                                   Int?
+  users_jobstatuses_createdbyTousers     users?         @relation("jobstatuses_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_jobstatuses_lastupdatedbyTousers users?         @relation("jobstatuses_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                          organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([recno], map: "idx_jsl_jobstauses")
+}
