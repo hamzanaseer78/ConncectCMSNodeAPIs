@@ -19,7 +19,7 @@ function createResourceRouter(resourceName) {
   // Dropdown endpoint (JWT only, RBAC optional)
   router.get("/dropdown", async (req, res, next) => {
     try {
-      res.status(200).json(await controller.list(req, res));
+      await controller.list(req, res);
     } catch (err) {
       next(err);
     }
@@ -28,7 +28,7 @@ function createResourceRouter(resourceName) {
   // RBAC protected routes
   router.get("/", authorizeResourceAction(resourceName, "view"), async (req, res, next) => {
     try {
-      res.status(200).json(await controller.list(req, res));
+      await controller.list(req, res);
     } catch (err) {
       next(err);
     }
@@ -36,7 +36,7 @@ function createResourceRouter(resourceName) {
 
   router.get("/:id", authorizeResourceAction(resourceName, "view"), async (req, res, next) => {
     try {
-      res.status(200).json(await controller.get(req, res));
+      await controller.get(req, res);
     } catch (err) {
       next(err);
     }
@@ -44,7 +44,7 @@ function createResourceRouter(resourceName) {
 
   router.post("/", authorizeResourceAction(resourceName, "add"), async (req, res, next) => {
     try {
-      res.status(201).json(await controller.create(req, res));
+      await controller.create(req, res);
     } catch (err) {
       next(err);
     }
@@ -52,7 +52,7 @@ function createResourceRouter(resourceName) {
 
   router.put("/:id", authorizeResourceAction(resourceName, "update"), async (req, res, next) => {
     try {
-      res.status(200).json(await controller.update(req, res));
+      await controller.update(req, res);
     } catch (err) {
       next(err);
     }
@@ -61,7 +61,6 @@ function createResourceRouter(resourceName) {
   router.delete("/:id", authorizeResourceAction(resourceName, "delete"), async (req, res, next) => {
     try {
       await controller.delete(req, res);
-      res.status(200).json({ message: "Record deleted successfully" });
     } catch (err) {
       next(err);
     }

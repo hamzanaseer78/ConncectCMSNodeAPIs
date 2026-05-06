@@ -1,4 +1,9 @@
 const { Prisma } = require("@prisma/client");
+const modelCache = new Map();
+const scalarFieldsCache = new Map();
+const filterableFieldsCache = new Map();
+const sortableFieldsCache = new Map();
+const listScalarFieldsCache = new Map();
 
 const ignoredInputFields = new Set([
   "createdby",
@@ -37,17 +42,22 @@ const hiddenListFields = new Set([
 ]);
 
 function getModel(resourceName) {
-  return Prisma.dmmf.datamodel.models.find((model) => model.name === resourceName);
+  if (!modelCache.has(resourceName)) {
+    const model = Prisma.dmmf.datamodel.models.find((entry) => entry.name === resourceName) || null;
+    modelCache.set(resourceName, model);
+  }
+
+  return modelCache.get(resourceName);
 }
 
 function getScalarFields(resourceName) {
-  const model = getModel(resourceName);
-
-  if (!model) {
-    return [];
+  if (!scalarFieldsCache.has(resourceName)) {
+    const model = getModel(resourceName);
+    const scalarFields = model ? model.fields.filter((field) => field.kind === "scalar") : [];
+    scalarFieldsCache.set(resourceName, scalarFields);
   }
 
-  return model.fields.filter((field) => field.kind === "scalar");
+  return scalarFieldsCache.get(resourceName);
 }
 
 function getWritableFields(resourceName, config, mode) {
@@ -77,21 +87,43 @@ function getWritableFields(resourceName, config, mode) {
 }
 
 function getFilterableFields(resourceName) {
-  return getScalarFields(resourceName).filter((field) => !field.isList);
+  if (!filterableFieldsCache.has(resourceName)) {
+    filterableFieldsCache.set(
+      resourceName,
+      getScalarFields(resourceName).filter((field) => !field.isList)
+    );
+  }
+
+  return filterableFieldsCache.get(resourceName);
 }
 
 function getSortableFields(resourceName) {
-  return getScalarFields(resourceName).filter((field) => !field.isList);
+  if (!sortableFieldsCache.has(resourceName)) {
+    sortableFieldsCache.set(
+      resourceName,
+      getScalarFields(resourceName).filter((field) => !field.isList)
+    );
+  }
+
+  return sortableFieldsCache.get(resourceName);
 }
 
 function getListScalarFields(resourceName, config = {}) {
-  const relationKeys = new Set(Object.keys(config.listRelations || {}));
+  const relationKey = Object.keys(config.listRelations || {}).sort().join(",");
+  const cacheKey = `${resourceName}|${config.id || ""}|${relationKey}`;
+  if (listScalarFieldsCache.has(cacheKey)) {
+    return listScalarFieldsCache.get(cacheKey);
+  }
 
-  return getScalarFields(resourceName).filter((field) => (
+  const relationKeys = new Set(Object.keys(config.listRelations || {}));
+  const listScalarFields = getScalarFields(resourceName).filter((field) => (
     !field.isList &&
     (field.name === config.id || !hiddenListFields.has(field.name)) &&
     !relationKeys.has(field.name)
   ));
+
+  listScalarFieldsCache.set(cacheKey, listScalarFields);
+  return listScalarFields;
 }
 
 function getListFilterFields(resourceName, config = {}) {
