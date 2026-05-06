@@ -12,6 +12,6 @@ router.post("/organizations", controller.createOrganization);
 router.post("/login", controller.login);
 router.post("/switch", authenticateJwt, controller.switchContext);
 router.post("/invite", authenticateJwt, controller.inviteUser);
-router.post("/organizations/current-user", authenticateJwt, controller.createOrganization);
+router.post("/addOrganization", controller.createOrganization);
 
 module.exports = router;

@@ -1,8 +1,8 @@
-const AuthService = require("../bll/concretes/auth.service");
+const serviceContainer = require("../utils/service-container");
 
-const service = new AuthService();
+const service = serviceContainer.getAuthService();
 
-const signup = async (req, res) => {
+const signup = async (req, res, next) => {
   try {
     const data = await service.signup({
       ...req.body,
@@ -10,11 +10,11 @@ const signup = async (req, res) => {
     });
     res.status(201).json(data);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    next(err);
   }
 };
 
-const verifySignupToken = async (req, res) => {
+const verifySignupToken = async (req, res, next) => {
   try {
     const data = await service.verifySignupToken({
       email: req.body.email || req.query.email,
@@ -22,55 +22,57 @@ const verifySignupToken = async (req, res) => {
     });
     res.status(200).json(data);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    next(err);
   }
 };
 
-const configurePassword = async (req, res) => {
+const configurePassword = async (req, res, next) => {
   try {
     const data = await service.configurePassword(req.body);
     res.status(200).json(data);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    next(err);
   }
 };
 
-const createOrganization = async (req, res) => {
+const createOrganization = async (req, res, next) => {
   try {
     const data = await service.createOrganization(req.body, req.auth || null);
     res.status(201).json(data);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    next(err);
   }
 };
 
-const login = async (req, res) => {
+const login = async (req, res, next) => {
   try {
-    debugger;
     const data = await service.login(req.body);
     res.status(200).json(data);
   } catch (err) {
-    res.status(401).json({ error: err.message });
+    next(err);
   }
 };
 
-const switchContext = async (req, res) => {
+const switchContext = async (req, res, next) => {
   try {
     const data = await service.switchContext(req.auth, req.body);
     res.status(200).json(data);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    next(err);
   }
 };
 
-const inviteUser = async (req, res) => {
+const inviteUser = async (req, res, next) => {
   try {
     const data = await service.inviteUser(req.auth, req.body);
     res.status(201).json(data);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    next(err);
   }
 };
+
+
+
 
 module.exports = {
   configurePassword,

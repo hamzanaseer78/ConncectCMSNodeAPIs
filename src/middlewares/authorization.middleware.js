@@ -12,6 +12,9 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+/**
+ * CHECK IF USER IS DEFAULT ADMIN (AUTO POLICY USER)
+ */
 async function isDefaultAdmin(auth) {
   const adminPolicy = await prisma.policies.findFirst({
     where: {
@@ -20,9 +23,7 @@ async function isDefaultAdmin(auth) {
     }
   });
 
-  if (!adminPolicy) {
-    return false;
-  }
+  if (!adminPolicy) return false;
 
   const assignment = await prisma.userpolicies.findFirst({
     where: {
@@ -36,33 +37,51 @@ async function isDefaultAdmin(auth) {
   return Boolean(assignment);
 }
 
+/**
+ * FIND SCREEN (OPTIMIZED)
+ */
 async function findScreen(resourceName) {
-  const config = resources[resourceName];
-  const names = new Set([resourceName, ...(config.screenNames || [])].map(normalize));
-  const screens = await prisma.screens.findMany({
+  const config = resources[resourceName] || {};
+  const names = [resourceName, ...(config.screenNames || [])].map(normalize);
+
+  return await prisma.screens.findFirst({
     where: {
-      accessible: true
+      accessible: true,
+      OR: [
+        {
+          screenname: {
+            in: names,
+            mode: "insensitive"
+          }
+        },
+        {
+          controllername: {
+            in: names,
+            mode: "insensitive"
+          }
+        }
+      ]
     }
   });
-
-  return screens.find((screen) => (
-    names.has(normalize(screen.screenname)) ||
-    names.has(normalize(screen.controllername))
-  ));
 }
 
+/**
+ * MAIN RIGHTS CHECK
+ */
 async function hasRight(auth, resourceName, action) {
-  if (await isDefaultAdmin(auth)) {
-    return true;
-  }
-
+  const isAdmin = await isDefaultAdmin(auth);
   const rightField = rightFields[action];
+
+  // ❌ Invalid action
+  if (!rightField) return false;
+
+  // 🔍 Find screen
   const screen = await findScreen(resourceName);
 
-  if (!screen || !rightField) {
-    return false;
-  }
+  // ❌ If screen not found → block for ALL (including admin)
+  if (!screen) return false;
 
+  // 🔍 Get user policies
   const policyAssignments = await prisma.userpolicies.findMany({
     where: {
       userid: Number(auth.userid),
@@ -75,13 +94,12 @@ async function hasRight(auth, resourceName, action) {
   });
 
   const policyIds = policyAssignments
-    .map((assignment) => assignment.policyid)
-    .filter((policyid) => policyid !== null && policyid !== undefined);
+    .map(x => x.policyid)
+    .filter(x => x !== null && x !== undefined);
 
-  if (!policyIds.length) {
-    return false;
-  }
+  if (!policyIds.length) return false;
 
+  // 🔍 Get rights
   const rights = await prisma.userrights.findMany({
     where: {
       tenantid: Number(auth.tenantid),
@@ -94,23 +112,69 @@ async function hasRight(auth, resourceName, action) {
     }
   });
 
-  return rights.some((right) => right[rightField] === true);
+  /**
+   * ✅ ADMIN LOGIC (AUTO INSERT RIGHTS)
+   */
+  if (isAdmin) {
+    if (!rights.length) {
+      const insertData = policyIds.map((policyid) => ({
+        tenantid: Number(auth.tenantid),
+        branchid: Number(auth.branchid),
+        policyid,
+        screenid: screen.screenid,
+        viewscreen: true,
+        addscreen: true,
+        updatescreen: true,
+        deletescreen: true,
+        createdby: Number(auth.userid),
+        createdat: new Date()
+      }));
+
+      await prisma.userrights.createMany({
+        data: insertData,
+        skipDuplicates: true
+      });
+
+      return true;
+    }
+
+    // Even if partial rights exist → allow admin
+    return true;
+  }
+
+  /**
+   * 👤 NORMAL USER CHECK
+   */
+  return rights.some(r => r[rightField] === true);
 }
 
+/**
+ * EXPRESS MIDDLEWARE
+ */
 function authorizeResourceAction(resourceName, action) {
   return async (req, res, next) => {
     try {
       if (!req.auth?.userid || !req.auth?.tenantid || !req.auth?.branchid) {
-        return res.status(401).json({ error: "JWT must include userid, tenantid and branchid" });
+        return res.status(401).json({
+          message: "JWT must include userid, tenantid and branchid"
+        });
       }
 
-      if (await hasRight(req.auth, resourceName, action)) {
-        return next();
+      const allowed = await hasRight(req.auth, resourceName, action);
+
+      if (!allowed) {
+        return res.status(403).json({
+          message: `Not authorized to ${action} ${resourceName}`
+        });
       }
 
-      return res.status(403).json({ error: `Not authorized to ${action} ${resourceName}` });
+      return next();
     } catch (err) {
-      return res.status(500).json({ error: err.message });
+      console.error("Authorization Error:", err);
+
+      return res.status(err.status || 500).json({
+        message: err.message || "Internal Server Error"
+      });
     }
   };
 }

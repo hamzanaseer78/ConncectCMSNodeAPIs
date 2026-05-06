@@ -1,139 +1,105 @@
 const prisma = require("../../database/prisma");
-
 const { utcNow } = require("../../utils/date");
 
 class UserRightsService {
+
   /**
-   * Get user rights for a specific resource/screen in their current context
+   * MAIN CHECK FUNCTION
    */
-  async getUserRights(userId, tenantId, branchId, screenControllerName) {
-    try {
-      const screen = await prisma.screens.findFirst({
-        where: {
-          controllername: screenControllerName
-        }
-      });
+ async checkRights(auth, path, method) {
+  const rights = await this.getUserRights(
+    auth.userid,
+    auth.tenantid,
+    auth.branchid,
+    path
+  );
 
-      if (!screen) {
-        return null;
-      }
+  // ❌ SCREEN NOT FOUND OR NO RIGHTS = ALWAYS FORBIDDEN
+  if (!rights) return false;
 
-      // Get user's policy for this branch/tenant
-      const userPolicy = await prisma.userpolicies.findFirst({
-        where: {
-          userid: userId,
-          tenantid: tenantId,
-          branchid: branchId
-        },
-        include: {
-          policies: true
-        }
-      });
+  // 🔥 ADMIN ALREADY SAFE HERE (NO EXTRA CHECKS ANYWHERE ELSE)
+  if (rights.isAdmin) return true;
 
-      if (!userPolicy) {
-        return null;
-      }
+  const actionMap = {
+    GET: "view",
+    POST: "add",
+    PUT: "update",
+    PATCH: "update",
+    DELETE: "delete"
+  };
 
-      // Check if it's admin or default policy - if so, grant all rights
-      const policy = await prisma.policies.findUnique({
-        where: { recno: userPolicy.policyid }
-      });
+  const action = actionMap[method?.toUpperCase()] || "other";
 
-      if (policy?.isdefaultpolicy === true) {
-        return {
-          screenid: screen.screenid,
-          policyid: userPolicy.policyid,
-          viewscreen: true,
-          addscreen: true,
-          updatescreen: true,
-          deletescreen: true,
-          others: true
-        };
-      }
-
-      // Get specific rights for this screen
-      const rights = await prisma.userrights.findFirst({
-        where: {
-          screenid: screen.screenid,
-          policyid: userPolicy.policyid,
-          tenantid: tenantId,
-          branchid: branchId
-        }
-      });
-
-      return rights || null;
-    } catch (error) {
-      console.error("[UserRights] Error fetching rights:", error);
-      return null;
-    }
-  }
+  return this.hasRight(rights, action);
+}
 
   /**
-   * Auto-assign rights for new screen to admin and default policies
+   * GET USER RIGHTS
    */
-  async autoAssignScreenRights(screenId, screenControllerName, tenantId) {
-    try {
-      // Find all default policies in tenant
-      const defaultPolicies = await prisma.policies.findMany({
-        where: {
-          tenantid: tenantId,
-          isdefaultpolicy: true
-        }
-      });
+ async getUserRights(userId, tenantId, branchId, screenControllerName) {
+  try {
 
-      const now = utcNow();
-      const systemUserId = 1; // System user
+    // 🔥 STEP 1: SCREEN MUST EXIST (MANDATORY SECURITY CHECK)
+    const screen = await prisma.screens.findFirst({
+      where: { controllername: screenControllerName }
+    });
 
-      // For each default policy and all branches, create rights
-      for (const policy of defaultPolicies) {
-        const branches = await prisma.branches.findMany({
-          where: { tenantid: tenantId }
-        });
-
-        for (const branch of branches) {
-          // Check if rights already exist
-          const existingRights = await prisma.userrights.findFirst({
-            where: {
-              screenid: screenId,
-              policyid: policy.recno,
-              branchid: branch.branchid,
-              tenantid: tenantId
-            }
-          });
-
-          if (!existingRights) {
-            await prisma.userrights.create({
-              data: {
-                screenid: screenId,
-                policyid: policy.recno,
-                tenantid: tenantId,
-                branchid: branch.branchid,
-                viewscreen: true,
-                addscreen: true,
-                updatescreen: true,
-                deletescreen: true,
-                others: true,
-                createdby: systemUserId,
-                createdat: now
-              }
-            });
-          }
-        }
-      }
-
-      console.log(`[UserRights] Auto-assigned rights for screen: ${screenControllerName}`);
-    } catch (error) {
-      console.error("[UserRights] Error auto-assigning rights:", error);
+    if (!screen) {
+      return null; // ❌ NO SCREEN = ALWAYS FORBIDDEN
     }
+
+    const userPolicy = await prisma.userpolicies.findFirst({
+      where: {
+        userid: userId,
+        tenantid: tenantId,
+        branchid: branchId
+      }
+    });
+
+    if (!userPolicy) return null;
+
+    const policy = await prisma.policies.findUnique({
+      where: { recno: userPolicy.policyid }
+    });
+
+    // 🔥 STEP 2: ADMIN POLICY (ONLY AFTER SCREEN VALIDATION)
+    if (policy?.isdefaultpolicy === true) {
+      return {
+        screenid: screen.screenid,
+        viewscreen: true,
+        addscreen: true,
+        updatescreen: true,
+        deletescreen: true,
+        others: true,
+        isAdmin: true
+      };
+    }
+
+    // 🔥 STEP 3: NORMAL USERS
+    const rights = await prisma.userrights.findFirst({
+      where: {
+        screenid: screen.screenid,
+        policyid: userPolicy.policyid,
+        tenantid: tenantId,
+        branchid: branchId
+      }
+    });
+
+    return rights || null;
+
+  } catch (error) {
+    console.error("[UserRights] error:", error);
+    return null;
   }
+}
 
   /**
-   * Check if user has specific right for an action
+   * MAP ACTIONS
    */
   hasRight(rights, action) {
     if (!rights) return false;
 
-    const actionMap = {
+    const map = {
       view: "viewscreen",
       add: "addscreen",
       update: "updatescreen",
@@ -141,55 +107,10 @@ class UserRightsService {
       other: "others"
     };
 
-    const field = actionMap[action];
-    return field && rights[field] === true;
+    const field = map[action];
+    return field ? rights[field] === true : false;
   }
 
-  /**
-   * Get all screens for a resource
-   */
-  async getResourceScreens() {
-    return prisma.screens.findMany({
-      orderBy: { screenid: "asc" }
-    });
-  }
-
-  /**
-   * Sync screens from resources config to database
-   */
-  async syncScreensFromResources(resources) {
-    try {
-      const now = utcNow();
-      const systemUserId = 1;
-
-      for (const [resourceName, config] of Object.entries(resources)) {
-        if (config.backendOnly) continue;
-
-        // Check if screen already exists
-        let screen = await prisma.screens.findFirst({
-          where: { controllername: resourceName }
-        });
-
-        if (!screen) {
-          screen = await prisma.screens.create({
-            data: {
-              screenname: config.screenNames?.[0] || resourceName,
-              screengroup: config.tag || resourceName,
-              controllername: resourceName,
-              isvisible: true,
-              accessible: true,
-              createdby: systemUserId,
-              createdat: now
-            }
-          });
-
-          console.log(`[UserRights] Created screen: ${resourceName}`);
-        }
-      }
-    } catch (error) {
-      console.error("[UserRights] Error syncing screens:", error);
-    }
-  }
 }
 
 module.exports = UserRightsService;

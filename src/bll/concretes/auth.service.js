@@ -61,7 +61,12 @@ class AuthService {
         });
 
     const url = `${baseUrl || "http://localhost:3000"}/api/auth/signup/verify?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
-    await mailService.sendSignupVerification(email, token, url);
+    
+    // Send signup verification email with template
+    await mailService.sendSignupVerification(email, token, url, {
+      name: name || 'User',
+      organizationName: 'ConnectCMS'
+    });
 
     return {
       message: "Signup verification code sent",
@@ -111,7 +116,7 @@ class AuthService {
 
     const user = await this.findUserByEmail(email);
 
-    if (!user || user.signuptoken !== token || !user.istokenused!==true) {
+    if (!user || user.signuptoken !== token || user.istokenused !== true) {
       throw new Error("Signup token must be verified before password configuration");
     }
 
@@ -221,7 +226,7 @@ class AuthService {
 
       var rightsData = [];
 
-      const screens = await tx.screens();
+      const screens = await tx.screens.findMany();
 
       screens.forEach(screen => {
         rightsData.push({
@@ -271,9 +276,9 @@ class AuthService {
     });
   }
 
-  async login({ email, password, tenantid, branchid }) {
+  async login({ email, password}) {
     const user = await this.validateEmailPassword(email, password);
-    const membership = await this.resolveMembership(user.userid, tenantid, branchid);
+    const membership = await this.resolveMembership(user.userid, null, null);
     const contexts = await this.getUserContexts(user.userid);
 
     return {
@@ -379,9 +384,11 @@ class AuthService {
     }
 
     await mailService.sendInvitation(email, {
-      tenantid: auth.tenantid,
-      branchid: targetBranchId,
-      generatedPassword
+      name: name || user.name || 'User',
+      inviterName: auth.name || 'Admin',
+      organizationName: 'ConnectCMS',
+      generatedPassword,
+      loginUrl: `${process.env.APP_URL || 'http://localhost:3000'}/login`
     });
 
     return {

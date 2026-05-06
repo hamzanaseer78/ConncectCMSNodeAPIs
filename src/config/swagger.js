@@ -251,13 +251,13 @@ function buildResourceItemPath(name, config) {
         }
       }
     },
-    delete: {
+    ...(config.noRemove ? {} : {delete: {
       summary: `Delete ${name}`,
       tags: [config.tag || name],
       security: [{ bearerAuth: [] }],
       parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
       responses: { 200: { description: "Record deleted" } }
-    }
+    }})
   };
 }
 
@@ -390,6 +390,21 @@ module.exports = swaggerJsdoc({
           responses: { 201: { description: "User invited" } }
         }
       },
+      "/api/auth/addOrganization": {
+        post: {
+          summary: "Create organization using email and password",
+          tags: ["Auth"],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CreateOrganizationRequest" }
+              }
+            }
+          },
+          responses: { 201: { description: "Organization, default branch and admin policy created" } }
+        }
+      },
       ...resourcePaths
     },
     components: {
@@ -459,8 +474,7 @@ module.exports = swaggerJsdoc({
             website: { type: "string" },
             country: { type: "integer" },
             city: { type: "integer" },
-            address: { type: "string" },
-            branchName: { type: "string" }
+            address: { type: "string" }
           },
           required: ["email", "password", "organizationname"]
         },
@@ -468,9 +482,7 @@ module.exports = swaggerJsdoc({
           type: "object",
           properties: {
             email: { type: "string", format: "email" },
-            password: { type: "string", format: "password" },
-            tenantid: { type: "integer" },
-            branchid: { type: "integer" }
+            password: { type: "string", format: "password" }
           },
           required: ["email", "password"]
         },

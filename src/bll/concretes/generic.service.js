@@ -19,14 +19,14 @@ class GenericService {
     this.repo = new GenericRepository(resourceName, config.id);
   }
 
-  buildScope(auth) {
+  buildScope(auth,options = {}) {
     const where = {};
 
     if (this.config.tenantScoped && auth?.tenantid) {
       where.tenantid = Number(auth.tenantid);
     }
 
-    if (this.config.branchScoped && auth?.branchid) {
+    if (this.config.branchScoped && auth?.branchid ) {
       where.branchid = Number(auth.branchid);
     }
 
@@ -252,6 +252,11 @@ class GenericService {
   }
 
   async delete(id, auth) {
+
+  if (this.config.noRemove) {
+      throw new Error("You cannot delete this resource");
+    }
+
     const existing = await this.get(id, auth);
 
     if (this.resourceName === "policies" && existing.isdefaultpolicy === true) {

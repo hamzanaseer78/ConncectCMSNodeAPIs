@@ -1,29 +1,35 @@
 const { verifyToken } = require("../config/jwt");
 
+/**
+ * JWT Authentication Middleware
+ * Verifies the Bearer token and attaches decoded payload to req.auth
+ */
 function authenticateJwt(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    console.warn(`[AUTH] Missing bearer token from ${req.ip}`);
-    return res.status(401).json({ error: "Missing bearer token" });
+    const err = new Error("Missing bearer token");
+    err.status = 401;
+    return next(err);
   }
 
-  const token = authHeader.slice("Bearer ".length).trim();
+  const token = authHeader.slice(7).trim();
 
   try {
-    req.auth = verifyToken(token);
-    req.user = req.auth;
-    console.log(`[AUTH] Token verified for user: ${req.auth.userid}`);
+    const decoded = verifyToken(token);
+
+    req.auth = decoded;
+    req.user = decoded;
+
+    console.log(`[AUTH] Authenticated user: ${decoded.userid}`);
+
     next();
   } catch (err) {
-    console.error(`[AUTH] Token verification failed:`, {
-      error: err.message,
-      tokenLength: token.length,
-      tokenPrefix: token.substring(0, 20) + "...",
-      ip: req.ip,
-      route: req.path
-    });
-    return res.status(401).json({ error: "Invalid or expired token", details: err.message });
+    console.error("[AUTH] Token error:", err.message);
+
+    const authError = new Error("Invalid or expired token");
+    authError.status = 401;
+    next(authError);
   }
 }
 
