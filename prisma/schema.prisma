@@ -245,6 +245,7 @@ model policies {
   userrights                          userrights[]
 
   @@index([recno], map: "idx_jsl_policies")
+  @@index([tenantid, isdefaultpolicy], map: "idx_jsl_policies_tenant_default")
 }
 
 model products {
@@ -307,6 +308,7 @@ model userorganizations {
   users_userorganizations_useridTousers        users?         @relation("userorganizations_useridTousers", fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_user")
 
   @@index([recno], map: "idx_jsl_userorganizations")
+  @@index([userid, isblocked, tenantid, branchid], map: "idx_jsl_userorganizations_user_blocked_scope")
 }
 
 model userpolicies {
@@ -327,6 +329,8 @@ model userpolicies {
   users_userpolicies_useridTousers        users?         @relation("userpolicies_useridTousers", fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_user")
 
   @@index([recno], map: "idx_jsl_userpolicies")
+  @@index([userid, tenantid, branchid], map: "idx_jsl_userpolicies_user_scope")
+  @@index([userid, tenantid, branchid, policyid], map: "idx_jsl_userpolicies_user_scope_policy")
 }
 
 model userrights {
@@ -352,6 +356,7 @@ model userrights {
   organizations                         organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
 
   @@index([recno], map: "idx_jsl_userrights")
+  @@index([tenantid, screenid, policyid, branchid], map: "idx_jsl_userrights_scope_screen_policy_branch")
 }
 
 model users {

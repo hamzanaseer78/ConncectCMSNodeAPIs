@@ -8,20 +8,53 @@ const rightFields = {
   delete: "deletescreen"
 };
 
+const ADMIN_POLICY_TTL_MS = 60 * 1000;
+const SCREEN_TTL_MS = 5 * 60 * 1000;
+const adminPolicyCache = new Map();
+const screenCache = new Map();
+
 function normalize(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function getFromCache(cache, key) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCache(cache, key, value, ttlMs) {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + ttlMs
+  });
 }
 
 /**
  * CHECK IF USER IS DEFAULT ADMIN (AUTO POLICY USER)
  */
 async function isDefaultAdmin(auth) {
-  const adminPolicy = await prisma.policies.findFirst({
-    where: {
-      tenantid: Number(auth.tenantid),
-      isdefaultpolicy: true,
-    }
-  });
+  const tenantId = Number(auth.tenantid);
+  const cacheKey = `${tenantId}`;
+  let adminPolicy = getFromCache(adminPolicyCache, cacheKey);
+  if (adminPolicy === null) {
+    adminPolicy = await prisma.policies.findFirst({
+      where: {
+        tenantid: tenantId,
+        isdefaultpolicy: true,
+      },
+      select: {
+        recno: true
+      }
+    });
+    setCache(adminPolicyCache, cacheKey, adminPolicy || false, ADMIN_POLICY_TTL_MS);
+  }
+
+  if (adminPolicy === false) return false;
 
   if (!adminPolicy) return false;
 
@@ -43,8 +76,13 @@ async function isDefaultAdmin(auth) {
 async function findScreen(resourceName) {
   const config = resources[resourceName] || {};
   const names = [resourceName, ...(config.screenNames || [])].map(normalize);
+  const cacheKey = names.sort().join("|");
+  const cachedScreen = getFromCache(screenCache, cacheKey);
+  if (cachedScreen !== null) {
+    return cachedScreen === false ? null : cachedScreen;
+  }
 
-  return await prisma.screens.findFirst({
+  const screen = await prisma.screens.findFirst({
     where: {
       accessible: true,
       OR: [
@@ -63,6 +101,8 @@ async function findScreen(resourceName) {
       ]
     }
   });
+  setCache(screenCache, cacheKey, screen || false, SCREEN_TTL_MS);
+  return screen;
 }
 
 /**

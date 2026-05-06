@@ -17,6 +17,17 @@ class GenericService {
     this.resourceName = resourceName;
     this.config = config;
     this.repo = new GenericRepository(resourceName, config.id);
+    this.listScalarFields = getListScalarFields(this.resourceName, this.config);
+    this.listFilterFields = getListFilterFields(this.resourceName, this.config);
+    this.scalarFields = getScalarFields(this.resourceName);
+    this.scalarFieldMap = new Map(this.scalarFields.map((field) => [field.name, field]));
+    this.sortableSet = new Set(
+      getSortableFields(this.resourceName)
+        .filter((field) => this.listFilterFields.some((listField) => listField.name === field.name))
+        .map((field) => field.name)
+    );
+    this.listRelations = Object.values(this.config.listRelations || {});
+    this.listRelationByOutput = new Map(this.listRelations.map((relation) => [relation.output, relation]));
   }
 
   buildScope(auth,options = {}) {
@@ -80,11 +91,11 @@ class GenericService {
   toListRow(row) {
     const dto = {};
 
-    getListScalarFields(this.resourceName, this.config).forEach((field) => {
+    this.listScalarFields.forEach((field) => {
       dto[field.name] = row[field.name];
     });
 
-    Object.entries(this.config.listRelations || {}).forEach(([, relationConfig]) => {
+    this.listRelations.forEach((relationConfig) => {
       const relation = row[relationConfig.relation];
       dto[relationConfig.output] = relation?.[relationConfig.field] ?? "";
     });
@@ -93,13 +104,11 @@ class GenericService {
   }
 
   buildListInclude() {
-    const relations = Object.values(this.config.listRelations || {});
-
-    if (!relations.length) {
+    if (!this.listRelations.length) {
       return undefined;
     }
 
-    return Object.fromEntries(relations.map((relationConfig) => [
+    return Object.fromEntries(this.listRelations.map((relationConfig) => [
       relationConfig.relation,
       true
     ]));
@@ -155,20 +164,16 @@ class GenericService {
   buildOrderBy(query) {
     const sortBy = query.sortBy;
     const sortOrder = String(query.sortOrder || "asc").toLowerCase() === "desc" ? "desc" : "asc";
-    const scalarSortable = getSortableFields(this.resourceName)
-      .filter((field) => getListFilterFields(this.resourceName, this.config).some((listField) => listField.name === field.name))
-      .map((field) => field.name);
 
     if (!sortBy) {
       return undefined;
     }
 
-    if (scalarSortable.includes(sortBy)) {
+    if (this.sortableSet.has(sortBy)) {
       return { [sortBy]: sortOrder };
     }
 
-    const relationConfig = Object.values(this.config.listRelations || {})
-      .find((relation) => relation.output === sortBy);
+    const relationConfig = this.listRelationByOutput.get(sortBy);
 
     if (relationConfig) {
       return {
@@ -183,8 +188,8 @@ class GenericService {
 
   getSortableListColumns() {
     return [
-      ...getListFilterFields(this.resourceName, this.config).map((field) => field.name),
-      ...Object.values(this.config.listRelations || {}).map((relationConfig) => relationConfig.output)
+      ...this.listFilterFields.map((field) => field.name),
+      ...this.listRelations.map((relationConfig) => relationConfig.output)
     ];
   }
 
@@ -192,7 +197,7 @@ class GenericService {
     const where = {};
     const ignored = new Set(["page", "pageSize", "limit", "sortBy", "sortOrder"]);
 
-    getListFilterFields(this.resourceName, this.config).forEach((field) => {
+    this.listFilterFields.forEach((field) => {
       if (ignored.has(field.name)) {
         return;
       }
@@ -208,7 +213,7 @@ class GenericService {
       const value = query[sourceField];
 
       if (value !== undefined) {
-        const field = getScalarFields(this.resourceName).find((scalarField) => scalarField.name === sourceField);
+        const field = this.scalarFieldMap.get(sourceField);
         where[sourceField] = field ? coerceValue(field, value) : value;
       }
     });
@@ -217,7 +222,7 @@ class GenericService {
   }
 
   getAvailableFilters() {
-    const scalarFilters = getListFilterFields(this.resourceName, this.config).map((field) => {
+    const scalarFilters = this.listFilterFields.map((field) => {
       const operators = ["equals"];
 
       return {
@@ -228,7 +233,7 @@ class GenericService {
     });
 
     const relationFilters = Object.keys(this.config.listRelations || {}).map((sourceField) => {
-      const field = getScalarFields(this.resourceName).find((scalarField) => scalarField.name === sourceField);
+      const field = this.scalarFieldMap.get(sourceField);
 
       return {
       field: sourceField,
