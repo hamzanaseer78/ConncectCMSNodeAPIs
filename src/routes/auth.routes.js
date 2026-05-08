@@ -10,8 +10,10 @@ router.get("/signup/verify", controller.verifySignupToken);
 router.post("/password", controller.configurePassword);
 router.post("/organizations", controller.createOrganization);
 router.post("/login", controller.login);
+router.get("/profile", authenticateJwt, controller.getProfile);
 router.post("/switch", authenticateJwt, controller.switchContext);
 router.post("/invite", authenticateJwt, controller.inviteUser);
+router.post("/mail/test", authenticateJwt, controller.sendTestMail);
 router.post("/addOrganization", controller.createOrganization);
 
 module.exports = router;

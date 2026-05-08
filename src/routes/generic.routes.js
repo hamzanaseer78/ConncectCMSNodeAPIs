@@ -1,6 +1,7 @@
 const express = require("express");
 const resources = require("../config/resources");
 const createGenericController = require("../controllers/generic.controller");
+const dropdownController = require("../controllers/dropdown.controller");
 
 const authenticateJwt = require("../middlewares/auth.middleware");
 const { authorizeResourceAction } = require("../middlewares/authorization.middleware");
@@ -19,7 +20,8 @@ function createResourceRouter(resourceName) {
   // Dropdown endpoint (JWT only, RBAC optional)
   router.get("/dropdown", async (req, res, next) => {
     try {
-      await controller.list(req, res);
+      const data = await dropdownController.getDropdown(resourceName, req.auth);
+      res.status(200).json(data);
     } catch (err) {
       next(err);
     }
@@ -37,6 +39,14 @@ function createResourceRouter(resourceName) {
   router.get("/:id", authorizeResourceAction(resourceName, "view"), async (req, res, next) => {
     try {
       await controller.get(req, res);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/details/:id", authorizeResourceAction(resourceName, "view"), async (req, res, next) => {
+    try {
+      await controller.getDetails(req, res);
     } catch (err) {
       next(err);
     }

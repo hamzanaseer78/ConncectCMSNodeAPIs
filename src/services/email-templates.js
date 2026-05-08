@@ -269,7 +269,66 @@ ${organizationName} Team
 </body>
 </html>
     `.trim()
+  }),
+  mailTest: ({
+    name,
+    organizationName = "ConnectCMS",
+    generatedAt,
+    tenantid,
+    branchid
+  }) => ({
+    subject: `[${organizationName}] SMTP test successful`,
+    text: `
+Hello ${name},
+
+This is a test email from ${organizationName}.
+Generated at: ${generatedAt}
+Tenant ID: ${tenantid}
+Branch ID: ${branchid}
+
+If you received this email, SMTP and templates are configured correctly.
+    `.trim(),
+    html: `
+<!DOCTYPE html>
+<html>
+<body style="font-family: Arial, sans-serif; color: #333;">
+  <h2>SMTP Test Email</h2>
+  <p>Hello <strong>${name}</strong>,</p>
+  <p>This is a test email from <strong>${organizationName}</strong>.</p>
+  <ul>
+    <li><strong>Generated at:</strong> ${generatedAt}</li>
+    <li><strong>Tenant ID:</strong> ${tenantid}</li>
+    <li><strong>Branch ID:</strong> ${branchid}</li>
+  </ul>
+  <p>If you received this email, SMTP and templates are configured correctly.</p>
+</body>
+</html>
+    `.trim()
   })
 };
 
+function renderPlaceholders(template, data = {}) {
+  return Object.entries(data).reduce((output, [key, value]) => (
+    output.replace(new RegExp(`{{\\s*${key}\\s*}}`, "g"), String(value ?? ""))
+  ), template);
+}
+
+function fromDynamicTemplate(templateConfig = {}, data = {}) {
+  return {
+    subject: renderPlaceholders(templateConfig.subject || "Notification", data),
+    text: renderPlaceholders(templateConfig.text || "", data),
+    html: renderPlaceholders(templateConfig.html || "", data)
+  };
+}
+
+function resolveTemplate(templateName, data) {
+  const templateBuilder = templates[templateName];
+  if (typeof templateBuilder === "function") {
+    return templateBuilder(data);
+  }
+  return fromDynamicTemplate(templateBuilder, data);
+}
+
 module.exports = templates;
+module.exports.resolveTemplate = resolveTemplate;
+module.exports.fromDynamicTemplate = fromDynamicTemplate;

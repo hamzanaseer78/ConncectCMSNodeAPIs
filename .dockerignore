@@ -1,0 +1,48 @@
+# Git
+.git
+.gitignore
+
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Development
+.env.local
+.env.*.local
+nodemon.json
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation (non-essential)
+*.md
+docs/
+examples/
+
+# Test files
+test-api.js
+__tests__
+.test.js
+
+# Build artifacts
+dist/
+build/
+.cache/
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.circleci
+
+# Package manager files
+package-lock.json
+yarn.lock

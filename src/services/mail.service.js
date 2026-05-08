@@ -1,4 +1,4 @@
-const emailTemplates = require('./email-templates');
+const emailTemplates = require("./email-templates");
 
 /**
  * Mail Service
@@ -7,29 +7,47 @@ const emailTemplates = require('./email-templates');
  */
 class MailService {
   constructor() {
-    // Initialize nodemailer for production use
-    // For now, we'll support console logging and SMTP
-    this.smtpEnabled = process.env.SMTP_HOST ? true : false;
-    
+    this.smtpEnabled = Boolean(process.env.SMTP_HOST);
+    this.customTemplates = this.parseCustomTemplates();
+    this.defaultFrom = process.env.SMTP_FROM || "noreply@example.com";
+
     if (this.smtpEnabled) {
-      const nodemailer = require('nodemailer');
+      const nodemailer = require("nodemailer");
       this.transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT || 587,
-        secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
+        port: Number(process.env.SMTP_PORT || 587),
+        secure: process.env.SMTP_SECURE === "true",
         auth: {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASSWORD
+        },
+        tls: {
+          rejectUnauthorized: process.env.SMTP_REJECT_UNAUTHORIZED !== "false"
         }
       });
+    }
+  }
+
+  parseCustomTemplates() {
+    const raw = process.env.MAIL_TEMPLATES_JSON;
+    if (!raw) {
+      return {};
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (err) {
+      console.error("[MAIL] Failed to parse MAIL_TEMPLATES_JSON:", err.message);
+      return {};
     }
   }
 
   /**
    * Send signup verification email
    */
-  async sendSignupVerification(to, code, url, { name = 'User', organizationName = 'ConnectCMS' } = {}) {
-    const template = emailTemplates.signupVerification({
+  async sendSignupVerification(to, code, url, { name = "User", organizationName = "ConnectCMS" } = {}) {
+    return this.sendTemplate("signupVerification", to, {
       name,
       email: to,
       verificationUrl: url,
@@ -37,40 +55,66 @@ class MailService {
       expiryMinutes: process.env.SIGNUP_TOKEN_EXPIRES_MINUTES || 30,
       organizationName
     });
-
-    return this._sendEmail(to, template);
   }
 
   /**
    * Send user invitation email
    */
-  async sendInvitation(to, { name = 'User', inviterName = 'Admin', organizationName = 'ConnectCMS', generatedPassword, loginUrl }) {
-    const template = emailTemplates.userInvitation({
+  async sendInvitation(to, { name = "User", inviterName = "Admin", organizationName = "ConnectCMS", generatedPassword, loginUrl }) {
+    return this.sendTemplate("userInvitation", to, {
       name,
       email: to,
       inviterName,
       organizationName,
       generatedPassword,
-      loginUrl: loginUrl || process.env.APP_URL || 'https://app.example.com/login',
+      loginUrl: loginUrl || process.env.APP_URL || "https://app.example.com/login",
       temporaryPassword: !!generatedPassword
     });
-
-    return this._sendEmail(to, template);
   }
 
   /**
    * Send password reset email
    */
-  async sendPasswordReset(to, token, resetUrl, { name = 'User', organizationName = 'ConnectCMS' } = {}) {
-    const template = emailTemplates.passwordReset({
+  async sendPasswordReset(to, token, resetUrl, { name = "User", organizationName = "ConnectCMS" } = {}) {
+    return this.sendTemplate("passwordReset", to, {
       name,
       resetUrl,
       token,
       expiryMinutes: 60,
       organizationName
     });
+  }
 
+  async sendTemplate(templateName, to, payload = {}) {
+    const customTemplate = this.customTemplates[templateName];
+    const template = customTemplate
+      ? emailTemplates.fromDynamicTemplate(customTemplate, payload)
+      : emailTemplates.resolveTemplate(templateName, payload);
     return this._sendEmail(to, template);
+  }
+
+  async sendTestMail(to, auth = {}) {
+    const payload = {
+      name: auth.name || "Admin",
+      organizationName: process.env.APP_NAME || "ConnectCMS",
+      generatedAt: new Date().toISOString(),
+      tenantid: auth.tenantid || "",
+      branchid: auth.branchid || ""
+    };
+
+    return this.sendTemplate("mailTest", to, payload);
+  }
+
+  async verifySmtpConnection() {
+    if (!this.smtpEnabled) {
+      return { enabled: false, verified: false, reason: "SMTP_HOST not configured" };
+    }
+    try {
+      await this.transporter.verify();
+      return { enabled: true, verified: true };
+    } catch (err) {
+      return { enabled: true, verified: false, reason: err.message };
+    }
   }
 
   /**
@@ -81,7 +125,7 @@ class MailService {
       if (this.smtpEnabled) {
         // Send via SMTP
         const info = await this.transporter.sendMail({
-          from: process.env.SMTP_FROM || 'noreply@example.com',
+          from: this.defaultFrom,
           to,
           subject,
           text,

@@ -1,14 +1,37 @@
 {
   "name": "connect-cms-node-apis",
   "version": "1.0.0",
+  "description": "ConnectCMS Node.js REST & GraphQL API",
   "main": "src/server.js",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "build": "npm run clean && npm run db:generate && npm run check && npm run optimize",
+    "optimize": "node scripts/optimize.js",
+    "check": "node scripts/check-syntax.js",
+    "clean": "node scripts/clean.js",
+    "cleanup": "node scripts/cleanup.js",
     "db:pull": "prisma db pull",
     "db:generate": "prisma generate",
-    "test:api": "node test-api.js"
+    "db:deploy": "prisma migrate deploy",
+    "test:api": "node test-api.js",
+    "lint": "node scripts/check-syntax.js",
+    "pre-deploy": "npm run build && npm run cleanup && npm prune --production"
   },
+  "keywords": [
+    "cms",
+    "api",
+    "rest",
+    "graphql",
+    "node",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
@@ -16,14 +39,21 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "graphql": "^16.13.2",
+    "graphql-http": "^1.22.4",
     "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^6.9.7",
+    "nodemailer": "^8.0.7",
     "pg": "^8.20.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
+    "@graphiql/plugin-explorer": "^5.1.1",
+    "altair-express-middleware": "^8.5.2",
+    "graphiql": "^5.2.2",
     "nodemon": "^3.1.14",
-    "prisma": "^6.19.3"
+    "prisma": "^6.19.3",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
   }
 }

@@ -13,7 +13,11 @@ function validateEnv() {
     'PORT': '3000',
     'JWT_EXPIRES_IN': '7d',
     'SIGNUP_TOKEN_EXPIRES_MINUTES': '30',
-    'NODE_ENV': 'development'
+    'NODE_ENV': 'development',
+    'SMTP_PORT': '587',
+    'SMTP_SECURE': 'false',
+    'SMTP_FROM': 'noreply@example.com',
+    'SMTP_REJECT_UNAUTHORIZED': 'true'
   };
 
   const missing = required.filter(key => !process.env[key]);

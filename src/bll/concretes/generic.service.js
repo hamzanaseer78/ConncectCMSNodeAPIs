@@ -2,7 +2,7 @@ const resources = require("../../config/resources");
 const GenericRepository = require("../../dataaccess/concretes/generic.repository");
 const prisma = require("../../database/prisma");
 const { utcNow } = require("../../utils/date");
-const { coerceValue, getListFilterFields, getListScalarFields, getScalarFields, getSortableFields } = require("../../utils/prisma-metadata");
+const { coerceValue, getListFilterFields, getListScalarFields, getRelationInclude, getScalarFields, getSortableFields } = require("../../utils/prisma-metadata");
 
 const MAX_PAGE_SIZE = 100;
 
@@ -28,6 +28,7 @@ class GenericService {
     );
     this.listRelations = Object.values(this.config.listRelations || {});
     this.listRelationByOutput = new Map(this.listRelations.map((relation) => [relation.output, relation]));
+    this.relationInclude = getRelationInclude(this.resourceName);
   }
 
   buildScope(auth,options = {}) {
@@ -76,6 +77,16 @@ class GenericService {
 
   async get(id, auth) {
     const row = await this.repo.findOne(id, this.buildScope(auth));
+
+    if (!row) {
+      throw new Error("Record not found");
+    }
+
+    return this.sanitizeRow(row);
+  }
+
+  async getDetails(id, auth) {
+    const row = await this.repo.findOneWithInclude(id, this.buildScope(auth), this.relationInclude);
 
     if (!row) {
       throw new Error("Record not found");

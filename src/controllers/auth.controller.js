@@ -1,4 +1,5 @@
 const serviceContainer = require("../utils/service-container");
+const mailService = require("../services/mail.service");
 
 const service = serviceContainer.getAuthService();
 
@@ -71,14 +72,44 @@ const inviteUser = async (req, res, next) => {
   }
 };
 
+const getProfile = async (req, res, next) => {
+  try {
+    const data = await service.getProfile(req.auth);
+    res.status(200).json(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const sendTestMail = async (req, res, next) => {
+  try {
+    await service.ensureAdmin(req.auth.userid, req.auth.tenantid, req.auth.branchid);
+    const to = req.body?.email || req.auth.email;
+    if (!to) {
+      return res.status(400).json({ error: "Target email required in body.email or JWT email" });
+    }
+
+    const result = await mailService.sendTestMail(to, req.auth);
+    res.status(200).json({
+      message: "Test email sent",
+      to,
+      ...result
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 
 
 
 module.exports = {
   configurePassword,
   createOrganization,
+  getProfile,
   inviteUser,
   login,
+  sendTestMail,
   signup,
   switchContext,
   verifySignupToken

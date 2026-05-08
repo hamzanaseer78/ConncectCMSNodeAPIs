@@ -30,6 +30,16 @@ class GenericRepository {
     });
   }
 
+  findOneWithInclude(id, where = {}, include = undefined) {
+    return this.model.findFirst({
+      where: {
+        ...where,
+        [this.idField]: Number(id)
+      },
+      include
+    });
+  }
+
   create(data) {
     return this.model.create({ data });
   }

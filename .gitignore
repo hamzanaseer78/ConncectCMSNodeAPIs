@@ -1,5 +1,59 @@
-node_modules
-# Keep environment variables out of version control
-.env
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
 
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime
+dist/
+build/
+.cache/
 /generated/prisma
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+
+# Testing
+__tests__/
+*.test.js
+test-api.js
+.nyc_output/
+coverage/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# Development
+nodemon.json
+
+# OS
+Thumbs.db
+
+# Optional - documentation files for production cleanup
+# Uncomment in .dockerignore for container builds
+# QUICK_START.md
+# API_ARCHITECTURE.md
+# IMPLEMENTATION_SUMMARY.md
+# OPTIMIZATION_REPORT.md
+# FEATURES_GUIDE.md
+# DEPLOYMENT_CHECKLIST.md
+

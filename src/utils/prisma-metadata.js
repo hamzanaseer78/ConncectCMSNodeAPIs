@@ -4,6 +4,7 @@ const scalarFieldsCache = new Map();
 const filterableFieldsCache = new Map();
 const sortableFieldsCache = new Map();
 const listScalarFieldsCache = new Map();
+const relationIncludeCache = new Map();
 
 const ignoredInputFields = new Set([
   "createdby",
@@ -130,6 +131,27 @@ function getListFilterFields(resourceName, config = {}) {
   return getListScalarFields(resourceName, config);
 }
 
+function getRelationInclude(resourceName) {
+  if (!relationIncludeCache.has(resourceName)) {
+    const model = getModel(resourceName);
+    if (!model) {
+      relationIncludeCache.set(resourceName, undefined);
+    } else {
+      const relationFields = model.fields.filter((field) => field.kind === "object");
+      if (!relationFields.length) {
+        relationIncludeCache.set(resourceName, undefined);
+      } else {
+        relationIncludeCache.set(
+          resourceName,
+          Object.fromEntries(relationFields.map((field) => [field.name, true]))
+        );
+      }
+    }
+  }
+
+  return relationIncludeCache.get(resourceName);
+}
+
 function toOpenApiType(field) {
   if (field.type === "Int") {
     return { type: "integer" };
@@ -178,6 +200,7 @@ module.exports = {
   coerceValue,
   getFilterableFields,
   getListFilterFields,
+  getRelationInclude,
   getListScalarFields,
   getModel,
   getScalarFields,

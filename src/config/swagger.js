@@ -12,6 +12,10 @@ const publicResources = Object.fromEntries(
   Object.entries(resources).filter(([, config]) => !config.backendOnly)
 );
 
+const JOBS_TAG = "Jobs";
+const ALL_JOBS_TAG = "All Jobs";
+const MY_JOBS_TAG = "My Jobs";
+
 function schemaName(resourceName, suffix = "") {
   return `${resourceName}${suffix}`;
 }
@@ -127,6 +131,15 @@ function paginationParameters(resourceName, config) {
       schema: { type: "string", enum: ["asc", "desc"], default: "asc" },
       description: "Sort direction"
     }
+  ];
+}
+
+function jobListQueryParameters() {
+  return [
+    { in: "query", name: "statusid", schema: { type: "integer" }, description: "Filter by job status id" },
+    { in: "query", name: "priority", schema: { type: "string" }, description: "Filter by job priority" },
+    { in: "query", name: "from", schema: { type: "string", format: "date-time" }, description: "Filter jobs from this date/time" },
+    { in: "query", name: "to", schema: { type: "string", format: "date-time" }, description: "Filter jobs up to this date/time" }
   ];
 }
 
@@ -264,7 +277,38 @@ function buildResourceItemPath(name, config) {
 const resourcePaths = Object.fromEntries(
   Object.entries(publicResources).flatMap(([name, config]) => [
     [`/api/${name}`, buildResourcePath(name, config)],
-    [`/api/${name}/{id}`, buildResourceItemPath(name, config)]
+    [`/api/${name}/{id}`, buildResourceItemPath(name, config)],
+    [`/api/${name}/dropdown`, {
+      get: {
+        summary: `Dropdown options for ${name}`,
+        tags: [config.tag || name],
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: {
+            description: "Dropdown options returned"
+          }
+        }
+      }
+    }],
+    [`/api/${name}/details/{id}`, {
+      get: {
+        summary: `Get complete ${name} details with relations`,
+        tags: [config.tag || name],
+        security: [{ bearerAuth: [] }],
+        parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+        responses: {
+          200: {
+            description: "Detailed record returned",
+            content: {
+              "application/json": {
+                schema: { $ref: `#/components/schemas/${schemaName(name)}` }
+              }
+            }
+          },
+          404: { description: "Record not found" }
+        }
+      }
+    }]
   ])
 );
 
@@ -281,6 +325,14 @@ module.exports = swaggerJsdoc({
         url: "http://localhost:3000",
         description: "Development server"
       }
+    ],
+    tags: [
+      { name: "Auth", description: "Authentication, signup, invitations and user context" },
+      { name: JOBS_TAG, description: "Job creation, workflow actions, details and child records" },
+      { name: ALL_JOBS_TAG, description: "All tenant/branch jobs, dashboards and reports" },
+      { name: MY_JOBS_TAG, description: "Jobs assigned to the authenticated user, dashboards and reports" },
+      { name: "Dropdowns", description: "Dropdown data for frontend selectors" },
+      { name: "GraphQL", description: "GraphQL reporting and dashboard endpoint" }
     ],
     paths: {
       "/api/auth/signup": {
@@ -358,6 +410,23 @@ module.exports = swaggerJsdoc({
           responses: { 200: { description: "JWT returned" } }
         }
       },
+      "/api/auth/profile": {
+        get: {
+          summary: "Get profile with refreshed token (same as login response)",
+          tags: ["Auth"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Profile returned with refreshed token",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/LoginResponse" }
+                }
+              }
+            }
+          }
+        }
+      },
       "/api/auth/switch": {
         post: {
           summary: "Switch tenant or branch",
@@ -390,6 +459,30 @@ module.exports = swaggerJsdoc({
           responses: { 201: { description: "User invited" } }
         }
       },
+      "/api/auth/mail/test": {
+        post: {
+          summary: "Send SMTP test email (admin only)",
+          tags: ["Auth"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    email: { type: "string", format: "email" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: "Test email sent" },
+            403: { description: "Admin policy required" }
+          }
+        }
+      },
       "/api/auth/addOrganization": {
         post: {
           summary: "Create organization using email and password",
@@ -403,6 +496,603 @@ module.exports = swaggerJsdoc({
             }
           },
           responses: { 201: { description: "Organization, default branch and admin policy created" } }
+        }
+      },
+      "/api/jobs": {
+        post: {
+          summary: "Create a job (separate from generic APIs)",
+          tags: [JOBS_TAG],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobCreateRequest" }
+              }
+            }
+          },
+          responses: {
+            201: { description: "Job created" }
+          }
+        }
+      },
+      "/api/jobs/{id}": {
+        put: {
+          summary: "Update a job (separate from generic APIs)",
+          tags: [JOBS_TAG],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobUpdateRequest" }
+              }
+            }
+          },
+          responses: {
+            200: { description: "Job updated" }
+          }
+        }
+      },
+      "/api/jobs-all": {
+        get: {
+          summary: "Get all jobs in tenant/branch",
+          tags: [ALL_JOBS_TAG],
+          security: [{ bearerAuth: [] }],
+          parameters: jobListQueryParameters(),
+          responses: {
+            200: { description: "All jobs returned" }
+          }
+        }
+      },
+      "/api/jobs-my": {
+        get: {
+          summary: "Get only my assigned jobs",
+          tags: [MY_JOBS_TAG],
+          security: [{ bearerAuth: [] }],
+          parameters: jobListQueryParameters(),
+          responses: {
+            200: { description: "My jobs returned" }
+          }
+        }
+      },
+      "/api/jobs-all/dashboard": {
+        get: {
+          summary: "Dashboard metrics for all jobs",
+          tags: [ALL_JOBS_TAG],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "All-jobs dashboard metrics returned" }
+          }
+        }
+      },
+      "/api/jobs-my/dashboard": {
+        get: {
+          summary: "Dashboard metrics for my assigned jobs",
+          tags: [MY_JOBS_TAG],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "My-jobs dashboard metrics returned" }
+          }
+        }
+      },
+      "/api/jobs-all/reports": {
+        get: {
+          summary: "Reports for all jobs",
+          tags: [ALL_JOBS_TAG],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "query", name: "from", schema: { type: "string", format: "date-time" } },
+            { in: "query", name: "to", schema: { type: "string", format: "date-time" } }
+          ],
+          responses: {
+            200: { description: "All-jobs report returned" }
+          }
+        }
+      },
+      "/api/jobs-my/reports": {
+        get: {
+          summary: "Reports for my assigned jobs",
+          tags: [MY_JOBS_TAG],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "query", name: "from", schema: { type: "string", format: "date-time" } },
+            { in: "query", name: "to", schema: { type: "string", format: "date-time" } }
+          ],
+          responses: {
+            200: { description: "My-jobs report returned" }
+          }
+        }
+      },
+      "/api/jobs/{id}/details": {
+        get: {
+          summary: "Details page API for a job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: {
+            200: { description: "Job details returned" }
+          }
+        }
+      },
+      "/api/jobs/{id}/quotation": {
+        get: {
+          summary: "Quotation page details API for a job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: {
+            200: { description: "Job quotation details returned" }
+          }
+        }
+      },
+      "/api/jobs/{id}/timeline": {
+        get: {
+          summary: "Job timeline events (created, assigned, travel, work, status)",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: {
+            200: { description: "Job timeline returned" }
+          }
+        }
+      },
+      "/api/jobs/{id}/actions/assign": {
+        post: {
+          summary: "Assign or reassign technician",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    assignedto: { type: "integer" },
+                    remarks: { type: "string" }
+                  },
+                  required: ["assignedto"]
+                }
+              }
+            }
+          },
+          responses: { 200: { description: "Technician assigned" } }
+        }
+      },
+      "/api/jobs/{id}/actions/start-travel": {
+        post: {
+          summary: "Technician starts travel",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Travel started" } }
+        }
+      },
+      "/api/jobs/{id}/actions/stop-travel": {
+        post: {
+          summary: "Technician stops travel",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Travel stopped" } }
+        }
+      },
+      "/api/jobs/{id}/actions/start-job": {
+        post: {
+          summary: "Technician starts job work",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Job started" } }
+        }
+      },
+      "/api/jobs/{id}/actions/complete-job": {
+        post: {
+          summary: "Technician marks job completed",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Job completed" } }
+        }
+      },
+      "/api/jobs/{id}/actions/resolve-job": {
+        post: {
+          summary: "Mark job resolved",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Job resolved" } }
+        }
+      },
+      "/api/jobs/{id}/actions/close-job": {
+        post: {
+          summary: "Close job after QA/acknowledgement",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Job closed" } }
+        }
+      },
+      "/api/jobs/{id}/actions/first-response": {
+        post: {
+          summary: "Update first response details for job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "First response updated" } }
+        }
+      },
+      "/api/jobs/{id}/actions/acknowledge": {
+        post: {
+          summary: "Mark customer acknowledgement for job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Customer acknowledgement updated" } }
+        }
+      },
+      "/api/jobs/{id}/assignments": {
+        get: {
+          summary: "List assignment history for job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Assignment history returned" } }
+        },
+        post: {
+          summary: "Add assignment entry and reassign job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    userid: { type: "integer" },
+                    remarks: { type: "string" }
+                  },
+                  required: ["userid"]
+                }
+              }
+            }
+          },
+          responses: { 201: { description: "Assignment created" } }
+        }
+      },
+      "/api/jobs/{id}/assignments/{assignmentId}": {
+        put: {
+          summary: "Update assignment history entry",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "assignmentId", required: true, schema: { type: "integer" } }
+          ],
+          responses: { 200: { description: "Assignment updated" } }
+        },
+        delete: {
+          summary: "Delete assignment history entry",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "assignmentId", required: true, schema: { type: "integer" } }
+          ],
+          responses: { 200: { description: "Assignment deleted" } }
+        }
+      },
+      "/api/jobs/{id}/status-logs": {
+        get: {
+          summary: "List status change log for job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Status log returned" } }
+        },
+        post: {
+          summary: "Add status change and update job status",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    fromstatus: { type: "integer" },
+                    tostatus: { type: "integer" },
+                    remarks: { type: "string" }
+                  },
+                  required: ["tostatus"]
+                }
+              }
+            }
+          },
+          responses: { 201: { description: "Status log created" } }
+        }
+      },
+      "/api/jobs/{id}/status-logs/{statusLogId}": {
+        put: {
+          summary: "Update status log entry",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "statusLogId", required: true, schema: { type: "integer" } }
+          ],
+          responses: { 200: { description: "Status log updated" } }
+        },
+        delete: {
+          summary: "Delete status log entry",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "statusLogId", required: true, schema: { type: "integer" } }
+          ],
+          responses: { 200: { description: "Status log deleted" } }
+        }
+      },
+      "/api/jobs/{id}/products": {
+        get: {
+          summary: "List job product/service lines",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Job products returned" } }
+        },
+        post: {
+          summary: "Add product/service line to job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    productid: { type: "integer" },
+                    qty: { type: "number" },
+                    price: { type: "number" },
+                    remarks: { type: "string" }
+                  },
+                  required: ["productid"]
+                }
+              }
+            }
+          },
+          responses: { 201: { description: "Job product line created" } }
+        }
+      },
+      "/api/jobs/{id}/products/{productLineId}": {
+        put: {
+          summary: "Update job product/service line",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "productLineId", required: true, schema: { type: "integer" } }
+          ],
+          responses: { 200: { description: "Job product line updated" } }
+        },
+        delete: {
+          summary: "Delete job product/service line",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "productLineId", required: true, schema: { type: "integer" } }
+          ],
+          responses: { 200: { description: "Job product line deleted" } }
+        }
+      },
+      "/api/jobs/{id}/customer-remarks": {
+        get: {
+          summary: "List customer remarks for job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Customer remarks returned" } }
+        },
+        post: {
+          summary: "Add customer remark for job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { remarks: { type: "string" } },
+                  required: ["remarks"]
+                }
+              }
+            }
+          },
+          responses: { 201: { description: "Customer remark created" } }
+        }
+      },
+      "/api/jobs/{id}/customer-remarks/{remarkId}": {
+        put: {
+          summary: "Update customer remark",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "remarkId", required: true, schema: { type: "integer" } }
+          ],
+          responses: { 200: { description: "Customer remark updated" } }
+        },
+        delete: {
+          summary: "Delete customer remark",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "remarkId", required: true, schema: { type: "integer" } }
+          ],
+          responses: { 200: { description: "Customer remark deleted" } }
+        }
+      },
+      "/api/jobs/{id}/travel-history": {
+        get: {
+          summary: "List travel history for job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Travel history returned" } }
+        }
+      },
+      "/api/jobs/{id}/work-history": {
+        get: {
+          summary: "List work history for job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Work history returned" } }
+        }
+      },
+      "/api/jobs/{id}/attachments": {
+        get: {
+          summary: "List attachments for a specific job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          responses: { 200: { description: "Job attachments returned" } }
+        },
+        post: {
+          summary: "Create attachment for a specific job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobAttachmentCreateRequest" }
+              }
+            }
+          },
+          responses: { 201: { description: "Attachment created" } }
+        }
+      },
+      "/api/jobs/{id}/attachments/{attachmentId}": {
+        get: {
+          summary: "Get one attachment for a specific job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "attachmentId", required: true, schema: { type: "integer" } }
+          ],
+          responses: { 200: { description: "Attachment returned" } }
+        },
+        put: {
+          summary: "Update one attachment for a specific job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "attachmentId", required: true, schema: { type: "integer" } }
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobAttachmentUpdateRequest" }
+              }
+            }
+          },
+          responses: { 200: { description: "Attachment updated" } }
+        },
+        delete: {
+          summary: "Delete one attachment for a specific job",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            { in: "path", name: "attachmentId", required: true, schema: { type: "integer" } }
+          ],
+          responses: { 200: { description: "Attachment deleted" } }
+        }
+      },
+      "/api/dropdowns": {
+        get: {
+          summary: "List available dropdown resources",
+          tags: ["Dropdowns"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Available dropdown resources returned" }
+          }
+        }
+      },
+      "/api/dropdowns/{resourceName}": {
+        get: {
+          summary: "Get dropdown for any resource",
+          tags: ["Dropdowns"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: "path",
+              name: "resourceName",
+              required: true,
+              schema: { type: "string" }
+            }
+          ],
+          responses: {
+            200: { description: "Dropdown returned" },
+            404: { description: "Unknown resource" }
+          }
+        }
+      },
+      "/graphql": {
+        post: {
+          summary: "GraphQL reporting and dashboard endpoint",
+          tags: ["GraphQL"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    query: {
+                      type: "string",
+                      example: "{ dashboardSummary { tenantid branchid users customers products activePolicies } }"
+                    },
+                    variables: { type: "object" }
+                  },
+                  required: ["query"]
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: "GraphQL response returned" }
+          }
+        }
+      },
+      "/graphql/playground": {
+        get: {
+          summary: "GraphQL playground (development only)",
+          tags: ["GraphQL"],
+          responses: {
+            200: { description: "Playground UI returned" },
+            404: { description: "Disabled in production" }
+          }
         }
       },
       ...resourcePaths
@@ -504,12 +1194,80 @@ module.exports = swaggerJsdoc({
           },
           required: ["email", "policyid"]
         },
+        JobCreateRequest: {
+          type: "object",
+          properties: {
+            code: { type: "string" },
+            date: { type: "string", format: "date-time" },
+            assignedto: { type: "integer" },
+            city: { type: "integer" },
+            area: { type: "integer" },
+            serviceid: { type: "integer" },
+            faultid: { type: "integer" },
+            customerid: { type: "integer" },
+            isinwaranty: { type: "boolean" },
+            statusid: { type: "integer" },
+            priority: { type: "string" },
+            deliverytype: { type: "integer" },
+            manualjobno: { type: "string" }
+          },
+          required: ["customerid", "serviceid"]
+        },
+        JobUpdateRequest: {
+          type: "object",
+          properties: {
+            code: { type: "string" },
+            date: { type: "string", format: "date-time" },
+            assignedto: { type: "integer" },
+            city: { type: "integer" },
+            area: { type: "integer" },
+            serviceid: { type: "integer" },
+            faultid: { type: "integer" },
+            customerid: { type: "integer" },
+            isinwaranty: { type: "boolean" },
+            statusid: { type: "integer" },
+            priority: { type: "string" },
+            deliverytype: { type: "integer" },
+            manualjobno: { type: "string" }
+          }
+        },
+        JobAttachmentCreateRequest: {
+          type: "object",
+          properties: {
+            attachmentname: { type: "string" },
+            url: { type: "string" },
+            remarks: { type: "string" }
+          }
+        },
+        JobAttachmentUpdateRequest: {
+          type: "object",
+          properties: {
+            attachmentname: { type: "string" },
+            url: { type: "string" },
+            remarks: { type: "string" }
+          }
+        },
         TokenResponse: {
           type: "object",
           properties: {
             token: { type: "string" },
             tokenType: { type: "string", example: "Bearer" },
             expiresIn: { type: "string", example: "1h" }
+          }
+        },
+        LoginResponse: {
+          type: "object",
+          properties: {
+            token: { type: "string" },
+            tokenType: { type: "string", example: "Bearer" },
+            expiresIn: { type: "string", example: "7d" },
+            user: { type: "object" },
+            tenantid: { type: "integer" },
+            branchid: { type: "integer" },
+            organizations: {
+              type: "array",
+              items: { type: "object" }
+            }
           }
         },
         ...buildResourceSchemas()

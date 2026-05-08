@@ -46,6 +46,14 @@ class ServiceContainer {
           res.status(status).json({ error: err.message });
         }
       },
+      getDetails: async (req, res) => {
+        try {
+          res.status(200).json(await service.getDetails(req.params.id, req.auth));
+        } catch (err) {
+          const status = err.message === "Record not found" ? 404 : 400;
+          res.status(status).json({ error: err.message });
+        }
+      },
       create: async (req, res) => {
         try {
           res.status(201).json(await service.create(req.body, req.auth));

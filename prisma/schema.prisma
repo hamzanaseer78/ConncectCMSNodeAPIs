@@ -22,12 +22,13 @@ model areas {
   users_areas_lastupdatedbyTousers users?         @relation("areas_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
   organizations                    organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
   customers                        customers[]
+  job                              job[]
 
   @@index([recno], map: "idx_jsl_areas")
 }
 
 model branches {
-  branchid                            Int                 @id @default(autoincrement())
+  branchid                            Int                     @id @default(autoincrement())
   tenantid                            Int?
   name                                String?
   phoneno                             String?
@@ -41,16 +42,26 @@ model branches {
   logourl                             String?
   isactive                            Boolean?
   createdby                           Int?
-  createdat                           DateTime?           @db.Timestamp(6)
+  createdat                           DateTime?               @db.Timestamp(6)
   lastupdatedby                       Int?
-  lastupdatedat                       DateTime?           @db.Timestamp(6)
-  users_branches_createdbyTousers     users?              @relation("branches_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
-  users_branches_lastupdatedbyTousers users?              @relation("branches_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
-  organizations                       organizations?      @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  lastupdatedat                       DateTime?               @db.Timestamp(6)
+  users_branches_createdbyTousers     users?                  @relation("branches_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_branches_lastupdatedbyTousers users?                  @relation("branches_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                       organizations?          @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
   customers                           customers[]
+  job                                 job[]
+  jobaddonproducts                    jobaddonproducts[]
+  jobassignmentlog                    jobassignmentlog[]
+  jobattachments                      jobattachments[]
   jobcategories                       jobcategories[]
+  jobcustomerremarkslog               jobcustomerremarkslog[]
+  jobdetails                          jobdetails[]
   jobgroups                           jobgroups[]
+  jobproducts                         jobproducts[]
+  jobstatuslog                        jobstatuslog[]
   jobsubcategories                    jobsubcategories[]
+  jobtravelhistory                    jobtravelhistory[]
+  jobworklhistory                     jobworklhistory[]
   products                            products[]
   userorganizations                   userorganizations[]
   userpolicies                        userpolicies[]
@@ -75,6 +86,7 @@ model cities {
   users_cities_lastupdatedbyTousers users?         @relation("cities_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
   organizations                     organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
   customers                         customers[]
+  job                               job[]
 
   @@index([recno], map: "idx_jsl_cities")
 }
@@ -119,6 +131,7 @@ model customers {
   users_customers_createdbyTousers     users?         @relation("customers_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
   users_customers_lastupdatedbyTousers users?         @relation("customers_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
   organizations                        organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  job                                  job[]
 
   @@index([customerid], map: "idx_jsl_customers")
 }
@@ -135,6 +148,7 @@ model jobcategories {
   createdat                                DateTime?          @db.Timestamp(6)
   lastupdatedby                            Int?
   lastupdatedat                            DateTime?          @db.Timestamp(6)
+  job                                      job[]
   branches                                 branches?          @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
   users_jobcategories_createdbyTousers     users?             @relation("jobcategories_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
   jobgroups                                jobgroups?         @relation(fields: [groupid], references: [groupid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_group")
@@ -178,6 +192,7 @@ model jobsubcategories {
   createdat                                   DateTime?      @db.Timestamp(6)
   lastupdatedby                               Int?
   lastupdatedat                               DateTime?      @db.Timestamp(6)
+  job                                         job[]
   branches                                    branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
   jobcategories                               jobcategories? @relation(fields: [categoryid], references: [categoryid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_category")
   users_jobsubcategories_createdbyTousers     users?         @relation("jobsubcategories_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
@@ -188,7 +203,7 @@ model jobsubcategories {
 }
 
 model organizations {
-  tenantid                                 Int                    @id @default(autoincrement())
+  tenantid                                 Int                     @id @default(autoincrement())
   organizationname                         String?
   phoneno                                  String?
   email                                    String?
@@ -202,25 +217,36 @@ model organizations {
   istaxregistered                          Boolean?
   taxno                                    String?
   createdby                                Int?
-  createdat                                DateTime?              @db.Timestamp(6)
+  createdat                                DateTime?               @db.Timestamp(6)
   lastupdatedby                            Int?
-  lastupdatedat                            DateTime?              @db.Timestamp(6)
-  financialyeartype                        Int?                   @db.SmallInt
-  roundingdigit                            Int?                   @db.SmallInt
-  weektype                                 Int?                   @db.SmallInt
+  lastupdatedat                            DateTime?               @db.Timestamp(6)
+  financialyeartype                        Int?                    @db.SmallInt
+  roundingdigit                            Int?                    @db.SmallInt
+  weektype                                 Int?                    @db.SmallInt
   areas                                    areas[]
   branches                                 branches[]
   cities                                   cities[]
   countries                                countries[]
   customers                                customers[]
+  job                                      job[]
+  jobaddonproducts                         jobaddonproducts[]
+  jobassignmentlog                         jobassignmentlog[]
+  jobattachments                           jobattachments[]
   jobcategories                            jobcategories[]
+  jobcustomerremarkslog                    jobcustomerremarkslog[]
+  jobdetails                               jobdetails[]
   jobgroups                                jobgroups[]
+  jobproducts                              jobproducts[]
   jobstatuses                              jobstatuses[]
+  jobstatuslog                             jobstatuslog[]
   jobsubcategories                         jobsubcategories[]
-  users_organizations_createdbyTousers     users?                 @relation("organizations_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
-  users_organizations_lastupdatedbyTousers users?                 @relation("organizations_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  jobtravelhistory                         jobtravelhistory[]
+  jobworklhistory                          jobworklhistory[]
+  users_organizations_createdbyTousers     users?                  @relation("organizations_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_organizations_lastupdatedbyTousers users?                  @relation("organizations_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
   policies                                 policies[]
   products                                 products[]
+  taxtypes                                 taxtypes[]
   userorganizations                        userorganizations[]
   userpolicies                             userpolicies[]
   userrights                               userrights[]
@@ -245,11 +271,10 @@ model policies {
   userrights                          userrights[]
 
   @@index([recno], map: "idx_jsl_policies")
-  @@index([tenantid, isdefaultpolicy], map: "idx_jsl_policies_tenant_default")
 }
 
 model products {
-  productid                           Int            @id @default(autoincrement())
+  productid                           Int                @id @default(autoincrement())
   tenantid                            Int?
   branchid                            Int?
   name                                String?
@@ -261,13 +286,15 @@ model products {
   isservice                           Boolean?
   managestock                         Boolean?
   createdby                           Int?
-  createdat                           DateTime?      @db.Timestamp(6)
+  createdat                           DateTime?          @db.Timestamp(6)
   lastupdatedby                       Int?
-  lastupdatedat                       DateTime?      @db.Timestamp(6)
-  branches                            branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
-  users_products_createdbyTousers     users?         @relation("products_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
-  users_products_lastupdatedbyTousers users?         @relation("products_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
-  organizations                       organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  lastupdatedat                       DateTime?          @db.Timestamp(6)
+  jobaddonproducts                    jobaddonproducts[]
+  jobproducts                         jobproducts[]
+  branches                            branches?          @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
+  users_products_createdbyTousers     users?             @relation("products_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_products_lastupdatedbyTousers users?             @relation("products_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                       organizations?     @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
 
   @@index([productid], map: "idx_jsl_products")
 }
@@ -308,7 +335,6 @@ model userorganizations {
   users_userorganizations_useridTousers        users?         @relation("userorganizations_useridTousers", fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_user")
 
   @@index([recno], map: "idx_jsl_userorganizations")
-  @@index([userid, isblocked, tenantid, branchid], map: "idx_jsl_userorganizations_user_blocked_scope")
 }
 
 model userpolicies {
@@ -329,8 +355,6 @@ model userpolicies {
   users_userpolicies_useridTousers        users?         @relation("userpolicies_useridTousers", fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_user")
 
   @@index([recno], map: "idx_jsl_userpolicies")
-  @@index([userid, tenantid, branchid], map: "idx_jsl_userpolicies_user_scope")
-  @@index([userid, tenantid, branchid, policyid], map: "idx_jsl_userpolicies_user_scope_policy")
 }
 
 model userrights {
@@ -356,11 +380,10 @@ model userrights {
   organizations                         organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
 
   @@index([recno], map: "idx_jsl_userrights")
-  @@index([tenantid, screenid, policyid, branchid], map: "idx_jsl_userrights_scope_screen_policy_branch")
 }
 
 model users {
-  userid                                                   Int                    @id @default(autoincrement())
+  userid                                                   Int                     @id @default(autoincrement())
   name                                                     String?
   email                                                    String?
   password                                                 String?
@@ -368,60 +391,78 @@ model users {
   profileimage                                             String?
   isactive                                                 Boolean?
   createdby                                                Int?
-  createdat                                                DateTime?              @db.Timestamp(6)
+  createdat                                                DateTime?               @db.Timestamp(6)
   lastupdatedby                                            Int?
-  lastupdatedat                                            DateTime?              @db.Timestamp(6)
+  lastupdatedat                                            DateTime?               @db.Timestamp(6)
   resettoken                                               String?
-  resettokengendatetime                                    DateTime?              @db.Timestamp(6)
+  resettokengendatetime                                    DateTime?               @db.Timestamp(6)
   isdeleted                                                Boolean?
   signuptoken                                              String?
   istokenused                                              Boolean?
-  tokenusedat                                              DateTime?              @db.Timestamp(6)
+  tokenusedat                                              DateTime?               @db.Timestamp(6)
   createdtenantid                                          Int?
-  country                                                  Int?                   @db.SmallInt
+  country                                                  Int?                    @db.SmallInt
   city                                                     Int?
   istermsaccepted                                          Boolean?
-  signupip                                                 String?                @db.VarChar(50)
-  signuplatitude                                           String?                @db.VarChar(15)
-  signuplongitude                                          String?                @db.VarChar(15)
+  signupip                                                 String?                 @db.VarChar(50)
+  signuplatitude                                           String?                 @db.VarChar(15)
+  signuplongitude                                          String?                 @db.VarChar(15)
   gender                                                   String?
-  areas_areas_createdbyTousers                             areas[]                @relation("areas_createdbyTousers")
-  areas_areas_lastupdatedbyTousers                         areas[]                @relation("areas_lastupdatedbyTousers")
-  branches_branches_createdbyTousers                       branches[]             @relation("branches_createdbyTousers")
-  branches_branches_lastupdatedbyTousers                   branches[]             @relation("branches_lastupdatedbyTousers")
-  cities_cities_createdbyTousers                           cities[]               @relation("cities_createdbyTousers")
-  cities_cities_lastupdatedbyTousers                       cities[]               @relation("cities_lastupdatedbyTousers")
-  countries_countries_createdbyTousers                     countries[]            @relation("countries_createdbyTousers")
-  countries_countries_lastupdatedbyTousers                 countries[]            @relation("countries_lastupdatedbyTousers")
-  customers_customers_createdbyTousers                     customers[]            @relation("customers_createdbyTousers")
-  customers_customers_lastupdatedbyTousers                 customers[]            @relation("customers_lastupdatedbyTousers")
-  jobcategories_jobcategories_createdbyTousers             jobcategories[]        @relation("jobcategories_createdbyTousers")
-  jobcategories_jobcategories_lastupdatedbyTousers         jobcategories[]        @relation("jobcategories_lastupdatedbyTousers")
-  jobgroups_jobgroups_createdbyTousers                     jobgroups[]            @relation("jobgroups_createdbyTousers")
-  jobgroups_jobgroups_lastupdatedbyTousers                 jobgroups[]            @relation("jobgroups_lastupdatedbyTousers")
-  jobstatuses_jobstatuses_createdbyTousers                 jobstatuses[]          @relation("jobstatuses_createdbyTousers")
-  jobstatuses_jobstatuses_lastupdatedbyTousers             jobstatuses[]          @relation("jobstatuses_lastupdatedbyTousers")
-  jobsubcategories_jobsubcategories_createdbyTousers       jobsubcategories[]     @relation("jobsubcategories_createdbyTousers")
-  jobsubcategories_jobsubcategories_lastupdatedbyTousers   jobsubcategories[]     @relation("jobsubcategories_lastupdatedbyTousers")
-  organizations_organizations_createdbyTousers             organizations[]        @relation("organizations_createdbyTousers")
-  organizations_organizations_lastupdatedbyTousers         organizations[]        @relation("organizations_lastupdatedbyTousers")
-  policies_policies_createdbyTousers                       policies[]             @relation("policies_createdbyTousers")
-  policies_policies_lastupdatedbyTousers                   policies[]             @relation("policies_lastupdatedbyTousers")
-  products_products_createdbyTousers                       products[]             @relation("products_createdbyTousers")
-  products_products_lastupdatedbyTousers                   products[]             @relation("products_lastupdatedbyTousers")
-  userorganizations_userorganizations_blockedbyTousers     userorganizations[]    @relation("userorganizations_blockedbyTousers")
-  userorganizations_userorganizations_createdbyTousers     userorganizations[]    @relation("userorganizations_createdbyTousers")
-  userorganizations_userorganizations_lastupdatedbyTousers userorganizations[]    @relation("userorganizations_lastupdatedbyTousers")
-  userorganizations_userorganizations_useridTousers        userorganizations[]    @relation("userorganizations_useridTousers")
-  userpolicies_userpolicies_createdbyTousers               userpolicies[]         @relation("userpolicies_createdbyTousers")
-  userpolicies_userpolicies_lastupdatedbyTousers           userpolicies[]         @relation("userpolicies_lastupdatedbyTousers")
-  userpolicies_userpolicies_useridTousers                  userpolicies[]         @relation("userpolicies_useridTousers")
-  userrights_userrights_createdbyTousers                   userrights[]           @relation("userrights_createdbyTousers")
-  userrights_userrights_lastupdatedbyTousers               userrights[]           @relation("userrights_lastupdatedbyTousers")
-  users_users_createdbyTousers                             users?                 @relation("users_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
-  other_users_users_createdbyTousers                       users[]                @relation("users_createdbyTousers")
-  users_users_lastupdatedbyTousers                         users?                 @relation("users_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
-  other_users_users_lastupdatedbyTousers                   users[]                @relation("users_lastupdatedbyTousers")
+  areas_areas_createdbyTousers                             areas[]                 @relation("areas_createdbyTousers")
+  areas_areas_lastupdatedbyTousers                         areas[]                 @relation("areas_lastupdatedbyTousers")
+  branches_branches_createdbyTousers                       branches[]              @relation("branches_createdbyTousers")
+  branches_branches_lastupdatedbyTousers                   branches[]              @relation("branches_lastupdatedbyTousers")
+  cities_cities_createdbyTousers                           cities[]                @relation("cities_createdbyTousers")
+  cities_cities_lastupdatedbyTousers                       cities[]                @relation("cities_lastupdatedbyTousers")
+  countries_countries_createdbyTousers                     countries[]             @relation("countries_createdbyTousers")
+  countries_countries_lastupdatedbyTousers                 countries[]             @relation("countries_lastupdatedbyTousers")
+  customers_customers_createdbyTousers                     customers[]             @relation("customers_createdbyTousers")
+  customers_customers_lastupdatedbyTousers                 customers[]             @relation("customers_lastupdatedbyTousers")
+  job                                                      job[]
+  jobassignmentlog_jobassignmentlog_assignedbyTousers      jobassignmentlog[]      @relation("jobassignmentlog_assignedbyTousers")
+  jobassignmentlog_jobassignmentlog_useridTousers          jobassignmentlog[]      @relation("jobassignmentlog_useridTousers")
+  jobattachments                                           jobattachments[]
+  jobcategories_jobcategories_createdbyTousers             jobcategories[]         @relation("jobcategories_createdbyTousers")
+  jobcategories_jobcategories_lastupdatedbyTousers         jobcategories[]         @relation("jobcategories_lastupdatedbyTousers")
+  jobcustomerremarkslog                                    jobcustomerremarkslog[]
+  jobdetails_jobdetails_acknowledgedbyTousers              jobdetails[]            @relation("jobdetails_acknowledgedbyTousers")
+  jobdetails_jobdetails_assignedbyTousers                  jobdetails[]            @relation("jobdetails_assignedbyTousers")
+  jobdetails_jobdetails_completedbyTousers                 jobdetails[]            @relation("jobdetails_completedbyTousers")
+  jobdetails_jobdetails_createdbyTousers                   jobdetails[]            @relation("jobdetails_createdbyTousers")
+  jobdetails_jobdetails_firstresponsebyTousers             jobdetails[]            @relation("jobdetails_firstresponsebyTousers")
+  jobdetails_jobdetails_lastupdatedbyTousers               jobdetails[]            @relation("jobdetails_lastupdatedbyTousers")
+  jobdetails_jobdetails_qualityassuerdbyTousers            jobdetails[]            @relation("jobdetails_qualityassuerdbyTousers")
+  jobdetails_jobdetails_resolvedbyTousers                  jobdetails[]            @relation("jobdetails_resolvedbyTousers")
+  jobgroups_jobgroups_createdbyTousers                     jobgroups[]             @relation("jobgroups_createdbyTousers")
+  jobgroups_jobgroups_lastupdatedbyTousers                 jobgroups[]             @relation("jobgroups_lastupdatedbyTousers")
+  jobstatuses_jobstatuses_createdbyTousers                 jobstatuses[]           @relation("jobstatuses_createdbyTousers")
+  jobstatuses_jobstatuses_lastupdatedbyTousers             jobstatuses[]           @relation("jobstatuses_lastupdatedbyTousers")
+  jobstatuslog                                             jobstatuslog[]
+  jobsubcategories_jobsubcategories_createdbyTousers       jobsubcategories[]      @relation("jobsubcategories_createdbyTousers")
+  jobsubcategories_jobsubcategories_lastupdatedbyTousers   jobsubcategories[]      @relation("jobsubcategories_lastupdatedbyTousers")
+  jobtravelhistory                                         jobtravelhistory[]
+  jobworklhistory                                          jobworklhistory[]
+  organizations_organizations_createdbyTousers             organizations[]         @relation("organizations_createdbyTousers")
+  organizations_organizations_lastupdatedbyTousers         organizations[]         @relation("organizations_lastupdatedbyTousers")
+  policies_policies_createdbyTousers                       policies[]              @relation("policies_createdbyTousers")
+  policies_policies_lastupdatedbyTousers                   policies[]              @relation("policies_lastupdatedbyTousers")
+  products_products_createdbyTousers                       products[]              @relation("products_createdbyTousers")
+  products_products_lastupdatedbyTousers                   products[]              @relation("products_lastupdatedbyTousers")
+  taxtypes_taxtypes_createdbyTousers                       taxtypes[]              @relation("taxtypes_createdbyTousers")
+  taxtypes_taxtypes_lastupdatedbyTousers                   taxtypes[]              @relation("taxtypes_lastupdatedbyTousers")
+  userorganizations_userorganizations_blockedbyTousers     userorganizations[]     @relation("userorganizations_blockedbyTousers")
+  userorganizations_userorganizations_createdbyTousers     userorganizations[]     @relation("userorganizations_createdbyTousers")
+  userorganizations_userorganizations_lastupdatedbyTousers userorganizations[]     @relation("userorganizations_lastupdatedbyTousers")
+  userorganizations_userorganizations_useridTousers        userorganizations[]     @relation("userorganizations_useridTousers")
+  userpolicies_userpolicies_createdbyTousers               userpolicies[]          @relation("userpolicies_createdbyTousers")
+  userpolicies_userpolicies_lastupdatedbyTousers           userpolicies[]          @relation("userpolicies_lastupdatedbyTousers")
+  userpolicies_userpolicies_useridTousers                  userpolicies[]          @relation("userpolicies_useridTousers")
+  userrights_userrights_createdbyTousers                   userrights[]            @relation("userrights_createdbyTousers")
+  userrights_userrights_lastupdatedbyTousers               userrights[]            @relation("userrights_lastupdatedbyTousers")
+  users_users_createdbyTousers                             users?                  @relation("users_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  other_users_users_createdbyTousers                       users[]                 @relation("users_createdbyTousers")
+  users_users_lastupdatedbyTousers                         users?                  @relation("users_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  other_users_users_lastupdatedbyTousers                   users[]                 @relation("users_lastupdatedbyTousers")
   userssignuptokenlogs                                     userssignuptokenlogs[]
 
   @@index([userid], map: "idx_jsl_users")
@@ -442,21 +483,303 @@ model userssignuptokenlogs {
 }
 
 model jobstatuses {
-  recno                                  Int            @id(map: "jobstauses_pkey") @default(autoincrement())
-  tenantid                               Int?
-  title                                  String?
-  createdby                              Int?
-  createdat                              DateTime?      @db.Timestamp(6)
-  lastupdatedby                          Int?
-  lastupdatedat                          DateTime?      @db.Timestamp(6)
-  isfirststatus                          Boolean?
-  iscompletedstatus                      Boolean?
-  isresolvedstatus                       Boolean?
-  color                                  String?        @db.VarChar(10)
-  sort                                   Int?
-  users_jobstatuses_createdbyTousers     users?         @relation("jobstatuses_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
-  users_jobstatuses_lastupdatedbyTousers users?         @relation("jobstatuses_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
-  organizations                          organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  recno                                             Int            @id(map: "jobstauses_pkey") @default(autoincrement())
+  tenantid                                          Int?
+  title                                             String?
+  createdby                                         Int?
+  createdat                                         DateTime?      @db.Timestamp(6)
+  lastupdatedby                                     Int?
+  lastupdatedat                                     DateTime?      @db.Timestamp(6)
+  isfirststatus                                     Boolean?
+  iscompletedstatus                                 Boolean?
+  isresolvedstatus                                  Boolean?
+  color                                             String?        @db.VarChar(10)
+  sort                                              Int?
+  job                                               job[]
+  users_jobstatuses_createdbyTousers                users?         @relation("jobstatuses_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_jobstatuses_lastupdatedbyTousers            users?         @relation("jobstatuses_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                                     organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  jobstatuslog_jobstatuslog_fromstatusTojobstatuses jobstatuslog[] @relation("jobstatuslog_fromstatusTojobstatuses")
+  jobstatuslog_jobstatuslog_tostatusTojobstatuses   jobstatuslog[] @relation("jobstatuslog_tostatusTojobstatuses")
 
   @@index([recno], map: "idx_jsl_jobstauses")
+}
+
+model job {
+  recno                  Int                     @id @default(autoincrement())
+  tenantid               Int?
+  branchid               Int?
+  code                   String?                 @db.VarChar(30)
+  date                   DateTime?               @db.Date
+  assignedto             Int?
+  city                   Int?
+  area                   Int?
+  serviceid              Int?
+  faultid                Int?
+  customerid             Int?
+  isinwaranty            Boolean?
+  isfirstresponse        Boolean?
+  iscompleted            Boolean?
+  isresolved             Boolean?
+  estimatedcompletedtime Int?
+  actualcompletedtime    Int?
+  actualresolvedtime     Int?
+  statusid               Int?
+  priority               String?                 @db.VarChar(10)
+  qualityassuerd         Boolean?
+  deliverytype           Int?
+  isacknowledged         Boolean?
+  manualjobno            String?                 @db.VarChar(100)
+  areas                  areas?                  @relation(fields: [area], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_area")
+  users                  users?                  @relation(fields: [assignedto], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_assigned")
+  branches               branches?               @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branches")
+  jobcategories          jobcategories?          @relation(fields: [serviceid], references: [categoryid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_categories")
+  cities                 cities?                 @relation(fields: [city], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_city")
+  customers              customers?              @relation(fields: [customerid], references: [customerid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_customer")
+  jobstatuses            jobstatuses?            @relation(fields: [statusid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_statuses")
+  jobsubcategories       jobsubcategories?       @relation(fields: [faultid], references: [subcategoryid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_subcategories")
+  organizations          organizations?          @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  jobaddonproducts       jobaddonproducts[]
+  jobassignmentlog       jobassignmentlog[]
+  jobattachments         jobattachments[]
+  jobcustomerremarkslog  jobcustomerremarkslog[]
+  jobdetails             jobdetails[]
+  jobproducts            jobproducts[]
+  jobstatuslog           jobstatuslog[]
+  jobtravelhistory       jobtravelhistory[]
+  jobworklhistory        jobworklhistory[]
+
+  @@index([recno], map: "idx_jsl_job")
+  @@index([recno], map: "idx_jsl_job1")
+}
+
+model jobaddonproducts {
+  recno           Int            @id @default(autoincrement())
+  jobid           Int?
+  tenantid        Int?
+  branchid        Int?
+  productid       Int?
+  modelno         String?        @db.VarChar(50)
+  partno          String?        @db.VarChar(50)
+  qty             Float?
+  price           Float?
+  totalamount     Float?
+  discounttype    String?        @db.VarChar(1)
+  discountvalue   Float?
+  discountamount  Float?
+  exclusiveamount Float?
+  taxtypeid       Int?
+  taxpercent      Float?
+  taxamount       Float?
+  inclusiveamount Float?
+  isserviceitem   Boolean?
+  lineno          Int?
+  remarks         String?
+  branches        branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branches")
+  job             job?           @relation(fields: [jobid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_job")
+  products        products?      @relation(fields: [productid], references: [productid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_productid")
+  taxtypes        taxtypes?      @relation(fields: [taxtypeid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_taxtypeid")
+  organizations   organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([recno], map: "idx_jsl_jobaddonproducts")
+}
+
+model jobassignmentlog {
+  recno                                    Int            @id @default(autoincrement())
+  jobid                                    Int?
+  tenantid                                 Int?
+  branchid                                 Int?
+  userid                                   Int?
+  remarks                                  String?
+  assignedby                               Int?
+  assignedat                               DateTime?      @db.Timestamp(6)
+  users_jobassignmentlog_assignedbyTousers users?         @relation("jobassignmentlog_assignedbyTousers", fields: [assignedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_assignedby")
+  branches                                 branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branches")
+  job                                      job?           @relation(fields: [jobid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_job")
+  organizations                            organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  users_jobassignmentlog_useridTousers     users?         @relation("jobassignmentlog_useridTousers", fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_userid")
+
+  @@index([recno], map: "idx_jsl_jobassignmentlog")
+}
+
+model jobattachments {
+  recno          Int            @id @default(autoincrement())
+  jobid          Int?
+  tenantid       Int?
+  branchid       Int?
+  addedby        Int?
+  addedat        DateTime?      @db.Timestamp(6)
+  attachmentname String?
+  url            String?
+  remarks        String?
+  users          users?         @relation(fields: [addedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_addedby")
+  branches       branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branches")
+  job            job?           @relation(fields: [jobid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_job")
+  organizations  organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([recno], map: "idx_jsl_jobattachments")
+}
+
+model jobcustomerremarkslog {
+  recno         Int            @id @default(autoincrement())
+  jobid         Int?
+  tenantid      Int?
+  branchid      Int?
+  remarks       String?
+  addedby       Int?
+  addedat       DateTime?      @db.Timestamp(6)
+  users         users?         @relation(fields: [addedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_addedby")
+  branches      branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branches")
+  job           job?           @relation(fields: [jobid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_job")
+  organizations organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([recno], map: "idx_jsl_jobcustomerremarkslog")
+}
+
+model jobdetails {
+  recno                                    Int            @id @default(autoincrement())
+  jobid                                    Int?
+  tenantid                                 Int?
+  branchid                                 Int?
+  assignedat                               DateTime?      @db.Timestamp(6)
+  assignedby                               Int?
+  assignedremarks                          String?
+  createdby                                Int?
+  createdat                                DateTime?      @db.Timestamp(6)
+  lastupdatedby                            Int?
+  lastupdatedat                            DateTime?      @db.Timestamp(6)
+  description                              String?
+  firstresponseby                          Int?
+  firstresponseremarks                     String?
+  firstresponseat                          DateTime?      @db.Timestamp(6)
+  completedby                              Int?
+  completedremarks                         String?
+  completedat                              DateTime?      @db.Timestamp(6)
+  resolvedby                               Int?
+  resolvedremarks                          String?
+  resolvedat                               DateTime?      @db.Timestamp(6)
+  latitude                                 String?        @db.VarChar(50)
+  longitutde                               String?        @db.VarChar(50)
+  address                                  String?        @db.VarChar(50)
+  qualityassuerdby                         Int?
+  qualityassuerdremarks                    String?
+  qualityassuerdat                         DateTime?      @db.Timestamp(6)
+  deliveryvehicleno                        String?        @db.VarChar(50)
+  deliverydrivername                       String?        @db.VarChar(50)
+  deliverydrivercontactno                  String?        @db.VarChar(50)
+  acknowledgedby                           Int?
+  acknowledgedremarks                      String?
+  acknowledgedat                           DateTime?      @db.Timestamp(6)
+  remarks                                  String?
+  notes                                    String?
+  users_jobdetails_acknowledgedbyTousers   users?         @relation("jobdetails_acknowledgedbyTousers", fields: [acknowledgedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_acknowledgedby")
+  users_jobdetails_assignedbyTousers       users?         @relation("jobdetails_assignedbyTousers", fields: [assignedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_assignedby")
+  branches                                 branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branches")
+  users_jobdetails_completedbyTousers      users?         @relation("jobdetails_completedbyTousers", fields: [completedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_completedby")
+  users_jobdetails_createdbyTousers        users?         @relation("jobdetails_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_jobdetails_firstresponsebyTousers  users?         @relation("jobdetails_firstresponsebyTousers", fields: [firstresponseby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_firstresponseby")
+  job                                      job?           @relation(fields: [jobid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_job")
+  users_jobdetails_lastupdatedbyTousers    users?         @relation("jobdetails_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  users_jobdetails_qualityassuerdbyTousers users?         @relation("jobdetails_qualityassuerdbyTousers", fields: [qualityassuerdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_qualityassuerdby")
+  users_jobdetails_resolvedbyTousers       users?         @relation("jobdetails_resolvedbyTousers", fields: [resolvedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_resolvedby")
+  organizations                            organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([recno], map: "idx_jsl_jobdetails")
+}
+
+model jobproducts {
+  recno          Int            @id @default(autoincrement())
+  jobid          Int?
+  tenantid       Int?
+  branchid       Int?
+  productid      Int?
+  modelno        String?        @db.VarChar(50)
+  partno         String?        @db.VarChar(50)
+  salerefrenceno String?        @db.VarChar(50)
+  lineno         Int?
+  remarks        String?
+  branches       branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branches")
+  job            job?           @relation(fields: [jobid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_job")
+  products       products?      @relation(fields: [productid], references: [productid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_products")
+  organizations  organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([recno], map: "idx_jsl_jobproducts")
+}
+
+model jobstatuslog {
+  recno                                            Int            @id @default(autoincrement())
+  jobid                                            Int?
+  tenantid                                         Int?
+  branchid                                         Int?
+  fromstatus                                       Int?
+  tostatus                                         Int?
+  remarks                                          String?
+  changedby                                        Int?
+  changedat                                        DateTime?      @db.Timestamp(6)
+  branches                                         branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branches")
+  users                                            users?         @relation(fields: [changedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_changedby")
+  jobstatuses_jobstatuslog_fromstatusTojobstatuses jobstatuses?   @relation("jobstatuslog_fromstatusTojobstatuses", fields: [fromstatus], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_fromstatus")
+  job                                              job?           @relation(fields: [jobid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_job")
+  organizations                                    organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  jobstatuses_jobstatuslog_tostatusTojobstatuses   jobstatuses?   @relation("jobstatuslog_tostatusTojobstatuses", fields: [tostatus], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tostatus")
+
+  @@index([recno], map: "idx_jsl_jobstatuslog")
+}
+
+model jobtravelhistory {
+  recno          Int            @id @default(autoincrement())
+  jobid          Int?
+  tenantid       Int?
+  branchid       Int?
+  traveledby     Int?
+  startedat      DateTime?      @db.Timestamp(6)
+  stopedat       DateTime?      @db.Timestamp(6)
+  startlatitude  String?        @db.VarChar(20)
+  startlongitude String?        @db.VarChar(20)
+  stoplatitude   String?        @db.VarChar(20)
+  stoplongitude  String?        @db.VarChar(20)
+  startaddress   String?
+  stopaddress    String?
+  remarks        String?
+  branches       branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branches")
+  job            job?           @relation(fields: [jobid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_job")
+  organizations  organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  users          users?         @relation(fields: [traveledby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_traveledby")
+
+  @@index([recno], map: "idx_jsl_jobtravelhistory")
+}
+
+model jobworklhistory {
+  recno         Int            @id @default(autoincrement())
+  jobid         Int?
+  tenantid      Int?
+  branchid      Int?
+  workedby      Int?
+  startedat     DateTime?      @db.Timestamp(6)
+  stopedat      DateTime?      @db.Timestamp(6)
+  remarks       String?
+  branches      branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branches")
+  job           job?           @relation(fields: [jobid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_job")
+  organizations organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+  users         users?         @relation(fields: [workedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_workedby")
+
+  @@index([recno], map: "idx_jsl_jobworklhistory")
+}
+
+model taxtypes {
+  recno                               Int                @id @default(autoincrement())
+  tenantid                            Int?
+  name                                String?
+  isactive                            Boolean?
+  taxpercent                          Float?
+  createdby                           Int?
+  createdat                           DateTime?          @db.Timestamp(6)
+  lastupdatedby                       Int?
+  lastupdatedat                       DateTime?          @db.Timestamp(6)
+  jobaddonproducts                    jobaddonproducts[]
+  users_taxtypes_createdbyTousers     users?             @relation("taxtypes_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
+  users_taxtypes_lastupdatedbyTousers users?             @relation("taxtypes_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
+  organizations                       organizations?     @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_tenant")
+
+  @@index([recno], map: "idx_jsl_taxtypes")
 }
