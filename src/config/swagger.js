@@ -333,6 +333,7 @@ module.exports = swaggerJsdoc({
     tags: [
       { name: "Auth", description: "Authentication, signup, invitations and user context" },
       { name: "User", description: "Authenticated user profile and effective screen rights" },
+      { name: "Upload", description: "Multipart file uploads (stored under /uploads/general)" },
       { name: JOBS_TAG, description: "Job creation, workflow actions, details and child records" },
       { name: ALL_JOBS_TAG, description: "All tenant/branch jobs, dashboards and reports" },
       { name: MY_JOBS_TAG, description: "Jobs assigned to the authenticated user, dashboards and reports" },
@@ -497,6 +498,42 @@ module.exports = swaggerJsdoc({
                 }
               }
             }
+          }
+        }
+      },
+      "/api/upload": {
+        post: {
+          summary: "Upload a file (multipart field name: file)",
+          description:
+            "Saves under uploads/general/{tenantid}/{branchid}/ and returns URLs. Requires JWT with userid, tenantid, branchid.",
+          tags: ["Upload"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "multipart/form-data": {
+                schema: {
+                  type: "object",
+                  required: ["file"],
+                  properties: {
+                    file: { type: "string", format: "binary", description: "File to store" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: "File saved; url is path-relative to the API host (also served as static /uploads/...)",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/FileUploadResponse" }
+                }
+              }
+            },
+            400: { description: "Missing file or wrong field name" },
+            401: { description: "Missing or invalid JWT / tenant context" },
+            413: { description: "File larger than UPLOAD_MAX_FILE_BYTES" }
           }
         }
       },
@@ -1310,6 +1347,24 @@ module.exports = swaggerJsdoc({
             token: { type: "string" },
             tokenType: { type: "string", example: "Bearer" },
             expiresIn: { type: "string", example: "1h" }
+          }
+        },
+        FileUploadResponse: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              example: "/uploads/general/1/2/1739123456789_document.pdf",
+              description: "Path to use with the same origin as the API (static files)"
+            },
+            absoluteUrl: {
+              type: "string",
+              description: "Present when APP_URL is configured"
+            },
+            filename: { type: "string" },
+            originalName: { type: "string" },
+            size: { type: "integer" },
+            mimetype: { type: "string" }
           }
         },
         ScreenRight: {

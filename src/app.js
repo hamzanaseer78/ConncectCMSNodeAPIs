@@ -15,6 +15,7 @@ const createDropdownRoutes = require("./routes/dropdowns.routes");
 const jobRoutes = require("./routes/job.routes");
 const jobsAllRoutes = require("./routes/jobs-all.routes");
 const jobsMyRoutes = require("./routes/jobs-my.routes");
+const uploadRoutes = require("./routes/upload.routes");
 const resources = require("./config/resources");
 const createResourceRouter = require("./routes/generic.routes");
 
@@ -101,6 +102,7 @@ app.all("/graphql", graphqlHandler);
 // REST API Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userProfileRoutes);
+app.use("/api/upload", uploadRoutes);
 app.use("/api/org", orgBranchRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/jobs-all", jobsAllRoutes);
