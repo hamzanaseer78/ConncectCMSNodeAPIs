@@ -1,0 +1,91 @@
+const { utcNow } = require("../utils/date");
+
+/**
+ * For each default ("main") admin policy, grants full userrights on `screenid`
+ * for every branch under that policy's tenant — mirrors org-wide admin coverage
+ * when new screens are introduced after tenants already exist.
+ *
+ * @param {import("@prisma/client").Prisma.TransactionClient} tx
+ * @param {number} screenid
+ * @param {{ userid?: number|string }} auth
+ */
+async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
+  const adminPolicies = await tx.policies.findMany({
+    where: { isdefaultpolicy: true },
+    select: { recno: true, tenantid: true }
+  });
+
+  if (!adminPolicies.length) {
+    return;
+  }
+
+  const now = utcNow();
+  const createdby = auth?.userid != null ? Number(auth.userid) : null;
+
+  const rowsToInsert = [];
+
+  for (const policy of adminPolicies) {
+    if (policy.tenantid == null) {
+      continue;
+    }
+
+    const branches = await tx.branches.findMany({
+      where: { tenantid: policy.tenantid },
+      select: { branchid: true }
+    });
+
+    for (const b of branches) {
+      if (b.branchid == null) {
+        continue;
+      }
+
+      rowsToInsert.push({
+        screenid,
+        policyid: policy.recno,
+        tenantid: policy.tenantid,
+        branchid: b.branchid,
+        viewscreen: true,
+        addscreen: true,
+        updatescreen: true,
+        deletescreen: true,
+        others: true,
+        createdby,
+        createdat: now
+      });
+    }
+  }
+
+  if (!rowsToInsert.length) {
+    return;
+  }
+
+  const policyIds = [...new Set(adminPolicies.map((p) => p.recno))];
+
+  const existing = await tx.userrights.findMany({
+    where: {
+      screenid,
+      policyid: { in: policyIds }
+    },
+    select: {
+      policyid: true,
+      tenantid: true,
+      branchid: true
+    }
+  });
+
+  const existingSet = new Set(
+    existing.map((r) => `${r.policyid}-${r.tenantid}-${r.branchid}`)
+  );
+
+  const deduped = rowsToInsert.filter(
+    (r) => !existingSet.has(`${r.policyid}-${r.tenantid}-${r.branchid}`)
+  );
+
+  if (deduped.length) {
+    await tx.userrights.createMany({ data: deduped });
+  }
+}
+
+module.exports = {
+  assignNewScreenToDefaultAdminPolicies
+};

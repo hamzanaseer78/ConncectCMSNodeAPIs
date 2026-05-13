@@ -2,6 +2,7 @@ const resources = require("../../config/resources");
 const GenericRepository = require("../../dataaccess/concretes/generic.repository");
 const prisma = require("../../database/prisma");
 const { utcNow } = require("../../utils/date");
+const { assignNewScreenToDefaultAdminPolicies } = require("../../services/screen-admin-rights.service");
 const { coerceValue, getListFilterFields, getListScalarFields, getRelationInclude, getScalarFields, getSortableFields } = require("../../utils/prisma-metadata");
 
 const MAX_PAGE_SIZE = 100;
@@ -141,7 +142,18 @@ class GenericService {
 
     this.validateRequired(data, this.config.requiredOnCreate || []);
 
-    return this.sanitizeRow(await this.repo.create(this.prepareCreateData(data, auth)));
+    const payload = this.prepareCreateData(data, auth);
+
+    if (this.resourceName === "screens") {
+      const row = await prisma.$transaction(async (tx) => {
+        const created = await tx.screens.create({ data: payload });
+        await assignNewScreenToDefaultAdminPolicies(tx, created.screenid, auth);
+        return created;
+      });
+      return this.sanitizeRow(row);
+    }
+
+    return this.sanitizeRow(await this.repo.create(payload));
   }
 
   async update(id, data, auth) {
