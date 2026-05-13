@@ -324,10 +324,15 @@ module.exports = swaggerJsdoc({
       {
         url: "http://localhost:3000",
         description: "Development server"
+      },
+      {
+        url: "http://72.60.236.155",
+        description: "Development server"
       }
     ],
     tags: [
       { name: "Auth", description: "Authentication, signup, invitations and user context" },
+      { name: "User", description: "Authenticated user profile and effective screen rights" },
       { name: JOBS_TAG, description: "Job creation, workflow actions, details and child records" },
       { name: ALL_JOBS_TAG, description: "All tenant/branch jobs, dashboards and reports" },
       { name: MY_JOBS_TAG, description: "Jobs assigned to the authenticated user, dashboards and reports" },
@@ -407,7 +412,16 @@ module.exports = swaggerJsdoc({
               }
             }
           },
-          responses: { 200: { description: "JWT returned" } }
+          responses: {
+            200: {
+              description: "JWT, user context and aggregated screen rights",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/LoginResponse" }
+                }
+              }
+            }
+          }
         }
       },
       "/api/auth/profile": {
@@ -440,7 +454,50 @@ module.exports = swaggerJsdoc({
               }
             }
           },
-          responses: { 200: { description: "New JWT returned" } }
+          responses: {
+            200: {
+              description: "New JWT, organizations list and screen rights for the selected context",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/SwitchContextResponse" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/user/profile": {
+        get: {
+          summary: "Get profile with refreshed token and screen rights",
+          tags: ["User"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Same shape as login response",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/LoginResponse" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/api/user/screen-rights": {
+        get: {
+          summary: "Get effective screen rights for the current JWT tenant/branch",
+          tags: ["User"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Aggregated rights per accessible screen",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ScreenRightsPayload" }
+                }
+              }
+            }
+          }
         }
       },
       "/api/auth/invite": {
@@ -1255,20 +1312,71 @@ module.exports = swaggerJsdoc({
             expiresIn: { type: "string", example: "1h" }
           }
         },
-        LoginResponse: {
+        ScreenRight: {
           type: "object",
           properties: {
-            token: { type: "string" },
-            tokenType: { type: "string", example: "Bearer" },
-            expiresIn: { type: "string", example: "7d" },
-            user: { type: "object" },
-            tenantid: { type: "integer" },
-            branchid: { type: "integer" },
-            organizations: {
+            screenid: { type: "integer" },
+            screenname: { type: "string", nullable: true },
+            controllername: { type: "string", nullable: true },
+            screengroup: { type: "string", nullable: true },
+            view: { type: "boolean" },
+            add: { type: "boolean" },
+            update: { type: "boolean" },
+            delete: { type: "boolean" },
+            others: { type: "boolean" }
+          }
+        },
+        ScreenRightsPayload: {
+          type: "object",
+          properties: {
+            isAdmin: {
+              type: "boolean",
+              description: "True when the user holds the tenant default (admin) policy for this branch"
+            },
+            screenRights: {
               type: "array",
-              items: { type: "object" }
+              items: { $ref: "#/components/schemas/ScreenRight" }
             }
           }
+        },
+        LoginResponse: {
+          allOf: [
+            { $ref: "#/components/schemas/ScreenRightsPayload" },
+            {
+              type: "object",
+              properties: {
+                token: { type: "string" },
+                tokenType: { type: "string", example: "Bearer" },
+                expiresIn: { type: "string", example: "7d" },
+                user: { type: "object" },
+                tenantid: { type: "integer" },
+                branchid: { type: "integer" },
+                organizations: {
+                  type: "array",
+                  items: { type: "object" }
+                }
+              }
+            }
+          ]
+        },
+        SwitchContextResponse: {
+          allOf: [
+            { $ref: "#/components/schemas/ScreenRightsPayload" },
+            {
+              type: "object",
+              properties: {
+                token: { type: "string" },
+                tokenType: { type: "string", example: "Bearer" },
+                expiresIn: { type: "string", example: "7d" },
+                tenantid: { type: "integer" },
+                branchid: { type: "integer" },
+                organizations: {
+                  type: "array",
+                  items: { type: "object" }
+                }
+              }
+            }
+          ]
         },
         ...buildResourceSchemas()
       }

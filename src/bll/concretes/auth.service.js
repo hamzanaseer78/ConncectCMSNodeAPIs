@@ -4,6 +4,7 @@ const prisma = require("../../database/prisma");
 const { JWT_EXPIRES_IN, SIGNUP_TOKEN_EXPIRES_MINUTES, signToken } = require("../../config/jwt");
 const mailService = require("../../services/mail.service");
 const { utcNow } = require("../../utils/date");
+const screenRightsService = require("./screenrights.service");
 
 const DEFAULT_PASSWORD_LENGTH = 12;
 
@@ -280,6 +281,11 @@ class AuthService {
     const user = await this.validateEmailPassword(email, password);
     const membership = await this.resolveMembership(user.userid, null, null);
     const contexts = await this.getUserContexts(user.userid);
+    const rights = await screenRightsService.getScreenRights({
+      userid: user.userid,
+      tenantid: membership.tenantid,
+      branchid: membership.branchid
+    });
 
     return {
       token: this.createSessionToken(user, membership.tenantid, membership.branchid),
@@ -288,7 +294,9 @@ class AuthService {
       user: this.toUserDto(user),
       tenantid: membership.tenantid,
       branchid: membership.branchid,
-      organizations: contexts
+      organizations: contexts,
+      isAdmin: rights.isAdmin,
+      screenRights: rights.screenRights
     };
   }
 
@@ -296,6 +304,11 @@ class AuthService {
     const membership = await this.resolveMembership(auth.userid, tenantid, branchid);
     const user = await prisma.users.findUnique({ where: { userid: Number(auth.userid) } });
     const contexts = await this.getUserContexts(auth.userid);
+    const rights = await screenRightsService.getScreenRights({
+      userid: auth.userid,
+      tenantid: membership.tenantid,
+      branchid: membership.branchid
+    });
 
     return {
       token: this.createSessionToken(user, membership.tenantid, membership.branchid),
@@ -303,7 +316,9 @@ class AuthService {
       expiresIn: JWT_EXPIRES_IN,
       tenantid: membership.tenantid,
       branchid: membership.branchid,
-      organizations: contexts
+      organizations: contexts,
+      isAdmin: rights.isAdmin,
+      screenRights: rights.screenRights
     };
   }
 
@@ -545,6 +560,7 @@ class AuthService {
 
     const membership = await this.resolveMembership(user.userid, auth.tenantid, auth.branchid);
     const contexts = await this.getUserContexts(user.userid);
+    const rights = await screenRightsService.getScreenRights(auth);
 
     return {
       token: this.createSessionToken(user, membership.tenantid, membership.branchid),
@@ -553,7 +569,9 @@ class AuthService {
       user: this.toUserDto(user),
       tenantid: membership.tenantid,
       branchid: membership.branchid,
-      organizations: contexts
+      organizations: contexts,
+      isAdmin: rights.isAdmin,
+      screenRights: rights.screenRights
     };
   }
 

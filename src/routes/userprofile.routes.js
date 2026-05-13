@@ -1,11 +1,15 @@
 const express = require("express");
 const authenticateJwt = require("../middlewares/auth.middleware");
 const userController = require("../controllers/user.controller");
+const screenRightsController = require("../controllers/screenrights.controller");
 
 const router = express.Router();
 
 // All user profile endpoints require authentication
 router.use(authenticateJwt);
+
+// Effective screen rights for current JWT context (same payload as login/profile)
+router.get("/screen-rights", screenRightsController.getScreenRights);
 
 // Get profile with updated token
 router.get("/profile", userController.getProfile);
