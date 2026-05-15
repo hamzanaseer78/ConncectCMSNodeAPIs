@@ -5,7 +5,8 @@ const {
   coerceValue,
   getListScalarFields,
   getScalarFields,
-  getWritableFields
+  getWritableFields,
+  getPrismaDelegateName
 } = require("../utils/prisma-metadata");
 const jobsWorkflowService = require("../services/jobs-workflow.service");
 const { sendMailSafe } = require("../services/notifications.service");
@@ -473,7 +474,7 @@ async function enrichListRelations(resourceName, config, rows) {
   const ids = rows.map((r) => r[config.id]).filter((v) => v !== null && v !== undefined);
   if (!ids.length) return rows;
 
-  const model = prisma[resourceName];
+  const model = prisma[getPrismaDelegateName(resourceName)];
   const withRelations = await model.findMany({
     where: {
       [config.id]: { in: ids }
@@ -513,7 +514,7 @@ async function countResource(resourceName, auth) {
     throw new Error(`Resource ${resourceName} is not accessible via GraphQL`);
   }
 
-  const model = prisma[resourceName];
+  const model = prisma[getPrismaDelegateName(resourceName)];
   if (!model || typeof model.count !== 'function') {
     throw new Error(`Resource ${resourceName} does not support counting`);
   }
@@ -640,7 +641,7 @@ const resolvers = {
 for (const [resourceName, config] of Object.entries(resources)) {
   if (config.backendOnly) continue;
 
-  const model = prisma[resourceName];
+  const model = prisma[getPrismaDelegateName(resourceName)];
   if (!model) continue;
 
   // item

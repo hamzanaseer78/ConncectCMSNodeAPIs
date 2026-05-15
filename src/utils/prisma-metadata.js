@@ -1,4 +1,5 @@
 const { Prisma } = require("@prisma/client");
+const resources = require("../config/resources");
 const modelCache = new Map();
 const scalarFieldsCache = new Map();
 const filterableFieldsCache = new Map();
@@ -42,9 +43,19 @@ const hiddenListFields = new Set([
   "signuplongitude"
 ]);
 
+/**
+ * Prisma client delegate and DMMF model name (when API resource key differs from schema model).
+ * Example: resource `jobstauses` → model `jobstatuses`.
+ */
+function getPrismaDelegateName(resourceName) {
+  const cfg = resources[resourceName];
+  return (cfg && cfg.prismaModel) || resourceName;
+}
+
 function getModel(resourceName) {
   if (!modelCache.has(resourceName)) {
-    const model = Prisma.dmmf.datamodel.models.find((entry) => entry.name === resourceName) || null;
+    const prismaName = getPrismaDelegateName(resourceName);
+    const model = Prisma.dmmf.datamodel.models.find((entry) => entry.name === prismaName) || null;
     modelCache.set(resourceName, model);
   }
 
@@ -203,6 +214,7 @@ module.exports = {
   getRelationInclude,
   getListScalarFields,
   getModel,
+  getPrismaDelegateName,
   getScalarFields,
   getSortableFields,
   getWritableFields,

@@ -1,7 +1,9 @@
 const serviceContainer = require("../utils/service-container");
 const mailService = require("../services/mail.service");
+const UserProfileService = require("../bll/concretes/userprofile.service");
 
 const service = serviceContainer.getAuthService();
+const userProfileService = new UserProfileService();
 
 const signup = async (req, res, next) => {
   try {
@@ -81,6 +83,19 @@ const getProfile = async (req, res, next) => {
   }
 };
 
+const changePassword = async (req, res, next) => {
+  try {
+    const data = await userProfileService.changePassword(
+      req.auth.userid,
+      req.body?.oldPassword,
+      req.body?.newPassword
+    );
+    res.status(200).json(data);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
 const sendTestMail = async (req, res, next) => {
   try {
     await service.ensureAdmin(req.auth.userid, req.auth.tenantid, req.auth.branchid);
@@ -104,6 +119,7 @@ const sendTestMail = async (req, res, next) => {
 
 
 module.exports = {
+  changePassword,
   configurePassword,
   createOrganization,
   getProfile,

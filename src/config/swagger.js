@@ -334,6 +334,7 @@ module.exports = swaggerJsdoc({
       { name: "Auth", description: "Authentication, signup, invitations and user context" },
       { name: "User", description: "Authenticated user profile and effective screen rights" },
       { name: "Upload", description: "Multipart file uploads (stored under /uploads/general)" },
+      { name: "Tracking", description: "Live user GPS pings (lat/lng) scoped to tenant and branch" },
       { name: JOBS_TAG, description: "Job creation, workflow actions, details and child records" },
       { name: ALL_JOBS_TAG, description: "All tenant/branch jobs, dashboards and reports" },
       { name: MY_JOBS_TAG, description: "Jobs assigned to the authenticated user, dashboards and reports" },
@@ -442,6 +443,40 @@ module.exports = swaggerJsdoc({
           }
         }
       },
+      "/api/auth/change-password": {
+        post: {
+          summary: "Change password (authenticated)",
+          description:
+            "Requires current password. Same rules as POST /api/user/change-password (min 6 chars for new password).",
+          tags: ["Auth"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ChangePasswordRequest" }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "Password updated",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      message: { type: "string", example: "Password changed successfully" }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Validation or wrong current password" },
+            401: { description: "Missing or invalid JWT" }
+          }
+        }
+      },
       "/api/auth/switch": {
         post: {
           summary: "Switch tenant or branch",
@@ -534,6 +569,65 @@ module.exports = swaggerJsdoc({
             400: { description: "Missing file or wrong field name" },
             401: { description: "Missing or invalid JWT / tenant context" },
             413: { description: "File larger than UPLOAD_MAX_FILE_BYTES" }
+          }
+        }
+      },
+      "/api/tracking/ping": {
+        post: {
+          summary: "Record current user location (live ping)",
+          description:
+            "Stores one row per call for the JWT user in the current tenant/branch. Optional device time via recordedAt (ISO).",
+          tags: ["Tracking"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TrackingPingRequest" }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: "Location saved",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/TrackingLocation" }
+                }
+              }
+            },
+            400: { description: "Invalid coordinates or payload" },
+            401: { description: "Missing JWT or tenant context" },
+            403: { description: "User not in branch or branch mismatch" }
+          }
+        }
+      },
+      "/api/tracking/live": {
+        get: {
+          summary: "Latest location per user in this branch (live map)",
+          description:
+            "Most recent ping within `minutes` (default 30, max 1440) for each user assigned to the branch.",
+          tags: ["Tracking"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: "query",
+              name: "minutes",
+              schema: { type: "integer", default: 30, minimum: 1, maximum: 1440 },
+              description: "How far back to look for recent pings"
+            }
+          ],
+          responses: {
+            200: {
+              description: "Latest ping per user",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/TrackingLiveResponse" }
+                }
+              }
+            },
+            401: { description: "Missing JWT or tenant context" },
+            403: { description: "Branch not in tenant" }
           }
         }
       },
@@ -1270,6 +1364,14 @@ module.exports = swaggerJsdoc({
           },
           required: ["email", "password"]
         },
+        ChangePasswordRequest: {
+          type: "object",
+          properties: {
+            oldPassword: { type: "string", format: "password" },
+            newPassword: { type: "string", format: "password", minLength: 6 }
+          },
+          required: ["oldPassword", "newPassword"]
+        },
         SwitchContextRequest: {
           type: "object",
           properties: {
@@ -1288,8 +1390,70 @@ module.exports = swaggerJsdoc({
           },
           required: ["email", "policyid"]
         },
+        JobCreateCustomer: {
+          type: "object",
+          description: "When customerid is omitted, customer is upserted by contactno/phone within tenant+branch.",
+          properties: {
+            name: { type: "string" },
+            email: { type: "string" },
+            contactno: { type: "string" },
+            phone: { type: "string", description: "Alias of contactno" },
+            city: { type: "integer" },
+            area: { type: "integer" },
+            country: { type: "integer" },
+            address: { type: "string", description: "Stored on jobdetails when also sent at root as address" }
+          }
+        },
+        JobServiceLineItem: {
+          type: "object",
+          description: "Saved as jobaddonproducts (complaint service/parts grid).",
+          properties: {
+            productid: { type: "integer" },
+            qty: { type: "number" },
+            price: { type: "number" },
+            rate: { type: "number", description: "Alias of price" },
+            amount: { type: "number", description: "Alias of inclusiveamount when tax not split" },
+            inclusiveamount: { type: "number" },
+            totalamount: { type: "number" },
+            exclusiveamount: { type: "number" },
+            taxamount: { type: "number" },
+            tax: { type: "number", description: "Alias of taxamount" },
+            vat: { type: "number", description: "Alias of taxamount" },
+            taxpercent: { type: "number" },
+            taxtypeid: { type: "integer" },
+            discountamount: { type: "number" },
+            discountvalue: { type: "number" },
+            discounttype: { type: "string" },
+            lineno: { type: "integer" },
+            isserviceitem: { type: "boolean" },
+            remarks: { type: "string" },
+            partService: { type: "string", description: "Line label when productid omitted" },
+            label: { type: "string" },
+            name: { type: "string" },
+            modelno: { type: "string" }
+          }
+        },
+        JobProductLineItem: {
+          type: "object",
+          description: "Saved as jobproducts.",
+          properties: {
+            productid: { type: "integer" },
+            modelno: { type: "string" },
+            productModel: { type: "string", description: "Alias of modelno" },
+            partno: { type: "string" },
+            serialNumber: { type: "string", description: "Alias of partno" },
+            salerefrenceno: { type: "string" },
+            invoiceNumber: { type: "string", description: "Alias of salerefrenceno" },
+            lineno: { type: "integer" },
+            remarks: { type: "string" },
+            partService: { type: "string" },
+            name: { type: "string" }
+          }
+        },
         JobCreateRequest: {
           type: "object",
+          description:
+            "Create a complaint/job. Required: serviceid. Provide customerid OR customer (phone/contactno or name).",
           properties: {
             code: { type: "string" },
             date: { type: "string", format: "date-time" },
@@ -1299,13 +1463,43 @@ module.exports = swaggerJsdoc({
             serviceid: { type: "integer" },
             faultid: { type: "integer" },
             customerid: { type: "integer" },
-            isinwaranty: { type: "boolean" },
+            customer: { $ref: "#/components/schemas/JobCreateCustomer" },
+            isinwaranty: { type: "boolean", description: "Boolean or yes/no string" },
             statusid: { type: "integer" },
             priority: { type: "string" },
             deliverytype: { type: "integer" },
-            manualjobno: { type: "string" }
+            manualjobno: { type: "string" },
+            estimatedcompletedtime: {
+              oneOf: [{ type: "integer" }, { type: "string" }],
+              description: "Minutes; strings like \"60 Minutes\" use the first integer"
+            },
+            isacknowledged: { type: "boolean" },
+            qualityassuerd: { type: "boolean" },
+            description: { type: "string" },
+            complaintDescription: { type: "string", description: "Alias of description on jobdetails" },
+            notes: { type: "string" },
+            complaintNotes: { type: "string", description: "Alias of notes on jobdetails" },
+            detailRemarks: { type: "string", description: "Extra jobdetails.remarks text (before equipment JSON)" },
+            jobdetailsRemarks: { type: "string" },
+            address: { type: "string", description: "jobdetails.address (max 50 chars stored)" },
+            customerAddress: { type: "string" },
+            siteAddress: { type: "string" },
+            latitude: { oneOf: [{ type: "string" }, { type: "number" }] },
+            longitude: { oneOf: [{ type: "string" }, { type: "number" }] },
+            lat: { type: "number", description: "Alias of latitude" },
+            lng: { type: "number", description: "Alias of longitude" },
+            brand: { type: "string", description: "Stored in jobdetails.remarks JSON equipment.*" },
+            productModel: { type: "string" },
+            serialNumber: { type: "string" },
+            invoiceNumber: { type: "string" },
+            purchaseDate: { type: "string" },
+            parts: { type: "array", items: { $ref: "#/components/schemas/JobProductLineItem" } },
+            productLines: { type: "array", items: { $ref: "#/components/schemas/JobProductLineItem" } },
+            serviceLines: { type: "array", items: { $ref: "#/components/schemas/JobServiceLineItem" } },
+            lineItems: { type: "array", items: { $ref: "#/components/schemas/JobServiceLineItem" } },
+            addonLines: { type: "array", items: { $ref: "#/components/schemas/JobServiceLineItem" } }
           },
-          required: ["customerid", "serviceid"]
+          required: ["serviceid"]
         },
         JobUpdateRequest: {
           type: "object",
@@ -1322,7 +1516,10 @@ module.exports = swaggerJsdoc({
             statusid: { type: "integer" },
             priority: { type: "string" },
             deliverytype: { type: "integer" },
-            manualjobno: { type: "string" }
+            manualjobno: { type: "string" },
+            estimatedcompletedtime: { oneOf: [{ type: "integer" }, { type: "string" }] },
+            isacknowledged: { type: "boolean" },
+            qualityassuerd: { type: "boolean" }
           }
         },
         JobAttachmentCreateRequest: {
@@ -1365,6 +1562,56 @@ module.exports = swaggerJsdoc({
             originalName: { type: "string" },
             size: { type: "integer" },
             mimetype: { type: "string" }
+          }
+        },
+        TrackingPingRequest: {
+          type: "object",
+          required: ["latitude", "longitude"],
+          properties: {
+            latitude: { type: "number", minimum: -90, maximum: 90 },
+            longitude: { type: "number", minimum: -180, maximum: 180 },
+            accuracy: { type: "number", description: "Meters (GPS accuracy)" },
+            altitude: { type: "number" },
+            heading: { type: "number", description: "Degrees" },
+            speed: { type: "number" },
+            recordedAt: { type: "string", format: "date-time", description: "Device time; omit for server time" }
+          }
+        },
+        TrackingUserSummary: {
+          type: "object",
+          properties: {
+            userid: { type: "integer" },
+            name: { type: "string", nullable: true },
+            email: { type: "string", nullable: true }
+          }
+        },
+        TrackingLocation: {
+          type: "object",
+          properties: {
+            recno: { type: "integer" },
+            userid: { type: "integer" },
+            tenantid: { type: "integer" },
+            branchid: { type: "integer" },
+            latitude: { type: "number" },
+            longitude: { type: "number" },
+            accuracy: { type: "number", nullable: true },
+            altitude: { type: "number", nullable: true },
+            heading: { type: "number", nullable: true },
+            speed: { type: "number", nullable: true },
+            recordedat: { type: "string", format: "date-time" },
+            createdat: { type: "string", format: "date-time" },
+            user: { $ref: "#/components/schemas/TrackingUserSummary", nullable: true }
+          }
+        },
+        TrackingLiveResponse: {
+          type: "object",
+          properties: {
+            minutes: { type: "integer" },
+            since: { type: "string", format: "date-time" },
+            locations: {
+              type: "array",
+              items: { $ref: "#/components/schemas/TrackingLocation" }
+            }
           }
         },
         ScreenRight: {

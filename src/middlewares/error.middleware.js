@@ -12,6 +12,14 @@ function errorHandler(err, req, res, next) {
   } else if (err.code === "LIMIT_UNEXPECTED_FILE") {
     status = 400;
     message = "Unexpected file field; use field name \"file\"";
+  } else if (
+    err.type === "entity.parse.failed" ||
+    (err instanceof SyntaxError && /in JSON at position/i.test(String(err.message || "")))
+  ) {
+    status = 400;
+    message =
+      "Invalid JSON body. Use double quotes for all property names and string values, no trailing commas, and no comments. " +
+      "For GET or DELETE, omit the body (or do not send Content-Type: application/json with a non-JSON body).";
   }
 
   console.error(`[ERROR] ${status} - ${message}`, {

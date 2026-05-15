@@ -5,7 +5,7 @@
  */
 
 const prisma = require("../database/prisma");
-const { getListScalarFields } = require("../utils/prisma-metadata");
+const { getListScalarFields, getPrismaDelegateName } = require("../utils/prisma-metadata");
 const resources = require("../config/resources");
 
 class DropdownController {
@@ -22,7 +22,7 @@ class DropdownController {
     }
 
     const idField = config.id;
-    const model = prisma[resourceName];
+    const model = prisma[getPrismaDelegateName(resourceName)];
 
     // Build where clause based on tenant/branch scoping
     const where = {};

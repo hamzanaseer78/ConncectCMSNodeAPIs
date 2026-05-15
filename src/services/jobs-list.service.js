@@ -1,19 +1,47 @@
 const prisma = require("../database/prisma");
 
+/** Only fields needed for list rows (smaller query + no nested noise). */
 const JOB_LIST_INCLUDE = {
-  customers: true,
-  users: true,
-  jobstatuses: true,
-  jobcategories: true,
-  jobsubcategories: true
+  customers: { select: { customerid: true, name: true } },
+  users: { select: { userid: true, name: true } },
+  jobstatuses: { select: { recno: true, title: true } },
+  jobcategories: { select: { categoryid: true, name: true } },
+  jobsubcategories: { select: { subcategoryid: true, name: true } }
 };
 
-const JOB_REPORT_INCLUDE = {
-  users: true,
-  jobcategories: true,
-  jobstatuses: true,
-  customers: true
-};
+const JOB_REPORT_INCLUDE = { ...JOB_LIST_INCLUDE };
+
+/**
+ * Replace full Prisma relation objects with { id, name, title } for list/report APIs.
+ * `title` mirrors `name` when the source model has no separate title (e.g. customer, assignee, service).
+ */
+function slimJobListRow(job) {
+  const {
+    customers: c,
+    users: u,
+    jobstatuses: st,
+    jobcategories: cat,
+    jobsubcategories: sub,
+    ...main
+  } = job;
+
+  return {
+    ...main,
+    customers: c
+      ? { id: c.customerid, name: c.name ?? null, title: c.name ?? null }
+      : null,
+    users: u ? { id: u.userid, name: u.name ?? null, title: u.name ?? null } : null,
+    jobstatuses: st
+      ? { id: st.recno, name: st.title ?? null, title: st.title ?? null }
+      : null,
+    jobcategories: cat
+      ? { id: cat.categoryid, name: cat.name ?? null, title: cat.name ?? null }
+      : null,
+    jobsubcategories: sub
+      ? { id: sub.subcategoryid, name: sub.name ?? null, title: sub.name ?? null }
+      : null
+  };
+}
 
 class JobsListService {
   constructor({ mode, restrictToAssignee = false }) {
@@ -49,11 +77,12 @@ class JobsListService {
   }
 
   async list(auth, query = {}) {
-    return prisma.job.findMany({
+    const rows = await prisma.job.findMany({
       where: this.applyFilters(auth, query),
       include: JOB_LIST_INCLUDE,
       orderBy: { recno: "desc" }
     });
+    return rows.map(slimJobListRow);
   }
 
   async dashboard(auth) {
@@ -97,7 +126,7 @@ class JobsListService {
         service: serviceBreakdown,
         status: statusBreakdown
       },
-      jobs: rows
+      jobs: rows.map(slimJobListRow)
     };
   }
 }

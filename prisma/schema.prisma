@@ -66,6 +66,7 @@ model branches {
   userorganizations                   userorganizations[]
   userpolicies                        userpolicies[]
   userrights                          userrights[]
+  userlocations                       userlocations[]
 
   @@index([branchid], map: "idx_jsl_branches")
 }
@@ -251,6 +252,7 @@ model organizations {
   userpolicies                             userpolicies[]
   userrights                               userrights[]
   userssignuptokenlogs                     userssignuptokenlogs[]
+  userlocations                            userlocations[]
 
   @@index([tenantid], map: "idx_jsl_organizations")
 }
@@ -463,6 +465,7 @@ model users {
   other_users_users_createdbyTousers                       users[]                 @relation("users_createdbyTousers")
   users_users_lastupdatedbyTousers                         users?                  @relation("users_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_lastupdatedby")
   other_users_users_lastupdatedbyTousers                   users[]                 @relation("users_lastupdatedbyTousers")
+  userlocations                                            userlocations[]
   userssignuptokenlogs                                     userssignuptokenlogs[]
 
   @@index([userid], map: "idx_jsl_users")
@@ -480,6 +483,27 @@ model userssignuptokenlogs {
   users           users?         @relation(fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_userid")
 
   @@index([recno], map: "idx_jsl_userssignuptokenlogs")
+}
+
+model userlocations {
+  recno         Int             @id @default(autoincrement())
+  userid        Int
+  tenantid      Int
+  branchid      Int
+  latitude      Float
+  longitude     Float
+  accuracy      Float?
+  altitude      Float?
+  heading       Float?
+  speed         Float?
+  recordedat    DateTime        @default(now()) @db.Timestamp(6)
+  createdat     DateTime        @default(now()) @db.Timestamp(6)
+  branches      branches        @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_userlocations_branch")
+  organizations organizations   @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_userlocations_tenant")
+  users         users           @relation(fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_userlocations_user")
+
+  @@index([tenantid, branchid, recordedat], map: "idx_userlocations_tenant_branch_time")
+  @@index([userid, recordedat], map: "idx_userlocations_user_time")
 }
 
 model jobstatuses {

@@ -3,7 +3,7 @@ const GenericRepository = require("../../dataaccess/concretes/generic.repository
 const prisma = require("../../database/prisma");
 const { utcNow } = require("../../utils/date");
 const { assignNewScreenToDefaultAdminPolicies } = require("../../services/screen-admin-rights.service");
-const { coerceValue, getListFilterFields, getListScalarFields, getRelationInclude, getScalarFields, getSortableFields } = require("../../utils/prisma-metadata");
+const { coerceValue, getListFilterFields, getListScalarFields, getRelationInclude, getScalarFields, getSortableFields, getPrismaDelegateName } = require("../../utils/prisma-metadata");
 
 const MAX_PAGE_SIZE = 100;
 
@@ -17,7 +17,7 @@ class GenericService {
 
     this.resourceName = resourceName;
     this.config = config;
-    this.repo = new GenericRepository(resourceName, config.id);
+    this.repo = new GenericRepository(getPrismaDelegateName(resourceName), config.id);
     this.listScalarFields = getListScalarFields(this.resourceName, this.config);
     this.listFilterFields = getListFilterFields(this.resourceName, this.config);
     this.scalarFields = getScalarFields(this.resourceName);
@@ -145,11 +145,29 @@ class GenericService {
     const payload = this.prepareCreateData(data, auth);
 
     if (this.resourceName === "screens") {
-      const row = await prisma.$transaction(async (tx) => {
-        const created = await tx.screens.create({ data: payload });
-        await assignNewScreenToDefaultAdminPolicies(tx, created.screenid, auth);
-        return created;
-      });
+      let row;
+      try {
+        row = await prisma.$transaction(async (tx) => {
+          const created = await tx.screens.create({ data: payload });
+          await assignNewScreenToDefaultAdminPolicies(tx, created.screenid, auth);
+          return created;
+        });
+      } catch (err) {
+        if (err.code === "P2002") {
+          const target = err.meta?.target;
+          const onScreenId =
+            target === "screenid" ||
+            (Array.isArray(target) && target.includes("screenid"));
+          if (onScreenId) {
+            const hint = new Error(
+              "Could not insert screen: primary key sequence is likely out of sync with existing rows. On the server run: node scripts/fix-screens-screenid-sequence.js"
+            );
+            hint.status = 409;
+            throw hint;
+          }
+        }
+        throw err;
+      }
       return this.sanitizeRow(row);
     }
 
@@ -299,6 +317,10 @@ class GenericService {
     const next = { ...data };
 
     delete next[this.config.id];
+    // Clients must never supply PK on create; keeps Prisma from inserting explicit ids.
+    if (this.resourceName === "screens") {
+      delete next.screenid;
+    }
 
     if (this.config.tenantScoped) {
       next.tenantid = Number(auth.tenantid);
