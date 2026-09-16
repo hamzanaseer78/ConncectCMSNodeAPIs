@@ -6,10 +6,29 @@ const {
   getListScalarFields,
   getScalarFields,
   getWritableFields,
-  getPrismaDelegateName
+  getPrismaDelegateName,
+  hasCreatedByField
 } = require("../utils/prisma-metadata");
+const {
+  normalizeSortBy,
+  parseListSortOrder,
+  resolveDefaultListSortField
+} = require("../utils/list-sort");
+const { buildListFilterCondition, applyDirectCreatedByFilter, getCreatedByFilterMeta } = require("../utils/list-filter");
+const { buildResourceScopeWhere } = require("../utils/resource-scope");
 const jobsWorkflowService = require("../services/jobs-workflow.service");
+const {
+  assertDefinitionUniqueness,
+  hasDefinitionUniquenessRules
+} = require("../services/definition-uniqueness.service");
+const { applyTechnicianJobScope } = require("../utils/job-access");
 const { sendMailSafe } = require("../services/notifications.service");
+const {
+  reportTypeDefs,
+  reportQueryFields,
+  reportMutationFields,
+  registerReportResolvers
+} = require("./reports");
 const fs = require("fs");
 const path = require("path");
 
@@ -134,6 +153,7 @@ type ${typeName}List {
   jobs(page: Int = 1, pageSize: Int = 25, statusid: Int, assignedto: Int, customerid: Int, from: String, to: String, search: String): JobList!
   jobTimeline(id: Int!): [JobTimelineEvent!]!
   jobAttachments(id: Int!): [JobAttachment!]!
+  ${reportQueryFields}
 `);
 
   mutationFields.push(`
@@ -143,6 +163,7 @@ type ${typeName}List {
   jobChangeStatus(id: Int!, tostatus: Int!, remarks: String): JobStatusLog!
   jobAddCustomerRemark(id: Int!, remarks: String!): JobCustomerRemark!
   jobUploadAttachment(id: Int!, input: JobAttachmentUploadInput!): JobAttachment!
+  ${reportMutationFields}
 `);
 
   for (const { name: resourceName, config } of publicResources) {
@@ -150,7 +171,7 @@ type ${typeName}List {
     const idField = config.id;
     queryFields.push(`
   ${resourceName}(id: Int!): ${typeName}
-  ${resourceName}List(page: Int = 1, pageSize: Int = 25, sortBy: String, sortOrder: String = "asc"): ${typeName}List!
+  ${resourceName}List(page: Int = 1, pageSize: Int = 25, sortBy: String, sortOrder: String = "desc", name: String, createdBy: Int): ${typeName}List!
 `);
 
     if (!config.noCreate) {
@@ -191,8 +212,26 @@ type JobTimelineEvent {
   at: String
   remarks: String
   userid: Int
-  fromstatus: Int
-  tostatus: Int
+  userName: String
+  createdBy: Int
+  createdByName: String
+  assignedBy: Int
+  assignedByName: String
+  changedby: Int
+  changedByName: String
+  fromStatus: Int
+  fromStatusName: String
+  toStatus: Int
+  toStatusName: String
+  quotedById: Int
+  quotedByName: String
+  travelHistoryId: Int
+  workHistoryId: Int
+  addedby: Int
+  addedByName: String
+  attachmentId: Int
+  attachmentname: String
+  url: String
 }
 
 type JobAttachment {
@@ -201,6 +240,8 @@ type JobAttachment {
   tenantid: Int
   branchid: Int
   addedby: Int
+  addedByName: String
+  addedByEmail: String
   addedat: String
   attachmentname: String
   url: String
@@ -266,6 +307,18 @@ type JobCustomerRemark {
   remarks: String
   addedby: Int
   addedat: String
+  addedByName: String
+  addedByEmail: String
+}
+
+type JobRemark {
+  recno: Int!
+  jobid: Int
+  remarks: String
+  addedby: Int
+  addedat: String
+  addedByName: String
+  addedByEmail: String
 }
 
 type Job {
@@ -287,14 +340,24 @@ type Job {
   statusid: Int
   priority: String
   deliverytype: Int
+  jobTypeId: Int
+  jobTypeName: String
+  jobSourceId: Int
+  jobSourceName: String
+  jobSourceDescription: String
   isacknowledged: Boolean
   manualjobno: String
+  complaintBy: String
+  jobNotes: String
+  termsAndConditions: String
 
   jobdetails: [JobDetails!]!
   jobattachments: [JobAttachment!]!
   jobassignmentlog: [JobAssignmentLog!]!
   jobstatuslog: [JobStatusLog!]!
   jobcustomerremarkslog: [JobCustomerRemark!]!
+  remarks: [JobRemark!]!
+  remarksTotal: Int
 }
 
 type JobList {
@@ -313,7 +376,10 @@ input JobCreateInput {
   statusid: Int
   priority: String
   deliverytype: Int
+  jobTypeId: Int
+  jobSourceId: Int
   manualjobno: String
+  complaintBy: String
   date: String
   description: String
   notes: String
@@ -327,7 +393,10 @@ input JobUpdateInput {
   statusid: Int
   priority: String
   deliverytype: Int
+  jobTypeId: Int
+  jobSourceId: Int
   manualjobno: String
+  complaintBy: String
 }
 
 input JobAttachmentUploadInput {
@@ -336,6 +405,7 @@ input JobAttachmentUploadInput {
   base64: String!
   remarks: String
 }
+${reportTypeDefs}
 `);
 
   return parts.join("\n");
@@ -349,19 +419,12 @@ const typeDefs = buildCrudTypeDefs();
  * @param {Object} auth - Authenticated user from JWT
  * @returns {Object} Prisma WHERE clause
  */
-function scopedWhere(config, auth) {
+function scopedWhere(config, auth, resourceName) {
   if (!auth) {
     throw new Error("Unauthorized: No authentication context");
   }
 
-  const where = {};
-  if (config.tenantScoped && auth?.tenantid) {
-    where.tenantid = Number(auth.tenantid);
-  }
-  if (config.branchScoped && auth?.branchid) {
-    where.branchid = Number(auth.branchid);
-  }
-  return where;
+  return buildResourceScopeWhere(resourceName, config, auth);
 }
 
 function requireAuth(context) {
@@ -371,25 +434,6 @@ function requireAuth(context) {
     throw new Error("JWT must include userid, tenantid and branchid");
   }
   return auth;
-}
-
-async function nextJobCode(auth) {
-  const tenantid = Number(auth.tenantid);
-  const branchid = Number(auth.branchid);
-
-  // Advisory lock prevents concurrent duplicates without schema changes
-  const lockKey = BigInt(tenantid) * 100000n + BigInt(branchid);
-  await prisma.$queryRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
-
-  const rows = await prisma.$queryRaw`
-    SELECT MAX(code) AS max_code
-    FROM job
-    WHERE tenantid = ${tenantid} AND branchid = ${branchid} AND code IS NOT NULL
-  `;
-  const maxCode = rows?.[0]?.max_code ? String(rows[0].max_code) : null;
-  const maxNum = maxCode && /^\d+$/.test(maxCode) ? Number(maxCode) : 0;
-  const next = maxNum + 1;
-  return String(next).padStart(6, "0");
 }
 
 function ensureDir(dir) {
@@ -451,7 +495,7 @@ function buildUpdateData(resourceName, config, auth, input) {
 }
 
 function buildWhereById(resourceName, config, auth, id) {
-  const where = scopedWhere(config, auth);
+  const where = scopedWhere(config, auth, resourceName);
   where[config.id] = Number(id);
   return where;
 }
@@ -520,7 +564,7 @@ async function countResource(resourceName, auth) {
   }
 
   try {
-    return await model.count({ where: scopedWhere(config, auth) });
+    return await model.count({ where: scopedWhere(config, auth, resourceName) });
   } catch (err) {
     console.error(`[GraphQL] Error counting ${resourceName}:`, err.message);
     throw new Error(`Failed to count ${resourceName}`);
@@ -667,14 +711,33 @@ for (const [resourceName, config] of Object.entries(resources)) {
     const skip = (page - 1) * pageSize;
     const take = pageSize;
 
-    const where = scopedWhere(config, auth);
+    const where = scopedWhere(config, auth, resourceName);
 
-    const sortBy = args?.sortBy ? String(args.sortBy) : null;
-    const sortOrder = String(args?.sortOrder || "asc").toLowerCase() === "desc" ? "desc" : "asc";
+    const listFilterFields = getListScalarFields(resourceName, config);
+    listFilterFields.forEach((field) => {
+      const value = args?.[field.name];
+      if (value === undefined) {
+        return;
+      }
+      const condition = buildListFilterCondition(field, value);
+      if (condition !== undefined) {
+        where[field.name] = condition;
+      }
+    });
+
+    if (hasCreatedByField(resourceName)) {
+      applyDirectCreatedByFilter(where, args);
+    }
+
+    const sortBy = normalizeSortBy(args?.sortBy);
+    const sortOrder = parseListSortOrder(args?.sortOrder);
 
     const scalarFields = getScalarFields(resourceName);
     const scalarFieldNames = new Set(scalarFields.map((f) => f.name));
-    const orderBy = sortBy && scalarFieldNames.has(sortBy) ? { [sortBy]: sortOrder } : undefined;
+    const orderBy =
+      sortBy && scalarFieldNames.has(sortBy)
+        ? { [sortBy]: sortOrder }
+        : { [resolveDefaultListSortField(resourceName, config.id)]: "desc" };
 
     const [total, rows] = await Promise.all([
       model.count({ where }),
@@ -697,6 +760,7 @@ for (const [resourceName, config] of Object.entries(resources)) {
       await requireRight(auth, resourceName, "add");
 
       const data = buildCreateData(resourceName, config, auth, input);
+      await assertDefinitionUniqueness(resourceName, config, data, auth);
       const row = await model.create({ data });
       const [enriched] = await enrichListRelations(resourceName, config, [row]);
       return enriched;
@@ -709,10 +773,20 @@ for (const [resourceName, config] of Object.entries(resources)) {
     await requireRight(auth, resourceName, "update");
 
     const whereScoped = buildWhereById(resourceName, config, auth, id);
-    const existing = await model.findFirst({ where: whereScoped, select: { [config.id]: true } });
+    const existing = await model.findFirst({
+      where: whereScoped,
+      ...(hasDefinitionUniquenessRules(resourceName) ? {} : { select: { [config.id]: true } })
+    });
     if (!existing) throw new Error(`${resourceName} not found`);
 
     const data = buildUpdateData(resourceName, config, auth, input);
+    await assertDefinitionUniqueness(
+      resourceName,
+      config,
+      { ...existing, ...data },
+      auth,
+      { excludeId: id }
+    );
     const row = await model.update({
       where: { [config.id]: Number(id) },
       data
@@ -749,6 +823,8 @@ resolvers.job = async ({ id }, context) => {
   row.jobassignmentlog = row.jobassignmentlog || [];
   row.jobstatuslog = row.jobstatuslog || [];
   row.jobcustomerremarkslog = row.jobcustomerremarkslog || [];
+  row.remarks = row.remarks || row.jobcustomerremarkslog || [];
+  row.remarksTotal = row.remarksTotal ?? row.remarks.length;
   return row;
 };
 
@@ -760,9 +836,11 @@ resolvers.jobs = async (args, context) => {
   const pageSize = Math.min(100, Math.max(1, Number(args?.pageSize ?? 25)));
   const skip = (page - 1) * pageSize;
 
-  const where = { ...scope };
+  const where = await applyTechnicianJobScope(auth, { ...scope });
   if (args?.statusid) where.statusid = Number(args.statusid);
-  if (args?.assignedto) where.assignedto = Number(args.assignedto);
+  if (args?.assignedto && where.assignedto == null) {
+    where.assignedto = Number(args.assignedto);
+  }
   if (args?.customerid) where.customerid = Number(args.customerid);
   if (args?.from || args?.to) {
     where.date = {};
@@ -815,10 +893,7 @@ resolvers.jobAttachments = async ({ id }, context) => {
 resolvers.jobCreate = async ({ input }, context) => {
   const auth = requireAuth(context);
 
-  const job = await prisma.$transaction(async () => {
-    const code = await nextJobCode(auth);
-    return jobsWorkflowService.create(auth, { ...input, code });
-  });
+  const job = await jobsWorkflowService.create(auth, input);
 
   void sendMailSafe({
     to: process.env.NOTIFY_EMAIL_TO || process.env.SMTP_USER,
@@ -900,6 +975,8 @@ resolvers.jobUploadAttachment = async ({ id, input }, context) => {
 
   return created;
 };
+
+registerReportResolvers(resolvers);
 
 module.exports = {
   typeDefs,

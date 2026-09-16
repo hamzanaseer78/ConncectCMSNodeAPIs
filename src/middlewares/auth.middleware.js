@@ -1,4 +1,5 @@
 const { verifyToken } = require("../config/jwt");
+const logger = require("../utils/logger");
 
 /**
  * JWT Authentication Middleware
@@ -21,11 +22,14 @@ function authenticateJwt(req, res, next) {
     req.auth = decoded;
     req.user = decoded;
 
-    console.log(`[AUTH] Authenticated user: ${decoded.userid}`);
+    logger.debug("JWT authenticated", {
+      UserId: decoded.userid,
+      RequestId: req.requestId || null
+    });
 
     next();
   } catch (err) {
-    console.error("[AUTH] Token error:", err.message);
+    logger.warn("JWT verification failed", { RequestId: req.requestId || null }, err);
 
     const authError = new Error("Invalid or expired token");
     authError.status = 401;

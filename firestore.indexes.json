@@ -1,0 +1,113 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "cmsusernotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchid", "order": "ASCENDING" },
+        { "fieldPath": "tenantid", "order": "ASCENDING" },
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cmsusernotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchid", "order": "ASCENDING" },
+        { "fieldPath": "tenantid", "order": "ASCENDING" },
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "read", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cmsusernotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchid", "order": "ASCENDING" },
+        { "fieldPath": "tenantid", "order": "ASCENDING" },
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cmsusernotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchid", "order": "ASCENDING" },
+        { "fieldPath": "tenantid", "order": "ASCENDING" },
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "read", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cmsusernotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchid", "order": "ASCENDING" },
+        { "fieldPath": "tenantid", "order": "ASCENDING" },
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "read", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cmsUserNotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchid", "order": "ASCENDING" },
+        { "fieldPath": "tenantid", "order": "ASCENDING" },
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cmsUserNotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchid", "order": "ASCENDING" },
+        { "fieldPath": "tenantid", "order": "ASCENDING" },
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "read", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cmsUserNotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchid", "order": "ASCENDING" },
+        { "fieldPath": "tenantid", "order": "ASCENDING" },
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cmsUserNotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchid", "order": "ASCENDING" },
+        { "fieldPath": "tenantid", "order": "ASCENDING" },
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "read", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cmsUserNotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchid", "order": "ASCENDING" },
+        { "fieldPath": "tenantid", "order": "ASCENDING" },
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "read", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

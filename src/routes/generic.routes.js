@@ -20,7 +20,7 @@ function createResourceRouter(resourceName) {
   // Dropdown endpoint (JWT only, RBAC optional)
   router.get("/dropdown", async (req, res, next) => {
     try {
-      const data = await dropdownController.getDropdown(resourceName, req.auth);
+      const data = await dropdownController.getDropdown(resourceName, req.auth, req.query);
       res.status(200).json(data);
     } catch (err) {
       next(err);
@@ -59,6 +59,20 @@ function createResourceRouter(resourceName) {
       next(err);
     }
   });
+
+  if (resourceName === "policies" && controller.updatePolicyRights) {
+    router.put(
+      "/:id/rights",
+      authorizeResourceAction(resourceName, "update"),
+      async (req, res, next) => {
+        try {
+          await controller.updatePolicyRights(req, res);
+        } catch (err) {
+          next(err);
+        }
+      }
+    );
+  }
 
   router.put("/:id", authorizeResourceAction(resourceName, "update"), async (req, res, next) => {
     try {

@@ -90,11 +90,9 @@ function getWritableFields(resourceName, config, mode) {
       return false;
     }
 
-    if (config.branchScoped && field.name === "branchid") {
-      return false;
-    }
+    return !(config.branchScoped && field.name === "branchid");
 
-    return true;
+
   });
 }
 
@@ -142,6 +140,10 @@ function getListFilterFields(resourceName, config = {}) {
   return getListScalarFields(resourceName, config);
 }
 
+function hasCreatedByField(resourceName) {
+  return getScalarFields(resourceName).some((field) => field.name === "createdby");
+}
+
 function getRelationInclude(resourceName) {
   if (!relationIncludeCache.has(resourceName)) {
     const model = getModel(resourceName);
@@ -184,7 +186,18 @@ function toOpenApiType(field) {
 }
 
 function coerceValue(field, value) {
-  if (value === undefined || value === null || value === "") {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (value === "") {
+    if (field.type === "String" && !field.isRequired) {
+      return null;
+    }
     return undefined;
   }
 
@@ -197,6 +210,9 @@ function coerceValue(field, value) {
   }
 
   if (field.type === "Boolean") {
+    if (value === false || value === "false" || value === "0" || value === 0) {
+      return false;
+    }
     return value === true || value === "true" || value === "1";
   }
 
@@ -211,6 +227,7 @@ module.exports = {
   coerceValue,
   getFilterableFields,
   getListFilterFields,
+  hasCreatedByField,
   getRelationInclude,
   getListScalarFields,
   getModel,

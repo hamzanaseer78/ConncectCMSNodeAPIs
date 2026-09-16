@@ -1,12 +1,29 @@
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const prisma = require("../../database/prisma");
-const { JWT_EXPIRES_IN, SIGNUP_TOKEN_EXPIRES_MINUTES, signToken } = require("../../config/jwt");
+const {
+  JWT_EXPIRES_IN,
+  SIGNUP_TOKEN_EXPIRES_MINUTES,
+  PASSWORD_RESET_EXPIRES_MINUTES,
+  signToken
+} = require("../../config/jwt");
+const { assertPasswordStrength } = require("../../utils/password-policy");
 const mailService = require("../../services/mail.service");
 const { utcNow } = require("../../utils/date");
+const { generateRandomPassword } = require("../../utils/password");
+const {
+  normalizeUserEmail,
+  findUserByEmail: findUserByEmailUtil,
+  assertUserEmailAvailable
+} = require("../../utils/user-email");
+const { resolveUserTypeFromInput } = require("../../utils/user-type");
+const { applyTechnicianAffiliationFields } = require("../../utils/technician-affiliation");
+const { applyManagerFields, formatManagerFields } = require("../../utils/user-manager");
 const screenRightsService = require("./screenrights.service");
-
-const DEFAULT_PASSWORD_LENGTH = 12;
+const { enrichSessionProfileGeo } = require("../../utils/geo-labels");
+const { syncPostgresSequence } = require("../../utils/postgres-sequence");
+const { assertResourceRight } = require("../../middlewares/authorization.middleware");
+const { createDefaultOrganizationPolicies } = require("../../services/default-organization-policies.service");
 
 class AuthService {
   async signup({ name, email, baseUrl, signupIp, signupLatitude, signupLongitude, isTermsAccepted }) {
@@ -14,11 +31,12 @@ class AuthService {
       throw new Error("Name required");
     }
 
-    if (!email) {
+    const normalizedEmail = normalizeUserEmail(email);
+    if (!normalizedEmail) {
       throw new Error("Email required");
     }
 
-    const existingUser = await this.findUserByEmail(email);
+    const existingUser = await this.findUserByEmail(normalizedEmail);
 
     if (existingUser?.password) {
       return {
@@ -34,6 +52,7 @@ class AuthService {
           where: { userid: existingUser.userid },
           data: {
             name,
+            email: normalizedEmail,
             signuptoken: token,
             istokenused: false,
             resettokengendatetime: now,
@@ -47,7 +66,7 @@ class AuthService {
       : await prisma.users.create({
           data: {
             name,
-            email,
+            email: normalizedEmail,
             isactive: true,
             isdeleted: false,
             signuptoken: token,
@@ -61,10 +80,10 @@ class AuthService {
           }
         });
 
-    const url = `${baseUrl || "http://localhost:3000"}/api/auth/signup/verify?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
+    const url = `${baseUrl || "http://localhost:3000"}/api/auth/signup/verify?token=${encodeURIComponent(token)}&email=${encodeURIComponent(normalizedEmail)}`;
     
     // Send signup verification email with template
-    await mailService.sendSignupVerification(email, token, url, {
+    await mailService.sendSignupVerification(normalizedEmail, token, url, {
       name: name || 'User',
       organizationName: 'ConnectCMS'
     });
@@ -72,7 +91,7 @@ class AuthService {
     return {
       message: "Signup verification code sent",
       userid: user.userid,
-      email,
+      email: normalizedEmail,
       verificationUrl: url
     };
   }
@@ -110,10 +129,97 @@ class AuthService {
     };
   }
 
+  async requestPasswordReset({ email, baseUrl }) {
+    const normalizedEmail = normalizeUserEmail(email);
+    if (!normalizedEmail) {
+      const err = new Error("Email required");
+      err.status = 400;
+      throw err;
+    }
+
+    const generic = {
+      message:
+        "If an account exists for this email, password reset instructions have been sent."
+    };
+
+    const user = await this.findUserByEmail(normalizedEmail);
+    if (!user?.password) {
+      return generic;
+    }
+
+    const token = this.generateCode();
+    const now = utcNow();
+
+    await prisma.users.update({
+      where: { userid: user.userid },
+      data: {
+        resettoken: token,
+        resettokengendatetime: now,
+        lastupdatedat: now
+      }
+    });
+
+    const appBase = (baseUrl || process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
+    const resetUrl = `${appBase}/reset-password?token=${encodeURIComponent(token)}&email=${encodeURIComponent(normalizedEmail)}`;
+
+    await mailService.sendPasswordReset(normalizedEmail, token, resetUrl, {
+      name: user.name || "User",
+      organizationName: process.env.APP_NAME || "ConnectCMS"
+    });
+
+    return generic;
+  }
+
+  async resetPassword({ email, token, password }) {
+    if (!email || !token || !password) {
+      const err = new Error("Email, token and password required");
+      err.status = 400;
+      throw err;
+    }
+
+    assertPasswordStrength(password, "New password");
+
+    const user = await this.findUserByEmail(email);
+    if (!user || !user.resettoken || user.resettoken !== String(token).trim()) {
+      const err = new Error("Invalid or expired reset token");
+      err.status = 400;
+      throw err;
+    }
+
+    if (user.resettokengendatetime) {
+      const ageMs = utcNow().getTime() - new Date(user.resettokengendatetime).getTime();
+      if (ageMs > PASSWORD_RESET_EXPIRES_MINUTES * 60 * 1000) {
+        const err = new Error("Reset token expired");
+        err.status = 400;
+        throw err;
+      }
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const now = utcNow();
+
+    await prisma.users.update({
+      where: { userid: user.userid },
+      data: {
+        password: passwordHash,
+        resettoken: null,
+        resettokengendatetime: null,
+        lastupdatedat: now
+      }
+    });
+
+    return {
+      message: "Password reset successfully",
+      userid: user.userid
+    };
+  }
+
   async configurePassword({ email, token, password }) {
     if (!email || !token || !password) {
       throw new Error("Email, token and password required");
     }
+
+    assertPasswordStrength(password, "Password");
 
     const user = await this.findUserByEmail(email);
 
@@ -175,6 +281,8 @@ class AuthService {
         }
       });
 
+      await syncPostgresSequence(tx, "branches", "branchid");
+
       const branch = await tx.branches.create({
         data: {
           tenantid: organization.tenantid,
@@ -193,15 +301,12 @@ class AuthService {
         }
       });
 
-      const adminPolicy = await tx.policies.create({
-        data: {
+      const { admin: adminPolicy, manager: managerPolicy, technician: technicianPolicy } =
+        await createDefaultOrganizationPolicies(tx, {
           tenantid: organization.tenantid,
-          description: "Admin",
-          isdefaultpolicy: true,
-          createdby: user.userid,
-          createdat: now
-        }
-      });
+          branchid: branch.branchid,
+          createdBy: user.userid
+        });
 
       await tx.userorganizations.create({
         data: {
@@ -225,34 +330,11 @@ class AuthService {
         }
       });
 
-      var rightsData = [];
-
-      const screens = await tx.screens.findMany();
-
-      screens.forEach(screen => {
-        rightsData.push({
-          screenid: screen.screenid,
-          policyid: adminPolicy.recno,
-          tenantid: organization.tenantid,
-          branchid: branch.branchid,
-          viewscreen: true,
-          addscreen: true,
-          updatescreen: true,
-          deletescreen: true,
-          others: true,
-          createdby: user.userid,
-          createdat: now
-        });
-      });
-
-      await tx.userrights.createMany({
-        data: rightsData
-      });
-
       await tx.users.update({
         where: { userid: user.userid },
         data: {
           createdtenantid: organization.tenantid,
+          usertype: "admin",
           lastupdatedat: now
         }
       });
@@ -272,6 +354,11 @@ class AuthService {
         organization,
         branch,
         policy: adminPolicy,
+        policies: {
+          admin: adminPolicy,
+          manager: managerPolicy,
+          technician: technicianPolicy
+        },
         token: this.createSessionToken(user, organization.tenantid, branch.branchid)
       };
     });
@@ -280,159 +367,290 @@ class AuthService {
   async login({ email, password}) {
     const user = await this.validateEmailPassword(email, password);
     const membership = await this.resolveMembership(user.userid, null, null);
-    const contexts = await this.getUserContexts(user.userid);
-    const rights = await screenRightsService.getScreenRights({
-      userid: user.userid,
-      tenantid: membership.tenantid,
-      branchid: membership.branchid
-    });
-
-    return {
-      token: this.createSessionToken(user, membership.tenantid, membership.branchid),
-      tokenType: "Bearer",
-      expiresIn: JWT_EXPIRES_IN,
-      user: this.toUserDto(user),
-      tenantid: membership.tenantid,
-      branchid: membership.branchid,
-      organizations: contexts,
-      isAdmin: rights.isAdmin,
-      screenRights: rights.screenRights
-    };
+    return this.buildSessionProfileResponse(user, membership.tenantid, membership.branchid);
   }
 
   async switchContext(auth, { tenantid, branchid }) {
     const membership = await this.resolveMembership(auth.userid, tenantid, branchid);
     const user = await prisma.users.findUnique({ where: { userid: Number(auth.userid) } });
-    const contexts = await this.getUserContexts(auth.userid);
-    const rights = await screenRightsService.getScreenRights({
-      userid: auth.userid,
-      tenantid: membership.tenantid,
-      branchid: membership.branchid
-    });
 
-    return {
-      token: this.createSessionToken(user, membership.tenantid, membership.branchid),
-      tokenType: "Bearer",
-      expiresIn: JWT_EXPIRES_IN,
-      tenantid: membership.tenantid,
-      branchid: membership.branchid,
-      organizations: contexts,
-      isAdmin: rights.isAdmin,
-      screenRights: rights.screenRights
-    };
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    return this.buildSessionProfileResponse(user, membership.tenantid, membership.branchid);
   }
 
-  async inviteUser(auth, { name, email, branchid, policyid }) {
+  /**
+   * Creates a user for the current tenant/branch when the caller has Users add permission.
+   * POST /api/auth/invite | POST /api/auth/users/create | POST /api/user/admin/create
+   */
+  async inviteUser(auth, input = {}) {
+    const email = normalizeUserEmail(input.email);
+    const name = String(input.name || "").trim();
+
     if (!email) {
       throw new Error("Email required");
     }
+    if (!name) {
+      throw new Error("Name required");
+    }
 
-    await this.ensureAdmin(auth.userid, auth.tenantid, auth.branchid);
+    await assertResourceRight(auth, "users", "add");
 
-    const now = utcNow();
+    const tenantid = Number(auth.tenantid);
+    const targetBranchId = Number(input.branchid || auth.branchid);
+    const targetPolicyId = await this.resolveInvitePolicyId(tenantid, input.policyid);
+    const resetExisting = input.resetPassword !== false;
+    const sendEmail = input.sendEmail !== false;
+    const usertype = resolveUserTypeFromInput(input, { defaultType: "technician" });
+    const technicianFields = applyTechnicianAffiliationFields(input, usertype, { mode: "create" });
+    const managerFields = await applyManagerFields(input, usertype, {
+      mode: "create",
+      tenantid
+    });
+
+    const [organization, inviter] = await Promise.all([
+      prisma.organizations.findUnique({
+        where: { tenantid },
+        select: { organizationname: true }
+      }),
+      prisma.users.findUnique({
+        where: { userid: Number(auth.userid) },
+        select: { name: true, email: true }
+      })
+    ]);
+
+    const organizationName =
+      organization?.organizationname || process.env.APP_NAME || "ConnectCMS";
+    const inviterName = inviter?.name || auth.name || "Admin";
+    const loginUrl = `${(process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "")}/login`;
+
     let user = await this.findUserByEmail(email);
-    let generatedPassword = null;
+    const isNewUser = !user;
+    let generatedPassword = generateRandomPassword(
+      Number(process.env.ADMIN_USER_PASSWORD_LENGTH || 12)
+    );
+    const now = utcNow();
+    const passwordHash = await bcrypt.hash(generatedPassword, 10);
 
-    if (!user) {
-      generatedPassword = crypto.randomBytes(DEFAULT_PASSWORD_LENGTH).toString("base64url").slice(0, DEFAULT_PASSWORD_LENGTH);
-      user = await prisma.users.create({
-        data: {
+    const result = await prisma.$transaction(async (tx) => {
+      if (!user) {
+        await assertUserEmailAvailable(tx, email);
+        user = await tx.users.create({
+          data: {
+            name,
+            email,
+            contactno: input.contactno != null ? String(input.contactno).trim() : null,
+            usertype,
+            ...technicianFields,
+            ...managerFields,
+            password: passwordHash,
+            isactive: input.isactive !== false,
+            isdeleted: false,
+            createdby: Number(auth.userid),
+            createdat: now
+          }
+        });
+      } else {
+        const updateData = {
           name,
-          email,
-          password: await bcrypt.hash(generatedPassword, 10),
-          isactive: true,
-          isdeleted: false,
-          createdby: Number(auth.userid),
-          createdat: now
+          lastupdatedby: Number(auth.userid),
+          lastupdatedat: now
+        };
+        if (input.contactno !== undefined) {
+          updateData.contactno = input.contactno != null ? String(input.contactno).trim() : null;
         }
-      });
-    }
-
-    if (!policyid) {
-      throw new Error("Policy required for invited user");
-    }
-
-    const targetBranchId = Number(branchid || auth.branchid);
-    const targetPolicyId = Number(policyid);
-
-    const existingMembership = await prisma.userorganizations.findFirst({
-      where: {
-        userid: user.userid,
-        tenantid: Number(auth.tenantid),
-        branchid: targetBranchId
+        if (input.isactive !== undefined) {
+          updateData.isactive = input.isactive === true || input.isactive === "true" || input.isactive === 1;
+        }
+        if (input.usertype !== undefined || input.userType !== undefined || input.type !== undefined) {
+          updateData.usertype = resolveUserTypeFromInput(input, { required: true });
+        }
+        const effectiveType = updateData.usertype ?? user.usertype;
+        Object.assign(
+          updateData,
+          applyTechnicianAffiliationFields(input, effectiveType, { mode: "update" })
+        );
+        Object.assign(
+          updateData,
+          await applyManagerFields(input, effectiveType, {
+            mode: "update",
+            tenantid,
+            technicianUserId: user.userid
+          })
+        );
+        if (resetExisting) {
+          updateData.password = passwordHash;
+        } else {
+          generatedPassword = null;
+        }
+        user = await tx.users.update({
+          where: { userid: user.userid },
+          data: updateData
+        });
       }
-    });
 
-    if (!existingMembership) {
-      await prisma.userorganizations.create({
-        data: {
-          userid: user.userid,
-          tenantid: Number(auth.tenantid),
-          branchid: targetBranchId,
-          isblocked: false,
-          createdby: Number(auth.userid),
-          createdat: now
-        }
+      const existingMembership = await tx.userorganizations.findFirst({
+        where: { userid: user.userid, tenantid, branchid: targetBranchId }
       });
-    }
 
-    const existingPolicy = await prisma.userpolicies.findFirst({
-      where: {
-        userid: user.userid,
-        tenantid: Number(auth.tenantid),
-        branchid: targetBranchId,
-        policyid: targetPolicyId
+      if (!existingMembership) {
+        await tx.userorganizations.create({
+          data: {
+            userid: user.userid,
+            tenantid,
+            branchid: targetBranchId,
+            isblocked: false,
+            createdby: Number(auth.userid),
+            createdat: now
+          }
+        });
       }
-    });
 
-    if (!existingPolicy) {
-      await prisma.userpolicies.create({
-        data: {
+      const existingPolicy = await tx.userpolicies.findFirst({
+        where: {
           userid: user.userid,
-          tenantid: Number(auth.tenantid),
+          tenantid,
           branchid: targetBranchId,
-          policyid: targetPolicyId,
-          createdby: Number(auth.userid),
-          createdat: now
+          policyid: targetPolicyId
         }
       });
-    }
 
-    await mailService.sendInvitation(email, {
-      name: name || user.name || 'User',
-      inviterName: auth.name || 'Admin',
-      organizationName: 'ConnectCMS',
-      generatedPassword,
-      loginUrl: `${process.env.APP_URL || 'http://localhost:3000'}/login`
+      if (!existingPolicy) {
+        await tx.userpolicies.create({
+          data: {
+            userid: user.userid,
+            tenantid,
+            branchid: targetBranchId,
+            policyid: targetPolicyId,
+            createdby: Number(auth.userid),
+            createdat: now
+          }
+        });
+      }
+
+      return { user, isNewUser };
     });
+
+    let emailSent = false;
+    if (sendEmail && generatedPassword) {
+      await mailService.sendInvitation(email, {
+        name: name || result.user.name || "User",
+        inviterName,
+        organizationName,
+        generatedPassword,
+        loginUrl
+      });
+      emailSent = true;
+    } else if (sendEmail && !generatedPassword) {
+      await mailService.sendInvitation(email, {
+        name: name || result.user.name || "User",
+        inviterName,
+        organizationName,
+        generatedPassword: null,
+        loginUrl,
+        temporaryPassword: false
+      });
+      emailSent = true;
+    }
 
     return {
-      message: "User invited successfully",
-      userid: user.userid,
-      generatedPasswordSent: Boolean(generatedPassword)
+      message: result.isNewUser ? "User created successfully" : "User updated and assigned to organization",
+      userid: result.user.userid,
+      email,
+      usertype: result.user.usertype,
+      technicianAffiliation: result.user.technicianaffiliation ?? null,
+      companyName: result.user.companyname ?? null,
+      ...formatManagerFields(result.user),
+      isNewUser: result.isNewUser,
+      policyid: targetPolicyId,
+      branchid: targetBranchId,
+      passwordEmailSent: emailSent,
+      generatedPasswordSent: Boolean(generatedPassword && emailSent)
     };
+  }
+
+  /** Alias for inviteUser — admin signup/create flow. */
+  async createUserByAdmin(auth, input) {
+    return this.inviteUser(auth, input);
+  }
+
+  async resolveInvitePolicyId(tenantid, policyid) {
+    if (policyid !== undefined && policyid !== null && policyid !== "") {
+      const id = Number(policyid);
+      const policy = await prisma.policies.findFirst({
+        where: { recno: id, tenantid: Number(tenantid) }
+      });
+      if (!policy) {
+        const err = new Error("Policy not found for this organization");
+        err.status = 400;
+        throw err;
+      }
+      return id;
+    }
+
+    const staffPolicy =
+      (await prisma.policies.findFirst({
+        where: {
+          tenantid: Number(tenantid),
+          description: { equals: "Manager", mode: "insensitive" },
+          OR: [{ isdefaultpolicy: false }, { isdefaultpolicy: null }]
+        },
+        orderBy: { recno: "asc" }
+      })) ||
+      (await prisma.policies.findFirst({
+        where: {
+          tenantid: Number(tenantid),
+          OR: [{ isdefaultpolicy: false }, { isdefaultpolicy: null }]
+        },
+        orderBy: { recno: "asc" }
+      }));
+
+    if (staffPolicy) {
+      return staffPolicy.recno;
+    }
+
+    const anyPolicy = await prisma.policies.findFirst({
+      where: { tenantid: Number(tenantid) },
+      orderBy: { recno: "asc" }
+    });
+
+    if (!anyPolicy) {
+      const err = new Error("No policy found. Create at least one policy for this organization.");
+      err.status = 400;
+      throw err;
+    }
+
+    return anyPolicy.recno;
   }
 
   async validateEmailPassword(email, password) {
     if (!email || !password) {
-      throw new Error("Email and password required");
+      const err = new Error("Email and password required");
+      err.status = 400;
+      throw err;
     }
 
     const user = await this.findUserByEmail(email);
 
     if (!user?.password || !await bcrypt.compare(password, user.password)) {
-      throw new Error("Invalid email or password");
+      const err = new Error("Invalid email or password");
+      err.status = 401;
+      throw err;
     }
 
     if (user.isdeleted===true || user.isactive!==true) {
-      throw new Error("User is inactive");
+      const err = new Error("User is inactive");
+      err.status = 403;
+      throw err;
     }
 
     return user;
   }
 
   async findUserByEmail(email) {
-    return prisma.users.findFirst({ where: { email } });
+    return findUserByEmailUtil(prisma, email);
   }
 
   async resolveMembership(userid, tenantid, branchid) {
@@ -519,7 +737,9 @@ class AuthService {
     });
 
     if (!assignment) {
-      throw new Error("Admin policy required");
+      const err = new Error("Admin policy required");
+      err.status = 403;
+      throw err;
     }
   }
 
@@ -549,6 +769,31 @@ class AuthService {
     });
   }
 
+  async buildSessionProfileResponse(user, tenantid, branchid) {
+    const contexts = await this.getUserContexts(user.userid);
+    const rights = await screenRightsService.getScreenRights({
+      userid: user.userid,
+      tenantid,
+      branchid
+    });
+    const { user: enrichedUser, organizations } = await enrichSessionProfileGeo(
+      this.toUserDto(user),
+      contexts
+    );
+
+    return {
+      token: this.createSessionToken(user, tenantid, branchid),
+      tokenType: "Bearer",
+      expiresIn: JWT_EXPIRES_IN,
+      user: enrichedUser,
+      tenantid,
+      branchid,
+      organizations,
+      isAdmin: rights.isAdmin,
+      screenRights: rights.screenRights
+    };
+  }
+
   async getProfile(auth) {
     const user = await prisma.users.findUnique({
       where: { userid: Number(auth.userid) }
@@ -559,20 +804,7 @@ class AuthService {
     }
 
     const membership = await this.resolveMembership(user.userid, auth.tenantid, auth.branchid);
-    const contexts = await this.getUserContexts(user.userid);
-    const rights = await screenRightsService.getScreenRights(auth);
-
-    return {
-      token: this.createSessionToken(user, membership.tenantid, membership.branchid),
-      tokenType: "Bearer",
-      expiresIn: JWT_EXPIRES_IN,
-      user: this.toUserDto(user),
-      tenantid: membership.tenantid,
-      branchid: membership.branchid,
-      organizations: contexts,
-      isAdmin: rights.isAdmin,
-      screenRights: rights.screenRights
-    };
+    return this.buildSessionProfileResponse(user, membership.tenantid, membership.branchid);
   }
 
   generateCode() {

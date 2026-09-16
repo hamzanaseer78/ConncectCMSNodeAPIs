@@ -1,0 +1,2 @@
+ALTER TABLE "job" ADD COLUMN IF NOT EXISTS "notes" TEXT;
+ALTER TABLE "job" ADD COLUMN IF NOT EXISTS "termsandconditions" TEXT;

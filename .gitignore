@@ -8,6 +8,11 @@ yarn.lock
 .env.local
 .env.*.local
 
+# Firebase service account keys (never commit)
+config/firebase/*.json
+**/serviceAccountKey.json
+**/firebase-adminsdk*.json
+
 # Logs
 logs/
 *.log

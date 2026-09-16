@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ConnectCMS PostgreSQL ER Diagram (with attributes)</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { display: flex; flex-direction: column; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background: #0f1419; color: #e7ecf3; }
+    header { width: 100%; flex-shrink: 0; padding: 12px 16px; background: #1a2332; border-bottom: 1px solid #2d3a4d; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    header h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+    header p { margin: 0; font-size: 0.85rem; color: #9fb0c5; flex: 1 1 100%; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%; }
+    button { background: #2d5a8a; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+    button:hover { background: #3a6fa8; }
+    button.secondary { background: #3a4555; }
+    #viewport { width: 100%; flex: 1; min-height: 0; overflow: hidden; cursor: grab; background: #121820; }
+    #viewport.grabbing { cursor: grabbing; }
+    #panzoom { width: 100%; transform-origin: 0 0; padding: 8px 0; }
+    #diagram { width: 100%; margin: 0; display: block; }
+    .mermaid { width: 100%; background: #fff; border-radius: 0; padding: 12px 0; margin: 0; }
+    .legend code { color: #b8d4ff; }
+    #status { font-size: 0.8rem; color: #7dd3a0; margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ConnectCMS PostgreSQL ER Diagram (with attributes)</h1>
+    <p class="legend">From <code>prisma/schema.prisma</code>. Drag to pan · scroll to zoom · Export PNG. 38 tables, 156 FK links — columns shown.</p>
+    <div class="toolbar">
+      <button type="button" id="zoomIn">Zoom +</button>
+      <button type="button" id="zoomOut">Zoom −</button>
+      <button type="button" id="resetView" class="secondary">Reset view</button>
+      <button type="button" id="exportPng">Export PNG</button>
+      <span id="status"></span>
+    </div>
+  </header>
+  <div id="viewport">
+    <div id="panzoom">
+      <pre class="mermaid" id="diagram">erDiagram
+  areas {
+    Int recno PK
+    Int tenantid FK
+    String name
+    Int cityid FK
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+    Boolean isactive
+  }
+  branches {
+    Int branchid PK
+    Int tenantid FK
+    String name
+    String phoneno
+    String email
+    String web
+    Int country FK
+    Int city FK
+    Int area FK
+    String address
+    String address2
+    String logourl
+    Boolean isactive
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+  }
+  cities {
+    Int recno PK
+    Int tenantid FK
+    String name
+    Int countryid FK
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+    Boolean isactive
+  }
+  countries {
+    Int recno PK
+    Int tenantid FK
+    String name
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+    Boolean isactive
+  }
+  customers {
+    Int customerid PK
+    Int tenantid FK
+    Int branchid FK
+    String name
+    String email
+    String contactno
+    String address
+    Boolean isactive
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+    Int country FK
+    Int city FK
+    Int area FK
+  }
+  jobcategories {
+    Int categoryid PK
+    Int groupid FK
+    Int tenantid FK
+    Int branchid FK
+    String name
+    Boolean isactive
+    String color
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+  }
+  jobgroups {
+    Int groupid PK
+    Int tenantid FK
+    Int branchid FK
+    String name
+    Boolean isactive
+    String color
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+  }
+  jobsubcategories {
+    Int subcategoryid PK
+    Int categoryid FK
+    Int tenantid FK
+    Int branchid FK
+    Int defaultuser
+    String name
+    Boolean isactive
+    String color
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+  }
+  organizations {
+    Int tenantid PK
+    String organizationname
+    String phoneno
+    String email
+    String website
+    Int defaultcurrency
+    Int country FK
+    Int city FK
+    String address
+    String address2
+    String logourl
+    Boolean istaxregistered
+    String taxno
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+    Int financialyeartype
+    Int roundingdigit
+    Int weektype
+  }
+  policies {
+    Int recno PK
+    Int tenantid FK
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime updatedat
+    String description
+    Boolean isdefaultpolicy
+  }
+  products {
+    Int productid PK
+    Int tenantid FK
+    Int branchid FK
+    Int unitid FK
+    Int brandid FK
+    String name
+    Float salerate
+    Float discountvalue
+    String discounttype
+    Float purchaserate
+    Boolean isactive
+    Boolean isservice
+    Boolean managestock
+    String producttype
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+  }
+  screens {
+    Int screenid PK
+    String screenname
+    String screengroup
+    String controllername
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime updatedat
+    Boolean isvisible
+    Boolean accessible
+  }
+  userorganizations {
+    Int recno PK
+    Int userid FK
+    Int tenantid FK
+    Int branchid FK
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+    Boolean isblocked
+    Int blockedby FK
+    DateTime blockedat
+  }
+  userpolicies {
+    Int recno PK
+    Int tenantid FK
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime updatedat
+    Int policyid FK
+    Int userid FK
+    Int branchid FK
+  }
+  userrights {
+    Int recno PK
+    Int tenantid FK
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime updatedat
+    Int screenid FK
+    Int policyid FK
+    Boolean viewscreen
+    Boolean addscreen
+    Boolean updatescreen
+    Boolean deletescreen
+    Boolean others
+    Int branchid FK
+  }
+  users {
+    Int userid PK
+    String name
+    String email
+    String password
+    String contactno
+    String profileimage
+    Boolean isactive
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+    String resettoken
+    DateTime resettokengendatetime
+    Boolean isdeleted
+    String signuptoken
+    Boolean istokenused
+    DateTime tokenusedat
+    Int createdtenantid FK
+    Int country FK
+    Int city FK
+    Boolean istermsaccepted
+    String signupip
+    String signuplatitude
+    String signuplongitude
+    String gender
+  }
+  userssignuptokenlogs {
+    Int recno PK
+    String signuptoken
+    Boolean istokenused
+    Int createdtenantid FK
+    DateTime tokenusedat
+    DateTime logcreatedat
+    Int userid FK
+  }
+  userlocations {
+    Int recno PK
+    Int userid FK
+    Int tenantid FK
+    Int branchid FK
+    Int jobid FK
+    Float latitude
+    Float longitude
+    String address
+    Float accuracy
+    Float altitude
+    Float heading
+    Float speed
+    DateTime recordedat
+    DateTime createdat
+  }
+  jobstatuses {
+    Int recno PK
+    Int tenantid FK
+    String title
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+    Boolean isfirststatus
+    Boolean iscompletedstatus
+    Boolean isresolvedstatus
+    String color
+    Int sort
+  }
+  job {
+    Int recno PK
+    Int tenantid FK
+    Int branchid FK
+    String code
+    DateTime date
+    Int assignedto FK
+    Int city FK
+    Int area FK
+    Int groupid FK
+    Int serviceid FK
+    Int faultid FK
+    Int customerid FK
+    Boolean isinwaranty
+    Boolean isfirstresponse
+    Boolean iscompleted
+    Boolean isresolved
+    Int estimatedcompletedtime
+    Int actualcompletedtime
+    Int actualresolvedtime
+    Int statusid FK
+    String priority
+    Boolean qualityassuerd
+    Int deliverytype
+    Boolean isacknowledged
+    String manualjobno
+    Int brandid FK
+  }
+  jobapprovalsettings {
+    Int recno PK
+    Int tenantid FK
+    Int branchid FK
+    Boolean isenabled
+    Int levelcount
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+  }
+  jobapprovallevels {
+    Int recno PK
+    Int settingsid FK
+    Int tenantid FK
+    Int branchid FK
+    Int levelno
+    String levelname
+    DateTime createdat
+  }
+  jobapprovallevelusers {
+    Int recno PK
+    Int levelid FK
+    Int userid FK
+    Int tenantid FK
+    Int branchid FK
+    DateTime createdat
+  }
+  jobapprovalrequests {
+    Int recno PK
+    Int jobid FK
+    Int tenantid FK
+    Int branchid FK
+    String status
+    Int currentlevel
+    Int levelcount
+    Int submittedby FK
+    DateTime submittedat
+    DateTime completedat
+    Int rejectedby FK
+    DateTime rejectedat
+    String rejectremarks
+  }
+  jobapprovalactions {
+    Int recno PK
+    Int requestid FK
+    Int levelno
+    String levelname
+    Int userid FK
+    String action
+    String remarks
+    DateTime actedat
+  }
+  jobaddonproducts {
+    Int recno PK
+    Int jobid FK
+    Int tenantid FK
+    Int branchid FK
+    Int productid FK
+    String modelno
+    String partno
+    Float qty
+    Float price
+    Float totalamount
+    String discounttype
+    Float discountvalue
+    Float discountamount
+    Float exclusiveamount
+    Int taxtypeid FK
+    Float taxpercent
+    Float taxamount
+    Float inclusiveamount
+    Boolean isserviceitem
+    Int lineno
+    String remarks
+  }
+  jobassignmentlog {
+    Int recno PK
+    Int jobid FK
+    Int tenantid FK
+    Int branchid FK
+    Int userid FK
+    String remarks
+    Int assignedby FK
+    DateTime assignedat
+  }
+  jobattachments {
+    Int recno PK
+    Int jobid FK
+    Int tenantid FK
+    Int branchid FK
+    Int addedby FK
+    DateTime addedat
+    String attachmentname
+    String url
+    String remarks
+  }
+  jobcustomerremarkslog {
+    Int recno PK
+    Int jobid FK
+    Int tenantid FK
+    Int branchid FK
+    String remarks
+    Int addedby FK
+    DateTime addedat
+  }
+  jobdetails {
+    Int recno PK
+    Int jobid FK
+    Int tenantid FK
+    Int branchid FK
+    DateTime assignedat
+    Int assignedby FK
+    String assignedremarks
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+    String description
+    Int firstresponseby
+    String firstresponseremarks
+    DateTime firstresponseat
+    Int completedby
+    String completedremarks
+    DateTime completedat
+    Int resolvedby
+    String resolvedremarks
+    DateTime resolvedat
+    String latitude
+    String longitutde
+    String address
+    Int qualityassuerdby
+    String qualityassuerdremarks
+    DateTime qualityassuerdat
+    String deliveryvehicleno
+    String deliverydrivername
+    String deliverydrivercontactno
+    Int acknowledgedby
+    String acknowledgedremarks
+    DateTime acknowledgedat
+    String remarks
+    String notes
+  }
+  jobproducts {
+    Int recno PK
+    Int jobid FK
+    Int tenantid FK
+    Int branchid FK
+    Int productid FK
+    String modelno
+    String partno
+    String salerefrenceno
+    Float qty
+    Float price
+    Float totalamount
+    String discounttype
+    Float discountvalue
+    Float discountamount
+    Float exclusiveamount
+    Int taxtypeid FK
+    Float taxpercent
+    Float taxamount
+    Float inclusiveamount
+    Boolean isserviceitem
+    Int lineno
+    String remarks
+  }
+  jobstatuslog {
+    Int recno PK
+    Int jobid FK
+    Int tenantid FK
+    Int branchid FK
+    Int fromstatus FK
+    Int tostatus FK
+    String remarks
+    Int changedby FK
+    DateTime changedat
+  }
+  jobtravelhistory {
+    Int recno PK
+    Int jobid FK
+    Int tenantid FK
+    Int branchid FK
+    Int traveledby FK
+    DateTime startedat
+    DateTime stopedat
+    String startlatitude
+    String startlongitude
+    String stoplatitude
+    String stoplongitude
+    String startaddress
+    String stopaddress
+    String remarks
+  }
+  jobworklhistory {
+    Int recno PK
+    Int jobid FK
+    Int tenantid FK
+    Int branchid FK
+    Int workedby FK
+    DateTime startedat
+    DateTime stopedat
+    String startlatitude
+    String startlongitude
+    String startaddress
+    String stoplatitude
+    String stoplongitude
+    String stopaddress
+    String remarks
+  }
+  taxtypes {
+    Int recno PK
+    Int tenantid FK
+    String name
+    Boolean isactive
+    Float taxpercent
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+  }
+  deliverytypes {
+    Int recno PK
+    Int tenantid FK
+    String name
+    Boolean isactive
+    Int sort
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+  }
+  brands {
+    Int recno PK
+    Int tenantid FK
+    String name
+    Boolean isactive
+    Int sort
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+  }
+  units {
+    Int recno PK
+    Int tenantid FK
+    String name
+    String symbol
+    Boolean isactive
+    Int sort
+    Int createdby FK
+    DateTime createdat
+    Int lastupdatedby FK
+    DateTime lastupdatedat
+  }
+  areas }o--|| cities : cityid
+  areas }o--|| users : createdby
+  areas }o--|| users : lastupdatedby
+  areas }o--|| organizations : tenantid
+  branches }o--|| users : createdby
+  branches }o--|| users : lastupdatedby
+  branches }o--|| organizations : tenantid
+  cities }o--|| countries : countryid
+  cities }o--|| users : createdby
+  cities }o--|| users : lastupdatedby
+  cities }o--|| organizations : tenantid
+  countries }o--|| users : createdby
+  countries }o--|| users : lastupdatedby
+  countries }o--|| organizations : tenantid
+  customers }o--|| areas : area
+  customers }o--|| branches : branchid
+  customers }o--|| cities : city
+  customers }o--|| countries : country
+  customers }o--|| users : createdby
+  customers }o--|| users : lastupdatedby
+  customers }o--|| organizations : tenantid
+  jobcategories }o--|| branches : branchid
+  jobcategories }o--|| users : createdby
+  jobcategories }o--|| jobgroups : groupid
+  jobcategories }o--|| users : lastupdatedby
+  jobcategories }o--|| organizations : tenantid
+  jobgroups }o--|| branches : branchid
+  jobgroups }o--|| users : createdby
+  jobgroups }o--|| users : lastupdatedby
+  jobgroups }o--|| organizations : tenantid
+  jobsubcategories }o--|| branches : branchid
+  jobsubcategories }o--|| jobcategories : categoryid
+  jobsubcategories }o--|| users : createdby
+  jobsubcategories }o--|| users : lastupdatedby
+  jobsubcategories }o--|| organizations : tenantid
+  organizations }o--|| users : createdby
+  organizations }o--|| users : lastupdatedby
+  policies }o--|| users : createdby
+  policies }o--|| users : lastupdatedby
+  policies }o--|| organizations : tenantid
+  products }o--|| branches : branchid
+  products }o--|| units : unitid
+  products }o--|| brands : brandid
+  products }o--|| users : createdby
+  products }o--|| users : lastupdatedby
+  products }o--|| organizations : tenantid
+  userorganizations }o--|| users : blockedby
+  userorganizations }o--|| branches : branchid
+  userorganizations }o--|| users : createdby
+  userorganizations }o--|| users : lastupdatedby
+  userorganizations }o--|| organizations : tenantid
+  userorganizations }o--|| users : userid
+  userpolicies }o--|| branches : branchid
+  userpolicies }o--|| users : createdby
+  userpolicies }o--|| users : lastupdatedby
+  userpolicies }o--|| policies : policyid
+  userpolicies }o--|| organizations : tenantid
+  userpolicies }o--|| users : userid
+  userrights }o--|| branches : branchid
+  userrights }o--|| users : createdby
+  userrights }o--|| users : lastupdatedby
+  userrights }o--|| policies : policyid
+  userrights }o--|| screens : screenid
+  userrights }o--|| organizations : tenantid
+  users }o--|| users : createdby
+  users }o--|| users : lastupdatedby
+  userssignuptokenlogs }o--|| organizations : createdtenantid
+  userssignuptokenlogs }o--|| users : userid
+  userlocations }o--|| branches : branchid
+  userlocations }o--|| job : jobid
+  userlocations }o--|| organizations : tenantid
+  userlocations }o--|| users : userid
+  jobstatuses }o--|| users : createdby
+  jobstatuses }o--|| users : lastupdatedby
+  jobstatuses }o--|| organizations : tenantid
+  job }o--|| areas : area
+  job }o--|| brands : brandid
+  job }o--|| users : assignedto
+  job }o--|| branches : branchid
+  job }o--|| jobgroups : groupid
+  job }o--|| jobcategories : serviceid
+  job }o--|| cities : city
+  job }o--|| customers : customerid
+  job }o--|| jobstatuses : statusid
+  job }o--|| jobsubcategories : faultid
+  job }o--|| organizations : tenantid
+  jobapprovalsettings }o--|| branches : branchid
+  jobapprovalsettings }o--|| organizations : tenantid
+  jobapprovallevels }o--|| jobapprovalsettings : settingsid
+  jobapprovallevelusers }o--|| jobapprovallevels : levelid
+  jobapprovallevelusers }o--|| users : userid
+  jobapprovalrequests }o--|| job : jobid
+  jobapprovalrequests }o--|| users : submittedby
+  jobapprovalrequests }o--|| users : rejectedby
+  jobapprovalactions }o--|| jobapprovalrequests : requestid
+  jobapprovalactions }o--|| users : userid
+  jobaddonproducts }o--|| branches : branchid
+  jobaddonproducts }o--|| job : jobid
+  jobaddonproducts }o--|| products : productid
+  jobaddonproducts }o--|| taxtypes : taxtypeid
+  jobaddonproducts }o--|| organizations : tenantid
+  jobassignmentlog }o--|| users : assignedby
+  jobassignmentlog }o--|| branches : branchid
+  jobassignmentlog }o--|| job : jobid
+  jobassignmentlog }o--|| organizations : tenantid
+  jobassignmentlog }o--|| users : userid
+  jobattachments }o--|| users : addedby
+  jobattachments }o--|| branches : branchid
+  jobattachments }o--|| job : jobid
+  jobattachments }o--|| organizations : tenantid
+  jobcustomerremarkslog }o--|| users : addedby
+  jobcustomerremarkslog }o--|| branches : branchid
+  jobcustomerremarkslog }o--|| job : jobid
+  jobcustomerremarkslog }o--|| organizations : tenantid
+  jobdetails }o--|| users : acknowledgedby
+  jobdetails }o--|| users : assignedby
+  jobdetails }o--|| branches : branchid
+  jobdetails }o--|| users : completedby
+  jobdetails }o--|| users : createdby
+  jobdetails }o--|| users : firstresponseby
+  jobdetails }o--|| job : jobid
+  jobdetails }o--|| users : lastupdatedby
+  jobdetails }o--|| users : qualityassuerdby
+  jobdetails }o--|| users : resolvedby
+  jobdetails }o--|| organizations : tenantid
+  jobproducts }o--|| branches : branchid
+  jobproducts }o--|| job : jobid
+  jobproducts }o--|| products : productid
+  jobproducts }o--|| taxtypes : taxtypeid
+  jobproducts }o--|| organizations : tenantid
+  jobstatuslog }o--|| branches : branchid
+  jobstatuslog }o--|| users : changedby
+  jobstatuslog }o--|| jobstatuses : fromstatus
+  jobstatuslog }o--|| job : jobid
+  jobstatuslog }o--|| organizations : tenantid
+  jobstatuslog }o--|| jobstatuses : tostatus
+  jobtravelhistory }o--|| branches : branchid
+  jobtravelhistory }o--|| job : jobid
+  jobtravelhistory }o--|| organizations : tenantid
+  jobtravelhistory }o--|| users : traveledby
+  jobworklhistory }o--|| branches : branchid
+  jobworklhistory }o--|| job : jobid
+  jobworklhistory }o--|| organizations : tenantid
+  jobworklhistory }o--|| users : workedby
+  taxtypes }o--|| users : createdby
+  taxtypes }o--|| users : lastupdatedby
+  taxtypes }o--|| organizations : tenantid
+  deliverytypes }o--|| organizations : tenantid
+  deliverytypes }o--|| users : createdby
+  deliverytypes }o--|| users : lastupdatedby
+  brands }o--|| organizations : tenantid
+  brands }o--|| users : createdby
+  brands }o--|| users : lastupdatedby
+  units }o--|| organizations : tenantid
+  units }o--|| users : createdby
+  units }o--|| users : lastupdatedby
+</pre>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      er: { layoutDirection: 'LR' },
+      theme: 'default',
+      securityLevel: 'loose',
+      themeVariables: { fontSize: '13px' }
+    });
+
+    const viewport = document.getElementById('viewport');
+    const panzoom = document.getElementById('panzoom');
+    let scale = 1;
+    let tx = 8, ty = 8;
+    let dragging = false, lastX, lastY;
+
+    function applyTransform() {
+      panzoom.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+    }
+
+    function fitToWidth() {
+      const svg = document.querySelector('#diagram svg');
+      if (!svg) return;
+      const pad = 16;
+      const bbox = svg.getBBox();
+      if (!bbox.width) return;
+      scale = Math.min(2.5, Math.max(0.06, (viewport.clientWidth - pad) / bbox.width));
+      tx = pad / 2;
+      ty = pad / 2;
+      applyTransform();
+    }
+
+    const diagramObserver = new MutationObserver(() => {
+      if (document.querySelector('#diagram svg')) {
+        fitToWidth();
+        diagramObserver.disconnect();
+      }
+    });
+    diagramObserver.observe(document.getElementById('diagram'), { childList: true, subtree: true });
+    window.addEventListener('resize', () => fitToWidth());
+
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.92 : 1.08;
+      scale = Math.min(2.5, Math.max(0.06, scale * delta));
+      applyTransform();
+    }, { passive: false });
+
+    viewport.addEventListener('mousedown', (e) => {
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      viewport.classList.add('grabbing');
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      tx += e.clientX - lastX;
+      ty += e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      applyTransform();
+    });
+    window.addEventListener('mouseup', () => {
+      dragging = false;
+      viewport.classList.remove('grabbing');
+    });
+
+    document.getElementById('zoomIn').onclick = () => { scale = Math.min(2.5, scale * 1.12); applyTransform(); };
+    document.getElementById('zoomOut').onclick = () => { scale = Math.max(0.06, scale / 1.12); applyTransform(); };
+    document.getElementById('resetView').onclick = () => fitToWidth();
+
+    document.getElementById('exportPng').onclick = () => {
+      const status = document.getElementById('status');
+      const svg = document.querySelector('#diagram svg');
+      if (!svg) {
+        status.textContent = 'Diagram still loading — try again';
+        return;
+      }
+      status.textContent = 'Exporting…';
+      const bbox = svg.getBBox();
+      const pad = 20;
+      const w = bbox.width + pad * 2;
+      const h = bbox.height + pad * 2;
+      const clone = svg.cloneNode(true);
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      clone.setAttribute('width', w);
+      clone.setAttribute('height', h);
+      const g = clone.querySelector('g');
+      if (g) g.setAttribute('transform', 'translate(' + (pad - bbox.x) + ',' + (pad - bbox.y) + ')');
+      const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(clone));
+      const img = new Image();
+      img.onload = () => {
+        const scale2 = 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = w * scale2;
+        canvas.height = h * scale2;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.scale(scale2, scale2);
+        ctx.drawImage(img, 0, 0);
+        const a = document.createElement('a');
+        a.download = 'connectcms-database-er-detail.png';
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+        status.textContent = 'PNG saved';
+      };
+      img.onerror = () => { status.textContent = 'Export failed'; };
+      img.src = url;
+    };
+  </script>
+</body>
+</html>

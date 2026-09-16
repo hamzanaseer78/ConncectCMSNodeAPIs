@@ -189,6 +189,18 @@ async function hasRight(auth, resourceName, action) {
 }
 
 /**
+ * Throws 403 when the user's assigned policy does not grant the action on the resource.
+ */
+async function assertResourceRight(auth, resourceName, action) {
+  const allowed = await module.exports.hasRight(auth, resourceName, action);
+  if (!allowed) {
+    const err = new Error(`Not authorized to ${action} ${resourceName}`);
+    err.status = 403;
+    throw err;
+  }
+}
+
+/**
  * EXPRESS MIDDLEWARE
  */
 function authorizeResourceAction(resourceName, action) {
@@ -221,5 +233,6 @@ function authorizeResourceAction(resourceName, action) {
 
 module.exports = {
   authorizeResourceAction,
+  assertResourceRight,
   hasRight
 };

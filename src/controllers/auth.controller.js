@@ -50,6 +50,22 @@ const createOrganization = async (req, res, next) => {
 const login = async (req, res, next) => {
   try {
     const data = await service.login(req.body);
+    const userActivityLogService = require("../services/user-activity-log.service");
+    await userActivityLogService.logSafe(
+      {
+        tenantid: data.tenantid,
+        branchid: data.branchid,
+        userid: data.user?.userid
+      },
+      {
+        module: "auth",
+        action: "login",
+        entityName: data.user?.name ?? null,
+        entityId: data.user?.userid ?? null,
+        summary: `Logged in${data.user?.email ? ` (${data.user.email})` : ""}`
+      },
+      req
+    );
     res.status(200).json(data);
   } catch (err) {
     next(err);
@@ -68,6 +84,21 @@ const switchContext = async (req, res, next) => {
 const inviteUser = async (req, res, next) => {
   try {
     const data = await service.inviteUser(req.auth, req.body);
+    const userActivityLogService = require("../services/user-activity-log.service");
+    await userActivityLogService.logSafe(
+      req.auth,
+      {
+        module: "users",
+        action: data.isNewUser ? "invite" : "update",
+        entityName: req.body?.name ?? null,
+        entityId: data.userid ?? null,
+        entityCode: data.email ?? null,
+        summary: data.isNewUser
+          ? `Invited user ${data.email || ""}`.trim()
+          : `Updated user ${data.email || ""}`.trim()
+      },
+      req
+    );
     res.status(201).json(data);
   } catch (err) {
     next(err);
@@ -83,6 +114,16 @@ const getProfile = async (req, res, next) => {
   }
 };
 
+const updateProfile = async (req, res, next) => {
+  try {
+    await userProfileService.updateProfile(req.auth.userid, req.body);
+    const data = await service.getProfile(req.auth);
+    res.status(200).json(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
 const changePassword = async (req, res, next) => {
   try {
     const data = await userProfileService.changePassword(
@@ -90,9 +131,53 @@ const changePassword = async (req, res, next) => {
       req.body?.oldPassword,
       req.body?.newPassword
     );
+    const userActivityLogService = require("../services/user-activity-log.service");
+    await userActivityLogService.logSafe(
+      req.auth,
+      {
+        module: "users",
+        action: "password_changed",
+        entityName: req.auth?.name ?? null,
+        entityId: req.auth.userid,
+        summary: "Password changed"
+      },
+      req
+    );
     res.status(200).json(data);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    next(err);
+  }
+};
+
+const forgotPassword = async (req, res, next) => {
+  try {
+    const data = await service.requestPasswordReset({
+      email: req.body?.email,
+      baseUrl: req.body?.baseUrl
+    });
+    res.status(200).json(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const resetPassword = async (req, res, next) => {
+  try {
+    const data = await service.resetPassword(req.body);
+    res.status(200).json(data);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const uploadProfileImage = async (req, res, next) => {
+  try {
+    const data = await userProfileService.uploadProfileImageFromRequest(req.auth, req, (auth) =>
+      service.getProfile(auth)
+    );
+    res.status(200).json(data);
+  } catch (err) {
+    next(err);
   }
 };
 
@@ -122,11 +207,15 @@ module.exports = {
   changePassword,
   configurePassword,
   createOrganization,
+  forgotPassword,
   getProfile,
+  updateProfile,
   inviteUser,
   login,
+  resetPassword,
   sendTestMail,
   signup,
   switchContext,
+  uploadProfileImage,
   verifySignupToken
 };

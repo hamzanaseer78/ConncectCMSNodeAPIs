@@ -39,8 +39,23 @@ services:
     networks:
       - app-network
 
+  seq:
+    image: datalust/seq:latest
+    environment:
+      ACCEPT_EULA: "Y"
+      SEQ_API_CANONICALURI: "https://cmsapis.lightclouderp.com/logs/"
+      SEQ_TRUSTEDPROXIES: "0.0.0.0/0"
+    volumes:
+      - seq_data:/data
+    ports:
+      - "127.0.0.1:5341:80"
+    restart: unless-stopped
+    networks:
+      - app-network
+
 volumes:
   postgres_data:
+  seq_data:
 
 networks:
   app-network:

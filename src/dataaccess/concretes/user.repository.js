@@ -1,4 +1,9 @@
 const prisma = require("../../database/prisma");
+const {
+  normalizeUserEmail,
+  findUserByEmail,
+  assertUserEmailAvailable
+} = require("../../utils/user-email");
 
 class UserRepository {
   async getAll() {
@@ -12,15 +17,15 @@ class UserRepository {
   }
 
   async getByEmail(email) {
-    return await prisma.users.findFirst({
-      where: { email }
-    });
+    return findUserByEmail(prisma, email);
   }
 
   async create(user) {
-    return await prisma.users.create({
-      data: user
-    });
+    const data = { ...user };
+    if (data.email != null && data.email !== "") {
+      data.email = await assertUserEmailAvailable(prisma, data.email);
+    }
+    return prisma.users.create({ data });
   }
 
   async update(id, user) {

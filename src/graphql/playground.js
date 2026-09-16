@@ -1,31 +1,46 @@
 // Export as middleware mounted at `/graphql/playground`.
-// Altair expects to be mounted via `app.use('/path', middleware)`.
 module.exports = function graphqlPlaygroundRoute(req, res, next) {
-  if (process.env.NODE_ENV === "production") {
+  const enabledInProduction =
+    process.env.GRAPHQL_PLAYGROUND_ENABLED === "true" ||
+    process.env.GRAPHQL_PLAYGROUND_ENABLED === "1";
+
+  if (process.env.NODE_ENV === "production" && !enabledInProduction) {
     return res.status(404).json({
       error: "GraphQL Playground is disabled in production",
+      hint: "Set GRAPHQL_PLAYGROUND_ENABLED=true or use Apollo Sandbox / GET /graphql/schema"
     });
   }
 
-  // Altair is a self-hosted GraphQL client UI (no CDN),
-  // works reliably behind corporate proxies and supports auth headers like Apollo Studio.
   // eslint-disable-next-line global-require
   const { altairExpress } = require("altair-express-middleware");
 
   const middleware = altairExpress({
     endpointURL: "/graphql",
-    initialQuery: `# ConnectCMS GraphQL (Altair)
+    persistedSettings: {
+      schema: {
+        reloadOnStart: true
+      }
+    },
+    initialQuery: `# ConnectCMS GraphQL Reports Explorer
 #
-# Tip:
-# - Open the "Headers" tab and set:
-#   Authorization: Bearer <JWT>
+# 1) Open Headers tab -> Authorization: Bearer <JWT>
+# 2) Run jobsReportsCatalog to list every report API name
+# 3) Docs panel (left) lists all Query/Mutation fields after schema loads
 #
-query __PingSchema {
-  __schema {
-    queryType { name }
+query JobsReportsCatalog {
+  jobsReportsCatalog {
+    title
+    kind
+    reportKey
+    dataQuery
+    columnsQuery
+    updateColumnsMutation
+    detailDataQuery
   }
 }
 `,
+    // Omit initialHeaders so introspection loads the sidebar without JWT.
+    // Add Authorization in the Headers tab when running report data queries.
   });
 
   return middleware(req, res, next);

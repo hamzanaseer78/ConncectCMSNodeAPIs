@@ -1,11 +1,12 @@
 const prisma = require("../../database/prisma");
 const { utcNow } = require("../../utils/date");
+const { normalizeOrganizationPayload } = require("../../utils/generic-payload");
 
 class OrgBranchService {
   /**
    * Update organization details
    */
-  async updateOrganization(auth, organizationData) {
+  async updateOrganization(auth, rawOrganizationData) {
     if (!auth.tenantid) {
       throw new Error("Tenant ID required");
     }
@@ -18,6 +19,7 @@ class OrgBranchService {
       throw new Error("Organization not found");
     }
 
+    const organizationData = normalizeOrganizationPayload(rawOrganizationData);
     const updateData = {};
 
     if (organizationData.organizationname !== undefined)

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "connect-cms": {
+      "command": "node",
+      "args": ["mcp/server.js"],
+      "cwd": "."
+    }
+  }
+}

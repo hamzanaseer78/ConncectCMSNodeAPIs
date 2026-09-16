@@ -11,7 +11,7 @@ function requireAuthContext(req, res, next) {
 
 async function postPing(req, res, next) {
   try {
-    const data = await userTrackingService.recordPing(req.auth, req.body || {});
+    const data = await userTrackingService.recordPings(req.auth, req.body ?? []);
     res.status(201).json(data);
   } catch (err) {
     next(err);
@@ -27,8 +27,32 @@ async function getLive(req, res, next) {
   }
 }
 
+async function getTechniciansSummary(req, res, next) {
+  try {
+    const data = await userTrackingService.getTechniciansSummary(req.auth, req.query || {});
+    res.status(200).json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getTechnicianDetail(req, res, next) {
+  try {
+    const data = await userTrackingService.getTechnicianDetail(
+      req.auth,
+      req.params.userid,
+      req.query || {}
+    );
+    res.status(200).json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   requireAuthContext,
   postPing,
-  getLive
+  getLive,
+  getTechniciansSummary,
+  getTechnicianDetail
 };

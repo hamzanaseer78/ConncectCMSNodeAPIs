@@ -38,26 +38,37 @@ function getAuth(req) {
   }
 }
 
+function getGraphqlPayload(req) {
+  const query =
+    req.body?.query ||
+    req.query?.query ||
+    "";
+
+  const operationName =
+    req.body?.operationName ||
+    req.query?.operationName ||
+    "";
+
+  return { query: String(query), operationName: String(operationName) };
+}
+
 /**
- * Detect Introspection Query
+ * Detect Introspection Query (Apollo Studio / Altair load schema via this).
+ * Must succeed without a valid JWT so the explorer sidebar can populate.
  */
 function isIntrospection(req) {
   try {
-    /**
-     * GET introspection
-     */
-    if (
-      req.url.includes("__schema") ||
-      req.url.includes("__type")
-    ) {
+    const url = String(req.url || req.originalUrl || "");
+
+    if (url.includes("__schema") || url.includes("__type")) {
       return true;
     }
 
-    /**
-     * POST introspection
-     */
-    const query =
-      req.body?.query || "";
+    const { query, operationName } = getGraphqlPayload(req);
+
+    if (operationName === "IntrospectionQuery") {
+      return true;
+    }
 
     return (
       query.includes("__schema") ||
@@ -80,34 +91,28 @@ const graphqlHandler = createHandler({
   context: async (ctx) => {
     const req = ctx.raw;
 
-    /**
-     * ALWAYS allow introspection
-     */
     if (isIntrospection(req)) {
-      console.log(
-        "✅ Introspection query allowed"
-      );
-
       return {
         auth: {
           tenantid: 1,
           branchid: 1,
-          introspection: true,
-        },
+          userid: 1,
+          introspection: true
+        }
       };
     }
 
-    /**
-     * Normal JWT auth
-     */
     const auth = getAuth(req);
 
     return {
-      auth,
+      auth
     };
   },
 
-  graphiql: false,
+  graphiql: false
 });
 
 module.exports = graphqlHandler;
+module.exports.schema = schema;
+module.exports.isIntrospection = isIntrospection;
+module.exports.getGraphqlPayload = getGraphqlPayload;

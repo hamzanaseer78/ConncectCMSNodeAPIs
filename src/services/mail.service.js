@@ -60,7 +60,15 @@ class MailService {
   /**
    * Send user invitation email
    */
-  async sendInvitation(to, { name = "User", inviterName = "Admin", organizationName = "ConnectCMS", generatedPassword, loginUrl }) {
+  async sendInvitation(to, {
+    name = "User",
+    inviterName = "Admin",
+    organizationName = "ConnectCMS",
+    generatedPassword,
+    loginUrl,
+    temporaryPassword
+  }) {
+    const hasPassword = Boolean(generatedPassword);
     return this.sendTemplate("userInvitation", to, {
       name,
       email: to,
@@ -68,7 +76,7 @@ class MailService {
       organizationName,
       generatedPassword,
       loginUrl: loginUrl || process.env.APP_URL || "https://app.example.com/login",
-      temporaryPassword: !!generatedPassword
+      temporaryPassword: temporaryPassword !== undefined ? temporaryPassword : hasPassword
     });
   }
 
