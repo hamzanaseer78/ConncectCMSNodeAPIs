@@ -1,4 +1,4 @@
-const USER_TYPES = Object.freeze(["admin", "manager", "technician"]);
+const USER_TYPES = Object.freeze(["admin", "manager", "technician", "distributor"]);
 
 const ALIASES = Object.freeze({
   technition: "technician",

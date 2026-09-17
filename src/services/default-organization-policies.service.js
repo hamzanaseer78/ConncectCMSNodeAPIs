@@ -48,7 +48,7 @@ async function loadAccessibleScreens(tx) {
  *
  * @param {import("@prisma/client").Prisma.TransactionClient} tx
  * @param {{ tenantid: number, branchid: number, createdBy: number }} context
- * @returns {Promise<{ admin: object, manager: object, technician: object, policies: object[] }>}
+ * @returns {Promise<{ admin: object, manager: object, technician: object, distributor: object, policies: object[] }>}
  */
 async function createDefaultOrganizationPolicies(tx, context) {
   const tenantid = Number(context.tenantid);
@@ -92,12 +92,71 @@ async function createDefaultOrganizationPolicies(tx, context) {
     admin: createdPolicies.admin,
     manager: createdPolicies.manager,
     technician: createdPolicies.technician,
+    distributor: createdPolicies.distributor,
     policies: DEFAULT_ORGANIZATION_POLICY_TEMPLATES.map((template) => createdPolicies[template.key])
   };
+}
+
+async function findOrganizationPolicyByDescription(client, tenantid, description) {
+  return client.policies.findFirst({
+    where: {
+      tenantid: Number(tenantid),
+      description: { equals: description, mode: "insensitive" }
+    },
+    orderBy: { recno: "asc" }
+  });
+}
+
+/**
+ * Ensure a default policy template exists for an organization (backfill for orgs created before Distributor role).
+ */
+async function ensureOrganizationPolicyTemplate(client, context, templateKey) {
+  const template = DEFAULT_ORGANIZATION_POLICY_TEMPLATES.find((entry) => entry.key === templateKey);
+  if (!template) {
+    throw new Error(`Unknown default policy template: ${templateKey}`);
+  }
+
+  const tenantid = Number(context.tenantid);
+  const branchid = Number(context.branchid);
+  const createdBy = Number(context.createdBy);
+  const existing = await findOrganizationPolicyByDescription(client, tenantid, template.description);
+  if (existing) {
+    return existing;
+  }
+
+  const now = utcNow();
+  const screens = await loadAccessibleScreens(client);
+  const policy = await client.policies.create({
+    data: {
+      tenantid,
+      description: template.description,
+      isdefaultpolicy: template.isDefaultPolicy === true,
+      createdby: createdBy,
+      createdat: now
+    }
+  });
+
+  const rightsData = buildUserRightsRows({
+    screens,
+    policy,
+    tenantid,
+    branchid,
+    templateKey,
+    createdBy
+  });
+
+  if (rightsData.length) {
+    await syncPostgresSequence(client, "userrights", "recno");
+    await client.userrights.createMany({ data: rightsData });
+  }
+
+  return policy;
 }
 
 module.exports = {
   buildUserRightsRows,
   loadAccessibleScreens,
-  createDefaultOrganizationPolicies
+  createDefaultOrganizationPolicies,
+  ensureOrganizationPolicyTemplate,
+  findOrganizationPolicyByDescription
 };

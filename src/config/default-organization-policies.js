@@ -19,6 +19,11 @@ const DEFAULT_ORGANIZATION_POLICY_TEMPLATES = Object.freeze([
     key: "technician",
     description: "Technician",
     isDefaultPolicy: false
+  },
+  {
+    key: "distributor",
+    description: "Distributor",
+    isDefaultPolicy: false
   }
 ]);
 
@@ -123,9 +128,13 @@ function isTechnicianAllowedScreen(screen) {
   return isTechnicianJobsScreen(screen) || isTechnicianJobDefinitionsScreen(screen);
 }
 
+function isDistributorExcludedScreen(screen) {
+  return isManagerExcludedScreen(screen);
+}
+
 /**
  * Resolve userrights action flags for a screen under a default org policy template.
- * @param {"admin"|"manager"|"technician"} templateKey
+ * @param {"admin"|"manager"|"technician"|"distributor"} templateKey
  */
 function resolveDefaultPolicyRights(templateKey, screen) {
   if (templateKey === "admin") {
@@ -169,6 +178,37 @@ function resolveDefaultPolicyRights(templateKey, screen) {
     };
   }
 
+  if (templateKey === "distributor") {
+    if (isDistributorExcludedScreen(screen)) {
+      return {
+        viewscreen: false,
+        addscreen: false,
+        updatescreen: false,
+        deletescreen: false,
+        others: false
+      };
+    }
+
+    if (isTechnicianJobsScreen(screen)) {
+      return {
+        viewscreen: true,
+        addscreen: true,
+        updatescreen: true,
+        deletescreen: false,
+        others: false
+      };
+    }
+
+    const viewOnly = isTechnicianJobDefinitionsScreen(screen);
+    return {
+      viewscreen: viewOnly,
+      addscreen: false,
+      updatescreen: false,
+      deletescreen: false,
+      others: false
+    };
+  }
+
   throw new Error(`Unknown default policy template: ${templateKey}`);
 }
 
@@ -184,5 +224,6 @@ module.exports = {
   isTechnicianJobsScreen,
   isTechnicianJobDefinitionsScreen,
   isTechnicianAllowedScreen,
+  isDistributorExcludedScreen,
   resolveDefaultPolicyRights
 };

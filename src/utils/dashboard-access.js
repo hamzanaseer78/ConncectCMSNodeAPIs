@@ -30,6 +30,14 @@ async function resolveDashboardAccess(auth) {
     };
   }
 
+  if (user.usertype === "distributor") {
+    return {
+      canView: false,
+      role: "distributor",
+      managerScopeMode: "none"
+    };
+  }
+
   if (user.usertype === "technician") {
     return {
       canView: false,

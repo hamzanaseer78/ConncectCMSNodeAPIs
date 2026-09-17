@@ -21,7 +21,7 @@ const {
   assertDefinitionUniqueness,
   hasDefinitionUniquenessRules
 } = require("../services/definition-uniqueness.service");
-const { applyTechnicianJobScope } = require("../utils/job-access");
+const { applyJobAccessScope } = require("../utils/job-access");
 const { sendMailSafe } = require("../services/notifications.service");
 const {
   reportTypeDefs,
@@ -836,7 +836,7 @@ resolvers.jobs = async (args, context) => {
   const pageSize = Math.min(100, Math.max(1, Number(args?.pageSize ?? 25)));
   const skip = (page - 1) * pageSize;
 
-  const where = await applyTechnicianJobScope(auth, { ...scope });
+  const where = await applyJobAccessScope(auth, { ...scope });
   if (args?.statusid) where.statusid = Number(args.statusid);
   if (args?.assignedto && where.assignedto == null) {
     where.assignedto = Number(args.assignedto);

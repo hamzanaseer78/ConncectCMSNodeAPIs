@@ -30,6 +30,9 @@ function audiencesForUserType(usertype) {
   if (t === "manager") {
     return ["all", "manager", "technician"];
   }
+  if (t === "distributor") {
+    return ["all", "technician"];
+  }
   return TECHNICIAN_FEED;
 }
 

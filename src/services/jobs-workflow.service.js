@@ -89,7 +89,8 @@ const userActivityLogService = require("./user-activity-log.service");
 const {
   isJobAdmin,
   canManageBranchJobs,
-  applyTechnicianJobScope,
+  isDistributor,
+  applyJobAccessScope,
   ensureAssignedTechnicianOrAdmin
 } = require("../utils/job-access");
 const {
@@ -1287,7 +1288,7 @@ class JobsWorkflowService {
 
   async jobAccessWhere(auth, extra = {}) {
     const where = { ...this.buildScope(auth), ...extra };
-    return applyTechnicianJobScope(auth, where);
+    return applyJobAccessScope(auth, where);
   }
 
   async getScopedJob(auth, id, include = undefined) {
@@ -1433,6 +1434,10 @@ class JobsWorkflowService {
 
   async create(auth, rawData) {
     const data = normalizeJobRequestBody(rawData);
+    if (await isDistributor(auth)) {
+      data.formType = "distributor";
+      data.formtype = "distributor";
+    }
     const now = utcNow();
     const scope = this.buildScope(auth);
     const formType = normalizeFormType(data.formType ?? data.formtype);

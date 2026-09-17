@@ -817,7 +817,7 @@ function buildDropdownQueryParameters(config, resourceName) {
       in: "query",
       name: "userType",
       required: false,
-      schema: { type: "string", enum: ["admin", "manager", "technician"] },
+      schema: { type: "string", enum: ["admin", "manager", "technician", "distributor"] },
       description: "Filter by user type (aliases: usertype, type)"
     });
   }
@@ -898,7 +898,7 @@ const resourcePaths = Object.fromEntries(
       get: {
         summary: `Dropdown options for ${name}`,
         description: config.organizationScoped
-          ? "Returns active users linked to the authenticated organization (current branch by default). Inactive and deleted users are excluded. Optional filter: `userType` (admin, manager, technician). Each item includes `userType`, and for technicians `technicianAffiliation` (`in_house`, `third_party`) with `technicianAffiliationLabel` (`In-House`, `Third-party`) plus `companyName` when third-party."
+          ? "Returns active users linked to the authenticated organization (current branch by default). Inactive and deleted users are excluded. Optional filter: `userType` (admin, manager, technician, distributor). Each item includes `userType`, and for technicians `technicianAffiliation` (`in_house`, `third_party`) with `technicianAffiliationLabel` (`In-House`, `Third-party`) plus `companyName` when third-party."
           : name === "products"
             ? "Returns active products for the tenant (default limit 10000) with sale/purchase rates, discount info, unit/brand labels, and tax info when available. Use `includeInactive=true` to include inactive catalog rows, or `search` to filter by name/code."
             : name === "erpproducts"
@@ -6222,7 +6222,7 @@ module.exports = swaggerJsdoc({
         },
         UserType: {
           type: "string",
-          enum: ["admin", "manager", "technician"],
+          enum: ["admin", "manager", "technician", "distributor"],
           description: "User category stored on users.usertype"
         },
         TechnicianAffiliation: {
@@ -6331,7 +6331,7 @@ module.exports = swaggerJsdoc({
             usertype: {
               $ref: "#/components/schemas/UserType",
               default: "technician",
-              description: "admin, manager, or technician (alias: userType, type). Accepts technition → technician."
+              description: "admin, manager, technician, or distributor (alias: userType, type). Accepts technition → technician."
             },
             technicianAffiliation: {
               $ref: "#/components/schemas/TechnicianAffiliation",

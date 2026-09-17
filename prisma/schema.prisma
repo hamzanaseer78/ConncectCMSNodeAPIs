@@ -11,6 +11,7 @@ enum UserType {
   admin
   manager
   technician
+  distributor
 }
 
 enum TechnicianAffiliation {

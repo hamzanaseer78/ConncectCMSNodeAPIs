@@ -10,7 +10,7 @@ const { modelHasRelation, modelHasScalarField } = require("../utils/prisma-model
 const { jobMainEquipmentFields } = require("../utils/job-equipment");
 const { enrichJobApiRow, loadJobListEnrichmentContext } = require("../utils/job-response-enrichment");
 const { normalizeQuotationStatus } = require("../utils/quotation-status");
-const { canManageBranchJobs } = require("../utils/job-access");
+const { canManageBranchJobs, isDistributor, applyDistributorJobScope } = require("../utils/job-access");
 const { loadTeamMemberIds } = require("../utils/user-manager");
 const { buildCustomerRelationFilter, buildJobDetailsInvoiceNumberFilter, buildJobDetailsEquipmentFilters } = require("../utils/jobs-list-filters");
 const {
@@ -342,6 +342,10 @@ class JobsListService {
       const teamIds = await loadTeamMemberIds(auth);
       scope.assignedto = teamIds.length ? { in: teamIds } : { in: [-1] };
       return scope;
+    }
+
+    if (await isDistributor(auth)) {
+      return applyDistributorJobScope(auth, scope);
     }
 
     if (this.restrictToAssignee || !(await canManageBranchJobs(auth))) {

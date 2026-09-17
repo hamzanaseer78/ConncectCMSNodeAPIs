@@ -684,8 +684,14 @@ class AdminUsersService {
 
     const policyProvided = hasOwn(input, "policyid", "policyId");
     let targetPolicyId = null;
+    let shouldSyncPolicy = policyProvided;
     if (policyProvided) {
-      targetPolicyId = await this.authService.resolveInvitePolicyId(tenantid, input.policyid ?? input.policyId);
+      targetPolicyId = await this.authService.resolveInvitePolicyId(
+        tenantid,
+        input.policyid ?? input.policyId,
+        effectiveType,
+        { branchid: targetBranchId, createdBy: actorId }
+      );
       const adminPolicy = await prisma.policies.findFirst({
         where: { tenantid, isdefaultpolicy: true },
         select: { recno: true }
@@ -723,7 +729,21 @@ class AdminUsersService {
       hasMembershipUpdate = true;
     }
 
-    if (!hasUserUpdate && !policyProvided && !hasMembershipUpdate) {
+    if (
+      !shouldSyncPolicy &&
+      userUpdate.usertype &&
+      userUpdate.usertype !== existingUser.usertype
+    ) {
+      targetPolicyId = await this.authService.resolveInvitePolicyId(
+        tenantid,
+        null,
+        userUpdate.usertype,
+        { branchid: targetBranchId, createdBy: actorId }
+      );
+      shouldSyncPolicy = true;
+    }
+
+    if (!hasUserUpdate && !shouldSyncPolicy && !hasMembershipUpdate) {
       throw clientError("Provide at least one field to update");
     }
 
@@ -742,7 +762,7 @@ class AdminUsersService {
         });
       }
 
-      if (policyProvided) {
+      if (shouldSyncPolicy) {
         await tx.userpolicies.deleteMany({
           where: { userid: uid, tenantid, branchid: targetBranchId }
         });

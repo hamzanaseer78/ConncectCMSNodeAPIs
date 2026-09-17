@@ -16,7 +16,11 @@ const {
   findUserByEmail: findUserByEmailUtil,
   assertUserEmailAvailable
 } = require("../../utils/user-email");
-const { resolveUserTypeFromInput } = require("../../utils/user-type");
+const { resolveUserTypeFromInput, normalizeUserType } = require("../../utils/user-type");
+const {
+  ensureOrganizationPolicyTemplate,
+  findOrganizationPolicyByDescription
+} = require("../../services/default-organization-policies.service");
 const { applyTechnicianAffiliationFields } = require("../../utils/technician-affiliation");
 const { applyManagerFields, formatManagerFields } = require("../../utils/user-manager");
 const screenRightsService = require("./screenrights.service");
@@ -400,10 +404,13 @@ class AuthService {
 
     const tenantid = Number(auth.tenantid);
     const targetBranchId = Number(input.branchid || auth.branchid);
-    const targetPolicyId = await this.resolveInvitePolicyId(tenantid, input.policyid);
+    const usertype = resolveUserTypeFromInput(input, { defaultType: "technician" });
+    const targetPolicyId = await this.resolveInvitePolicyId(tenantid, input.policyid, usertype, {
+      branchid: targetBranchId,
+      createdBy: Number(auth.userid)
+    });
     const resetExisting = input.resetPassword !== false;
     const sendEmail = input.sendEmail !== false;
-    const usertype = resolveUserTypeFromInput(input, { defaultType: "technician" });
     const technicianFields = applyTechnicianAffiliationFields(input, usertype, { mode: "create" });
     const managerFields = await applyManagerFields(input, usertype, {
       mode: "create",
@@ -576,7 +583,7 @@ class AuthService {
     return this.inviteUser(auth, input);
   }
 
-  async resolveInvitePolicyId(tenantid, policyid) {
+  async resolveInvitePolicyId(tenantid, policyid, usertype, context = {}) {
     if (policyid !== undefined && policyid !== null && policyid !== "") {
       const id = Number(policyid);
       const policy = await prisma.policies.findFirst({
@@ -590,15 +597,40 @@ class AuthService {
       return id;
     }
 
+    const normalizedType = normalizeUserType(usertype, { defaultType: null });
+    const descriptionByType = {
+      admin: "Admin",
+      manager: "Manager",
+      technician: "Technician",
+      distributor: "Distributor"
+    };
+
+    if (normalizedType && descriptionByType[normalizedType]) {
+      let policy = await findOrganizationPolicyByDescription(
+        prisma,
+        tenantid,
+        descriptionByType[normalizedType]
+      );
+
+      if (!policy && normalizedType === "distributor" && context.branchid != null) {
+        policy = await ensureOrganizationPolicyTemplate(
+          prisma,
+          {
+            tenantid: Number(tenantid),
+            branchid: Number(context.branchid),
+            createdBy: Number(context.createdBy || 0)
+          },
+          "distributor"
+        );
+      }
+
+      if (policy) {
+        return policy.recno;
+      }
+    }
+
     const staffPolicy =
-      (await prisma.policies.findFirst({
-        where: {
-          tenantid: Number(tenantid),
-          description: { equals: "Manager", mode: "insensitive" },
-          OR: [{ isdefaultpolicy: false }, { isdefaultpolicy: null }]
-        },
-        orderBy: { recno: "asc" }
-      })) ||
+      (await findOrganizationPolicyByDescription(prisma, tenantid, "Manager")) ||
       (await prisma.policies.findFirst({
         where: {
           tenantid: Number(tenantid),
