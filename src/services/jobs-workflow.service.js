@@ -24,6 +24,9 @@ const { ERP_PRODUCT_WITH_UNIT_INCLUDE, formatJobErpProductFields } = require("..
 const { modelHasRelation } = require("../utils/prisma-model-support");
 const jobApprovalService = require("./job-approval.service");
 const jobQuotationSettingsService = require("./job-quotation-settings.service");
+const jobFormSettingsService = require("./job-form-settings.service");
+const { validateJobAgainstFormSettings } = require("../utils/job-form-validation");
+const { normalizeFormType } = require("../config/job-form-fields.registry");
 const { parseOptionalText } = require("../utils/job-quotation-text");
 const {
   pickStartLocation,
@@ -1419,6 +1422,8 @@ class JobsWorkflowService {
     payload.approval = await jobApprovalService.getApprovalForJob(auth, job);
     const settings = await jobQuotationSettingsService.loadSettingsRow(scope);
     Object.assign(payload, jobQuotationSettingsService.buildResolvedQuotationFields(job, settings));
+    payload.formSettings = await jobFormSettingsService.getSettings(auth, "admin");
+    payload.distributorFormSettings = await jobFormSettingsService.getSettings(auth, "distributor");
     return payload;
   }
 
@@ -1430,8 +1435,11 @@ class JobsWorkflowService {
     const data = normalizeJobRequestBody(rawData);
     const now = utcNow();
     const scope = this.buildScope(auth);
+    const formType = normalizeFormType(data.formType ?? data.formtype);
+    const formFields = await jobFormSettingsService.getResolvedFields(auth, formType);
+    validateJobAgainstFormSettings(data, formFields);
+
     const payload = buildJobPayload(data);
-    if (!payload.serviceid) throw new Error("categoryId is required");
 
     const quotationSettings = await jobQuotationSettingsService.loadSettingsRow(scope);
     const payloadWithQuotationDefaults = jobQuotationSettingsService.applyQuotationTextDefaults(

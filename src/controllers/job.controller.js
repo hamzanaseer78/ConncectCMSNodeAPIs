@@ -5,6 +5,7 @@ const jobsMyService = require("../services/jobs-my.service");
 const jobsTeamService = require("../services/jobs-team.service");
 const jobApprovalService = require("../services/job-approval.service");
 const jobQuotationSettingsService = require("../services/job-quotation-settings.service");
+const jobFormSettingsService = require("../services/job-form-settings.service");
 const jobCashService = require("../services/job-cash.service");
 const {
   jobCollectionsAllService,
@@ -84,6 +85,26 @@ async function getQuotationSettings(req, res, next) {
 async function saveQuotationSettings(req, res, next) {
   try {
     const data = await jobQuotationSettingsService.saveSettings(req.auth, req.body);
+    res.status(200).json(data);
+  } catch (err) {
+    if (err.status) err.statusCode = err.status;
+    next(err);
+  }
+}
+
+async function getFormSettings(req, res, next) {
+  try {
+    const data = await jobFormSettingsService.getSettings(req.auth, req.query.formType);
+    res.status(200).json(data);
+  } catch (err) {
+    if (err.status) err.statusCode = err.status;
+    next(err);
+  }
+}
+
+async function saveFormSettings(req, res, next) {
+  try {
+    const data = await jobFormSettingsService.saveSettings(req.auth, req.body);
     res.status(200).json(data);
   } catch (err) {
     if (err.status) err.statusCode = err.status;
@@ -1125,6 +1146,8 @@ module.exports = {
   saveApprovalSettings,
   getQuotationSettings,
   saveQuotationSettings,
+  getFormSettings,
+  saveFormSettings,
   getErpProductsDropdown,
   getCashSettings,
   saveCashSettings,
