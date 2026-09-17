@@ -53,7 +53,7 @@ function parseProductType(value) {
 }
 
 async function loadLookupMaps(tenantid) {
-  const [units, brands] = await Promise.all([
+  const [units, brands, groups, categories] = await Promise.all([
     prisma.units.findMany({
       where: { tenantid: Number(tenantid) },
       select: { recno: true, name: true, symbol: true }
@@ -61,6 +61,14 @@ async function loadLookupMaps(tenantid) {
     prisma.brands.findMany({
       where: { tenantid: Number(tenantid) },
       select: { recno: true, name: true }
+    }),
+    prisma.jobgroups.findMany({
+      where: { tenantid: Number(tenantid) },
+      select: { groupid: true, name: true }
+    }),
+    prisma.jobcategories.findMany({
+      where: { tenantid: Number(tenantid) },
+      select: { categoryid: true, name: true, groupid: true }
     })
   ]);
 
@@ -77,7 +85,20 @@ async function loadLookupMaps(tenantid) {
     brandByName.set(String(row.recno), row.recno);
   });
 
-  return { unitByName, brandByName };
+  const groupByName = new Map();
+  groups.forEach((row) => {
+    if (row.name) groupByName.set(String(row.name).trim().toLowerCase(), row.groupid);
+    groupByName.set(String(row.groupid), row.groupid);
+  });
+
+  const categoryByName = new Map();
+  categories.forEach((row) => {
+    const entry = { categoryid: row.categoryid, groupid: row.groupid };
+    if (row.name) categoryByName.set(String(row.name).trim().toLowerCase(), entry);
+    categoryByName.set(String(row.categoryid), entry);
+  });
+
+  return { unitByName, brandByName, groupByName, categoryByName };
 }
 
 function validateMappedRow(mapped, { dateFormat, lookupMaps }) {
@@ -134,6 +155,40 @@ function validateMappedRow(mapped, { dateFormat, lookupMaps }) {
     if (brand.error) issues.push(brand.error);
     else if (brand.id != null) payload.brandid = brand.id;
     else if (brand.createName) payload._brandName = brand.createName;
+  }
+
+  if (mapped.jobgroup !== undefined && mapped.jobgroup !== "") {
+    const group = resolveLookup(mapped.jobgroup, lookupMaps.groupByName, "Job Group");
+    if (group.error) issues.push(group.error);
+    else if (group.id != null) payload.groupid = group.id;
+    else if (group.createName) {
+      issues.push("job group must already exist (creation during import is not supported)");
+    }
+  }
+
+  if (mapped.jobcategory !== undefined && mapped.jobcategory !== "") {
+    const text = String(mapped.jobcategory).trim();
+    if (/^\d+$/.test(text)) {
+      const match = lookupMaps.categoryByName.get(text);
+      if (!match) issues.push(`Job Category id ${text} was not found`);
+      else payload.serviceid = match.categoryid;
+    } else {
+      const match = lookupMaps.categoryByName.get(text.toLowerCase());
+      if (!match) issues.push(`Job Category "${text}" was not found`);
+      else payload.serviceid = match.categoryid;
+    }
+  }
+
+  if (payload.groupid != null && payload.serviceid != null) {
+    const category = lookupMaps.categoryByName.get(String(payload.serviceid));
+    if (
+      category?.groupid != null &&
+      Number(category.groupid) !== Number(payload.groupid)
+    ) {
+      issues.push(
+        `Job Category ${payload.serviceid} does not belong to Job Group ${payload.groupid}`
+      );
+    }
   }
 
   if (mapped.createdat !== undefined && mapped.createdat !== "") {
@@ -288,14 +343,45 @@ function collectPendingCreates(readyRows) {
   return { units: [...units], brands: [...brands] };
 }
 
-function sanitizePreviewPayload(payload) {
+async function enrichPreviewPayload(payload, tenantid) {
   if (!payload) return payload;
   const { _unitName, _brandName, ...rest } = payload;
-  return {
+  const next = {
     ...rest,
     unitName: _unitName ?? null,
-    brandName: _brandName ?? null
+    brandName: _brandName ?? null,
+    groupName: null,
+    categoryName: null
   };
+
+  const lookups = [];
+  if (next.groupid != null) {
+    lookups.push(
+      prisma.jobgroups
+        .findFirst({
+          where: { groupid: Number(next.groupid), tenantid: Number(tenantid) },
+          select: { name: true }
+        })
+        .then((row) => {
+          next.groupName = row?.name ?? null;
+        })
+    );
+  }
+  if (next.serviceid != null) {
+    lookups.push(
+      prisma.jobcategories
+        .findFirst({
+          where: { categoryid: Number(next.serviceid), tenantid: Number(tenantid) },
+          select: { name: true }
+        })
+        .then((row) => {
+          next.categoryName = row?.name ?? null;
+        })
+    );
+  }
+  if (lookups.length) await Promise.all(lookups);
+
+  return next;
 }
 
 class ErpProductBulkUploadService {
@@ -378,10 +464,12 @@ class ErpProductBulkUploadService {
       problems: analysis.problems,
       unitsToCreate: pendingCreates.units,
       brandsToCreate: pendingCreates.brands,
-      readySample: analysis.readyRows.slice(0, 5).map((item) => ({
-        row: item.row,
-        data: sanitizePreviewPayload(item.payload)
-      }))
+      readySample: await Promise.all(
+        analysis.readyRows.slice(0, 5).map(async (item) => ({
+          row: item.row,
+          data: await enrichPreviewPayload(item.payload, auth.tenantid)
+        }))
+      )
     };
   }
 

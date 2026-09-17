@@ -656,7 +656,7 @@ function jobListQueryParameters() {
       name: "kpi",
       schema: {
         type: "string",
-        enum: ["newJobs", "followUpJobs", "assignedJobs", "unAssignedJobs", "completedJobs"]
+        enum: ["newJobs", "assignedJobs", "followUpJobs", "completedJobs", "cancelledJobs"]
       },
       description:
         "Filter the job list by a Job page KPI bucket. Aliases: statsKpi"
@@ -813,6 +813,13 @@ function buildDropdownQueryParameters(config, resourceName) {
       schema: { type: "integer" },
       description: "Filter to a specific branch (default: JWT branch)"
     });
+    params.push({
+      in: "query",
+      name: "userType",
+      required: false,
+      schema: { type: "string", enum: ["admin", "manager", "technician"] },
+      description: "Filter by user type (aliases: usertype, type)"
+    });
   }
 
   const defs = config.dropdownFilters;
@@ -891,11 +898,11 @@ const resourcePaths = Object.fromEntries(
       get: {
         summary: `Dropdown options for ${name}`,
         description: config.organizationScoped
-          ? "Returns active users linked to the authenticated organization (current branch by default). Inactive and deleted users are excluded. Each item includes `usertype` (admin, manager, technician) and, for technicians, `technicianAffiliation` (`in_house` or `third_party`) plus `companyName` when third-party."
+          ? "Returns active users linked to the authenticated organization (current branch by default). Inactive and deleted users are excluded. Optional filter: `userType` (admin, manager, technician). Each item includes `userType`, and for technicians `technicianAffiliation` (`in_house`, `third_party`) with `technicianAffiliationLabel` (`In-House`, `Third-party`) plus `companyName` when third-party."
           : name === "products"
             ? "Returns active products for the tenant (default limit 10000) with sale/purchase rates, discount info, unit/brand labels, and tax info when available. Use `includeInactive=true` to include inactive catalog rows, or `search` to filter by name/code."
             : name === "erpproducts"
-              ? "Returns active ERP products for the tenant (default limit 10000) with sale/purchase rates, discount info, and unit/brand labels. Excludes stock/service/tax fields. Use `includeInactive=true` or `search` like products."
+              ? "Returns active ERP products for the tenant (default limit 10000) with sale/purchase rates, discount info, unit/brand labels, and job group/category names. Optional filters: `groupId`, `categoryId` (aliases: `serviceId`). Excludes stock/service/tax fields. Use `includeInactive=true` or `search` like products."
               : "Returns only active rows when the resource has an isactive column (`isactive` is not false).",
         tags: [config.tag || name],
         security: [{ bearerAuth: [] }],
@@ -3305,6 +3312,66 @@ module.exports = swaggerJsdoc({
           }
         }
       },
+      "/api/jobs/form/settings": {
+        get: {
+          summary: "Get complaint form field settings",
+          description:
+            "Returns per-branch field visibility and mandatory rules for the Create Complaint form. Defaults (before any branch save): admin shows all fields; distributor hides most of the assignment panel and service/parts tables, except ERP Product and Product Model remain visible. Query param formType: admin or distributor.",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: "query",
+              name: "formType",
+              required: false,
+              schema: { type: "string", enum: ["admin", "distributor"], default: "admin" },
+              description: "Which form variant to load (admin or distributor)"
+            }
+          ],
+          responses: {
+            200: {
+              description: "Form field settings",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/JobFormSettings" }
+                }
+              }
+            }
+          }
+        },
+        put: {
+          summary: "Save complaint form field settings (admin only)",
+          description:
+            "Configure mandatory/show rules per field. Non-hideable fields (customer phone, customer name, job category, job sub category, fault/complaint) always remain visible. Only system administrators can change isHideable when allowHideableChanges is true.",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobFormSettingsInput" }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "Settings saved",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      message: { type: "string" },
+                      settings: { $ref: "#/components/schemas/JobFormSettings" }
+                    }
+                  }
+                }
+              }
+            },
+            403: { description: "Admin required" }
+          }
+        }
+      },
       "/api/jobs/erp-products/dropdown": {
         get: {
           summary: "ERP products dropdown for job quotation lines",
@@ -4065,7 +4132,7 @@ module.exports = swaggerJsdoc({
         get: {
           summary: "Job page Stats KPIs (all jobs)",
           description:
-            "Returns counts for New Jobs, Follow-up Jobs (In-Progress), Assigned Jobs, Un-Assigned Jobs, and Completed Jobs. Supports the same list filters as `/api/jobs-all` (except `kpi`). Use `kpi` on the job list endpoints to drill down when a card is clicked.",
+            "Returns counts for New Jobs (no technician assigned), Assigned Jobs (technician assigned, no follow-up user), Follow-up Jobs (follow-up user assigned), Completed Jobs, and Cancelled Jobs (status title Cancelled/Cancel/Canceled). Supports the same list filters as `/api/jobs-all` (except `kpi`). Use `kpi` on the job list endpoints to drill down when a card is clicked.",
           tags: [ALL_JOBS_TAG],
           security: [{ bearerAuth: [] }],
           parameters: jobListQueryParameters().filter(
@@ -6510,7 +6577,7 @@ module.exports = swaggerJsdoc({
           properties: {
             key: {
               type: "string",
-              enum: ["newJobs", "followUpJobs", "assignedJobs", "unAssignedJobs", "completedJobs"]
+              enum: ["newJobs", "assignedJobs", "followUpJobs", "completedJobs", "cancelledJobs"]
             },
             label: { type: "string", example: "New Jobs" },
             count: { type: "integer" }
@@ -7938,9 +8005,15 @@ module.exports = swaggerJsdoc({
         },
         JobCreateRequest: {
           allOf: [{ $ref: "#/components/schemas/JobSaveRequest" }],
-          required: ["serviceId", "categoryId", "faultId"],
+          properties: {
+            formType: {
+              type: "string",
+              enum: ["admin", "distributor"],
+              description: "Which form settings to apply for mandatory/visibility validation (default admin)"
+            }
+          },
           description:
-            "Create a complaint/job. Required: serviceId (group), categoryId, faultId. Provide customerid OR customer (phone/contactno or name)."
+            "Create a complaint/job. Mandatory fields depend on branch form settings (GET /api/jobs/form/settings). Provide customerid OR customer (phone/contactno or name)."
         },
         PolicyUserRightItem: {
           type: "object",
@@ -8005,6 +8078,76 @@ module.exports = swaggerJsdoc({
             }
           },
           required: ["levelcount", "levels"]
+        },
+        JobFormFieldSetting: {
+          type: "object",
+          properties: {
+            fieldName: {
+              type: "string",
+              description: "API field key (e.g. customerPhone, categoryId, serviceLines, productLines)"
+            },
+            label: { type: "string" },
+            section: {
+              type: "string",
+              enum: ["customer", "assignment", "lines", "notes"],
+              description: "Form section grouping"
+            },
+            sortNo: { type: "integer" },
+            isMandatory: {
+              type: "boolean",
+              description: "When true, field must be provided on job create (if visible)"
+            },
+            isShow: {
+              type: "boolean",
+              description: "When false, field is hidden on the form"
+            },
+            isHideable: {
+              type: "boolean",
+              description:
+                "When false, branch admins cannot hide this field. Fixed for customer phone/name, job category, sub category, and fault/complaint."
+            },
+            formType: { type: "string", enum: ["admin", "distributor"] }
+          },
+          required: ["fieldName", "label", "isMandatory", "isShow", "isHideable"]
+        },
+        JobFormSettings: {
+          type: "object",
+          properties: {
+            tenantid: { type: "integer" },
+            branchid: { type: "integer" },
+            formType: { type: "string", enum: ["admin", "distributor"] },
+            fields: {
+              type: "array",
+              items: { $ref: "#/components/schemas/JobFormFieldSetting" }
+            },
+            lastUpdatedAt: { type: "string", format: "date-time", nullable: true }
+          }
+        },
+        JobFormSettingsInput: {
+          type: "object",
+          required: ["formType", "fields"],
+          properties: {
+            formType: { type: "string", enum: ["admin", "distributor"] },
+            allowHideableChanges: {
+              type: "boolean",
+              description: "System admin only — allows updating isHideable flags"
+            },
+            fields: {
+              type: "array",
+              minItems: 1,
+              items: {
+                type: "object",
+                required: ["fieldName"],
+                properties: {
+                  fieldName: { type: "string" },
+                  isMandatory: { type: "boolean" },
+                  isShow: { type: "boolean" },
+                  isHideable: { type: "boolean" },
+                  sortNo: { type: "integer" }
+                }
+              }
+            }
+          }
         },
         JobQuotationSettings: {
           type: "object",
@@ -8076,6 +8219,16 @@ module.exports = swaggerJsdoc({
             name: { type: "string", nullable: true },
             label: { type: "string", nullable: true },
             brandId: { type: "integer", nullable: true },
+            groupid: { type: "integer", nullable: true, description: "Job group id" },
+            groupId: { type: "integer", nullable: true, description: "Same as groupid" },
+            groupname: { type: "string", nullable: true, description: "Job group name" },
+            groupName: { type: "string", nullable: true, description: "Same as groupname" },
+            jobGroupName: { type: "string", nullable: true, description: "Job group display name" },
+            serviceid: { type: "integer", nullable: true, description: "Job category id" },
+            categoryId: { type: "integer", nullable: true, description: "Same as serviceid" },
+            categoryname: { type: "string", nullable: true, description: "Job category name" },
+            categoryName: { type: "string", nullable: true, description: "Same as categoryname" },
+            jobCategoryName: { type: "string", nullable: true, description: "Job category display name" },
             sku: { type: "string", nullable: true, description: "SKU (stored as barcode)" },
             barcode: { type: "string", nullable: true },
             oldErpCode: { type: "string", nullable: true, description: "Legacy ERP code (erpcode)" },

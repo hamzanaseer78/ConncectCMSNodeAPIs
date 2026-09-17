@@ -101,8 +101,14 @@ const resources = {
     listRelations: {
       branchid: { relation: "branches", field: "name", output: "branchname" },
       unitid: { relation: "units", field: "name", output: "unitname" },
-      brandid: { relation: "brands", field: "name", output: "brandname" }
-    }
+      brandid: { relation: "brands", field: "name", output: "brandname" },
+      groupid: { relation: "jobgroups", field: "name", output: "groupname" },
+      serviceid: { relation: "jobcategories", field: "name", output: "categoryname" }
+    },
+    dropdownFilters: [
+      { field: "groupid", params: ["groupId", "groupid"] },
+      { field: "serviceid", params: ["categoryId", "categoryid", "serviceId", "serviceid"] }
+    ]
   },
   screens: { id: "screenid", tenantScoped: false, branchScoped: false, tag: "Screen Rights", screenNames: ["screen", "screens", "screen right", "screen rights"], requiredOnCreate: ["screenname", "controllername"] },
   userorganizations: { id: "recno", backendOnly: true, tenantScoped: true,noRemove: true, branchScoped: false, tag: "User Organizations", screenNames: ["userorganization", "user organization", "userorganizations", "user organizations"], requiredOnCreate: ["userid", "tenantid", "branchid"], listRelations: { userid: { relation: "users_userorganizations_useridTousers", field: "name", output: "username" }, tenantid: { relation: "organizations", field: "name", output: "organizationname" }, branchid: { relation: "branches", field: "name", output: "branchname" } } },

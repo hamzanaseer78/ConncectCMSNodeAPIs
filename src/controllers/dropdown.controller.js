@@ -11,7 +11,7 @@ const {
   formatErpProductDropdownRow,
   ERP_PRODUCT_DROPDOWN_SELECT
 } = require("../utils/erp-product-payload");
-const { formatUserDropdownRow } = require("../utils/user-dropdown");
+const { applyUserDropdownFilters, formatUserDropdownRow } = require("../utils/user-dropdown");
 const { listWorldCountriesDropdown } = require("../data/world-countries");
 const { listWorldCitiesDropdown } = require("../data/world-cities");
 const {
@@ -103,11 +103,13 @@ class DropdownController {
     const parentFilters = applyDropdownFilters(config, query);
     Object.assign(where, parentFilters);
 
+    let userDropdownFilters = {};
     if (resourceName === "users" || config.organizationScoped) {
       const { tenantid, branchid } = resolveOrganizationBranchScope(normalizedAuth, query);
       const userIds = await fetchOrganizationUserIds(tenantid, branchid);
       where.userid = userIds.length ? { in: userIds } : { in: [-1] };
       where.isdeleted = { not: true };
+      userDropdownFilters = applyUserDropdownFilters(where, query);
     }
 
     if (resourceName === "products" || resourceName === "erpproducts") {
@@ -206,7 +208,7 @@ class DropdownController {
         tenantid: where.tenantid ?? null,
         branchid: where.branchid ?? null
       },
-      filters: parentFilters,
+      filters: { ...parentFilters, ...userDropdownFilters },
       paging: {
         page: paging.page,
         pageSize: paging.pageSize,

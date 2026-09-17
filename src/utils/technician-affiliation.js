@@ -1,5 +1,10 @@
 const AFFILIATIONS = Object.freeze(["in_house", "third_party"]);
 
+const AFFILIATION_LABELS = Object.freeze({
+  in_house: "In-House",
+  third_party: "Third-party"
+});
+
 const ALIASES = Object.freeze({
   inhouse: "in_house",
   "in-house": "in_house",
@@ -121,22 +126,34 @@ function applyTechnicianAffiliationFields(input = {}, usertype, options = {}) {
   return data;
 }
 
+function formatTechnicianAffiliationLabel(value) {
+  if (value == null || value === "") {
+    return null;
+  }
+  return AFFILIATION_LABELS[value] ?? null;
+}
+
 function formatTechnicianAffiliationFields(user) {
   if (!user) {
     return {
       technicianAffiliation: null,
+      technicianAffiliationLabel: null,
       companyName: null
     };
   }
+  const technicianAffiliation = user.technicianaffiliation ?? null;
   return {
-    technicianAffiliation: user.technicianaffiliation ?? null,
+    technicianAffiliation,
+    technicianAffiliationLabel: formatTechnicianAffiliationLabel(technicianAffiliation),
     companyName: user.companyname ?? null
   };
 }
 
 module.exports = {
   AFFILIATIONS,
+  AFFILIATION_LABELS,
   normalizeTechnicianAffiliation,
   applyTechnicianAffiliationFields,
+  formatTechnicianAffiliationLabel,
   formatTechnicianAffiliationFields
 };

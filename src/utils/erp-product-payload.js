@@ -26,6 +26,14 @@ function parseBooleanFlag(value, defaultValue = false) {
   return defaultValue;
 }
 
+function parseOptionalInt(value) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 const EXCLUDED_ERP_PRODUCT_FIELDS = [
   "managestock",
   "manageStock",
@@ -58,6 +66,18 @@ function normalizeErpProductPayload(data = {}) {
   delete next.HSCode;
   delete next.erpCode;
 
+  if (next.groupId !== undefined && next.groupid === undefined) next.groupid = next.groupId;
+  if (next.jobGroupId !== undefined && next.groupid === undefined) next.groupid = next.jobGroupId;
+  delete next.groupId;
+  delete next.jobGroupId;
+
+  if (next.categoryId !== undefined && next.serviceid === undefined) next.serviceid = next.categoryId;
+  if (next.jobCategoryId !== undefined && next.serviceid === undefined) next.serviceid = next.jobCategoryId;
+  if (next.serviceId !== undefined && next.serviceid === undefined) next.serviceid = next.serviceId;
+  delete next.categoryId;
+  delete next.jobCategoryId;
+  delete next.serviceId;
+
   ["hscode", "barcode", "erpcode"].forEach((field) => {
     if (next[field] !== undefined) {
       next[field] = trimOptionalCode(next[field]);
@@ -74,6 +94,14 @@ function normalizeErpProductPayload(data = {}) {
     next.brandid = Number.isFinite(bid) && bid > 0 ? bid : null;
   }
 
+  if (next.groupid !== undefined) {
+    next.groupid = parseOptionalInt(next.groupid);
+  }
+
+  if (next.serviceid !== undefined) {
+    next.serviceid = parseOptionalInt(next.serviceid);
+  }
+
   if (next.producttype != null && String(next.producttype).trim() !== "") {
     const type = String(next.producttype).trim().toLowerCase();
     if (type === "service" || type === "inventory") {
@@ -88,6 +116,26 @@ function resolveErpProductType(product) {
   if (!product) return null;
   if (product.producttype) return String(product.producttype).toLowerCase();
   return null;
+}
+
+function erpProductGroupCategoryLabels(product = {}) {
+  const groupid = product.groupid ?? product.jobgroups?.groupid ?? null;
+  const serviceid = product.serviceid ?? product.jobcategories?.categoryid ?? null;
+  const groupname = product.groupname ?? product.jobgroups?.name ?? null;
+  const categoryname = product.categoryname ?? product.jobcategories?.name ?? null;
+
+  return {
+    groupid,
+    serviceid,
+    groupname,
+    categoryname,
+    groupId: groupid,
+    categoryId: serviceid,
+    groupName: groupname,
+    categoryName: categoryname,
+    jobGroupName: groupname,
+    jobCategoryName: categoryname
+  };
 }
 
 async function resolveErpProductForeignKeys(data = {}, auth) {
@@ -119,6 +167,45 @@ async function resolveErpProductForeignKeys(data = {}, auth) {
       throw err;
     }
     next.unitid = unit.recno;
+  }
+
+  if (next.groupid != null) {
+    const group = await prisma.jobgroups.findFirst({
+      where: { groupid: Number(next.groupid), tenantid }
+    });
+    if (!group) {
+      const err = new Error(`groupid ${next.groupid} is not valid for this organization`);
+      err.status = 400;
+      throw err;
+    }
+    next.groupid = group.groupid;
+  }
+
+  if (next.serviceid != null) {
+    const category = await prisma.jobcategories.findFirst({
+      where: { categoryid: Number(next.serviceid), tenantid },
+      select: { categoryid: true, groupid: true }
+    });
+    if (!category) {
+      const err = new Error(`serviceid ${next.serviceid} is not valid for this organization`);
+      err.status = 400;
+      throw err;
+    }
+    next.serviceid = category.categoryid;
+
+    if (next.groupid == null && category.groupid != null) {
+      next.groupid = Number(category.groupid);
+    } else if (
+      next.groupid != null &&
+      category.groupid != null &&
+      Number(category.groupid) !== Number(next.groupid)
+    ) {
+      const err = new Error(
+        `serviceid ${next.serviceid} does not belong to groupid ${next.groupid}`
+      );
+      err.status = 400;
+      throw err;
+    }
   }
 
   return next;
@@ -159,6 +246,7 @@ function enrichErpProductResponse(product) {
 
   return {
     ...product,
+    ...erpProductGroupCategoryLabels(product),
     enableCPairReceive: product.enablecpairreceive === true
   };
 }
@@ -169,6 +257,7 @@ function formatErpProductDropdownRow(product) {
   }
 
   const brandId = product.brandid ?? product.brands?.recno ?? null;
+  const groupCategory = erpProductGroupCategoryLabels(product);
 
   return {
     id: product.erpproductid,
@@ -185,7 +274,8 @@ function formatErpProductDropdownRow(product) {
     purchaserate: product.purchaserate ?? null,
     erpcode: product.erpcode ?? null,
     producttype: resolveErpProductType(product),
-    brandname: product.brands?.name ?? null
+    brandname: product.brands?.name ?? null,
+    ...groupCategory
   };
 }
 
@@ -203,14 +293,20 @@ const ERP_PRODUCT_DROPDOWN_SELECT = {
   enablecpairreceive: true,
   unitid: true,
   brandid: true,
+  groupid: true,
+  serviceid: true,
   units: { select: { recno: true, name: true, symbol: true } },
-  brands: { select: { recno: true, name: true } }
+  brands: { select: { recno: true, name: true } },
+  jobgroups: { select: { groupid: true, name: true } },
+  jobcategories: { select: { categoryid: true, name: true, groupid: true } }
 };
 
 const ERP_PRODUCT_WITH_UNIT_INCLUDE = {
   include: {
     units: { select: { recno: true, name: true, symbol: true } },
-    brands: { select: { recno: true, name: true } }
+    brands: { select: { recno: true, name: true } },
+    jobgroups: { select: { groupid: true, name: true } },
+    jobcategories: { select: { categoryid: true, name: true, groupid: true } }
   }
 };
 
@@ -259,6 +355,8 @@ const ERP_PRODUCT_BULK_INSERT_FIELDS = [
   "producttype",
   "unitid",
   "brandid",
+  "groupid",
+  "serviceid",
   "createdat"
 ];
 
@@ -314,6 +412,7 @@ module.exports = {
   resolveErpProductForeignKeys,
   resolveErpProductType,
   erpProductUnitSnapshot,
+  erpProductGroupCategoryLabels,
   enrichErpProductResponse,
   formatErpProductDropdownRow,
   formatJobErpProductFields,

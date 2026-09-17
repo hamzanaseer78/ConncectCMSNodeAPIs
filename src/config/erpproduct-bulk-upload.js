@@ -38,6 +38,22 @@ const ERP_PRODUCT_BULK_COLUMNS = [
   { key: "unit", label: "Unit", required: false, type: "lookup", resolves: "unitid" },
   { key: "brand", label: "Brand", required: false, type: "lookup", resolves: "brandid" },
   {
+    key: "jobgroup",
+    label: "Job Group",
+    required: false,
+    type: "lookup",
+    resolves: "groupid",
+    hint: "Job group name or id"
+  },
+  {
+    key: "jobcategory",
+    label: "Job Category",
+    required: false,
+    type: "lookup",
+    resolves: "serviceid",
+    hint: "Job category name or id"
+  },
+  {
     key: "createdat",
     label: "Created Date",
     required: false,
@@ -60,6 +76,8 @@ const ERP_PRODUCT_BULK_TEMPLATE_ROW = [
   "yes",
   "Piece",
   "Sample Brand",
+  "Sample Job Group",
+  "Sample Job Category",
   "2026-01-15"
 ];
 
@@ -82,6 +100,8 @@ const HEADER_ALIASES = {
   isactive: ["isactive", "active", "status"],
   unit: ["unit", "unitname", "uom", "measurementunit"],
   brand: ["brand", "brandname", "manufacturer"],
+  jobgroup: ["jobgroup", "group", "groupname", "jobgroupname"],
+  jobcategory: ["jobcategory", "category", "categoryname", "jobcategoryname", "service"],
   createdat: ["createddate", "createdat", "datecreated", "creationdate"]
 };
 

@@ -15,6 +15,11 @@ function isCompletedStatusTitle(title) {
   return normalized === "completed" || normalized === "complete";
 }
 
+function isCancelledStatusTitle(title) {
+  const normalized = normalizeStatusTitle(title);
+  return normalized === "cancelled" || normalized === "cancel" || normalized === "canceled";
+}
+
 async function findUnassignedJobStatus(tx, tenantid) {
   const rows = await tx.jobstatuses.findMany({
     where: { tenantid: Number(tenantid) },
@@ -143,6 +148,7 @@ module.exports = {
   normalizeStatusTitle,
   isUnassignedStatusTitle,
   isCompletedStatusTitle,
+  isCancelledStatusTitle,
   findUnassignedJobStatus,
   findCompletedJobStatus,
   resolveInitialJobStatusId,

@@ -1,71 +1,95 @@
-const { isUnassignedStatusTitle, normalizeStatusTitle } = require("./job-assignment-status");
+const { isCancelledStatusTitle, isCompletedStatusTitle } = require("./job-assignment-status");
 const { utcNow } = require("./date");
 
 const JOB_STATS_KPI_KEYS = Object.freeze([
   "newJobs",
-  "followUpJobs",
   "assignedJobs",
-  "unAssignedJobs",
-  "completedJobs"
+  "followUpJobs",
+  "completedJobs",
+  "cancelledJobs"
 ]);
 
 const JOB_STATS_KPI_LABELS = Object.freeze({
   newJobs: "New Jobs",
-  followUpJobs: "Follow-up Jobs (In-Progress)",
   assignedJobs: "Assigned Jobs",
-  unAssignedJobs: "Un-Assigned Jobs",
-  completedJobs: "Completed Jobs"
+  followUpJobs: "Follow-up Jobs",
+  completedJobs: "Completed Jobs",
+  cancelledJobs: "Cancelled"
 });
-
-function isNewStatusTitle(title) {
-  const normalized = normalizeStatusTitle(title);
-  return normalized === "new" || normalized === "newjob" || normalized === "open";
-}
 
 function buildJobStatusKpiContext(statusRows = []) {
   const statuses = Array.isArray(statusRows) ? statusRows : [];
 
-  const firstStatus =
-    statuses.find((row) => row.isfirststatus === true) ||
-    statuses.find((row) => isNewStatusTitle(row.title)) ||
-    null;
-
-  const unassignedStatus = statuses.find((row) => isUnassignedStatusTitle(row.title)) || null;
-
   const completedStatusIds = statuses
-    .filter((row) => row.iscompletedstatus === true)
+    .filter((row) => row.iscompletedstatus === true || isCompletedStatusTitle(row.title))
     .map((row) => Number(row.recno));
 
-  const firstStatusId = firstStatus ? Number(firstStatus.recno) : null;
-  const unassignedStatusId = unassignedStatus ? Number(unassignedStatus.recno) : null;
+  const cancelledStatusIds = statuses
+    .filter((row) => isCancelledStatusTitle(row.title))
+    .map((row) => Number(row.recno));
 
   return {
-    firstStatusId,
-    unassignedStatusId,
-    completedStatusIds
+    completedStatusIds,
+    cancelledStatusIds
   };
 }
 
-function excludeCompletedStatuses(where, context) {
+function buildStatusExclusionClauses(context, excludeCompleted = true, excludeCancelled = true) {
+  const clauses = [];
   const completedIds = (context.completedStatusIds || []).filter(Number.isFinite);
-  if (!completedIds.length) {
-    return where;
+  const cancelledIds = (context.cancelledStatusIds || []).filter(Number.isFinite);
+
+  if (excludeCompleted && completedIds.length) {
+    clauses.push({ OR: [{ statusid: null }, { statusid: { notIn: completedIds } }] });
   }
 
+  if (excludeCancelled && cancelledIds.length) {
+    clauses.push({ OR: [{ statusid: null }, { statusid: { notIn: cancelledIds } }] });
+  }
+
+  return clauses;
+}
+
+function buildNotCompletedWhere() {
+  // Prisma/SQL: `{ not: true }` does not match NULL — many legacy jobs have iscompleted NULL.
   return {
-    ...where,
-    AND: [
-      ...(where.AND || []),
-      {
-        OR: [{ statusid: null }, { statusid: { notIn: completedIds } }]
-      }
-    ]
+    OR: [{ iscompleted: false }, { iscompleted: null }]
   };
 }
 
-function buildOpenJobWhere(context) {
-  const where = { iscompleted: { not: true } };
-  return excludeCompletedStatuses(where, context);
+function buildActiveJobWhere(context) {
+  const exclusions = buildStatusExclusionClauses(context, true, true);
+  const where = buildNotCompletedWhere();
+
+  if (exclusions.length) {
+    return {
+      AND: [where, ...exclusions]
+    };
+  }
+
+  return where;
+}
+
+function buildNewJobsWhere(context) {
+  return {
+    ...buildActiveJobWhere(context),
+    assignedto: null
+  };
+}
+
+function buildAssignedJobsWhere(context) {
+  return {
+    ...buildActiveJobWhere(context),
+    assignedto: { not: null },
+    followupby: null
+  };
+}
+
+function buildFollowUpJobsWhere(context) {
+  return {
+    ...buildActiveJobWhere(context),
+    followupby: { not: null }
+  };
 }
 
 function buildCompletedJobsWhere(context) {
@@ -77,69 +101,26 @@ function buildCompletedJobsWhere(context) {
   return { OR: clauses };
 }
 
-function buildUnAssignedJobsWhere(context) {
-  const where = buildOpenJobWhere(context);
-  const clauses = [{ assignedto: null }];
-  if (context.unassignedStatusId != null) {
-    clauses.push({ statusid: context.unassignedStatusId });
+function buildCancelledJobsWhere(context) {
+  const cancelledIds = (context.cancelledStatusIds || []).filter(Number.isFinite);
+  if (!cancelledIds.length) {
+    return { statusid: { in: [-1] } };
   }
-  return {
-    ...where,
-    OR: clauses
-  };
-}
-
-function buildAssignedJobsWhere(context) {
-  const where = {
-    ...buildOpenJobWhere(context),
-    assignedto: { not: null }
-  };
-
-  if (context.unassignedStatusId != null) {
-    where.statusid = { not: context.unassignedStatusId };
-  }
-
-  return where;
-}
-
-function buildNewJobsWhere(context) {
-  const where = buildAssignedJobsWhere(context);
-
-  if (context.firstStatusId != null) {
-    where.statusid = context.firstStatusId;
-  }
-
-  return where;
-}
-
-function buildFollowUpJobsWhere(context) {
-  const excluded = [
-    context.firstStatusId,
-    context.unassignedStatusId,
-    ...(context.completedStatusIds || [])
-  ].filter((id) => id != null);
-
-  const where = buildAssignedJobsWhere(context);
-
-  if (excluded.length) {
-    where.AND = [...(where.AND || []), { OR: [{ statusid: null }, { statusid: { notIn: excluded } }] }];
-  }
-
-  return where;
+  return { statusid: { in: cancelledIds } };
 }
 
 function buildJobKpiWhere(kpiKey, context) {
   switch (String(kpiKey || "").trim()) {
     case "newJobs":
       return buildNewJobsWhere(context);
-    case "followUpJobs":
-      return buildFollowUpJobsWhere(context);
     case "assignedJobs":
       return buildAssignedJobsWhere(context);
-    case "unAssignedJobs":
-      return buildUnAssignedJobsWhere(context);
+    case "followUpJobs":
+      return buildFollowUpJobsWhere(context);
     case "completedJobs":
       return buildCompletedJobsWhere(context);
+    case "cancelledJobs":
+      return buildCancelledJobsWhere(context);
     default:
       return null;
   }
@@ -186,7 +167,7 @@ module.exports = {
   buildNewJobsWhere,
   buildFollowUpJobsWhere,
   buildAssignedJobsWhere,
-  buildUnAssignedJobsWhere,
+  buildCancelledJobsWhere,
   buildCompletedJobsWhere,
   parseJobStatsKpiKey,
   mergeWhereClauses,

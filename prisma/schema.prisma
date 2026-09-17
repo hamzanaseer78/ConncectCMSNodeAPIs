@@ -161,6 +161,7 @@ model branches {
   faceapprovalsettings                faceapprovalsettings[]
   faceapprovalrequests                faceapprovalrequests[]
   jobquotationsettings                jobquotationsettings[]
+  jobformsettings                     jobformsettings[]
   jobcashsettings                     jobcashsettings[]
   jobcollections                      jobcollections[]
   jobexpenses                         jobexpenses[]
@@ -283,6 +284,7 @@ model jobcategories {
   createdat                                DateTime?          @db.Timestamp(6)
   lastupdatedby                            Int?
   lastupdatedat                            DateTime?          @db.Timestamp(6)
+  erpproducts                              erpproducts[]
   job                                      job[]
   branches                                 branches?          @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
   users_jobcategories_createdbyTousers     users?             @relation("jobcategories_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_createdby")
@@ -305,6 +307,7 @@ model jobgroups {
   createdat                            DateTime?       @db.Timestamp(6)
   lastupdatedby                        Int?
   lastupdatedat                        DateTime?       @db.Timestamp(6)
+  erpproducts                          erpproducts[]
   jobcategories                        jobcategories[]
   job                                  job[]
   branches                             branches?       @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_branch")
@@ -406,6 +409,7 @@ model organizations {
   faceapprovalsettings                     faceapprovalsettings[]
   faceapprovalrequests                     faceapprovalrequests[]
   jobquotationsettings                     jobquotationsettings[]
+  jobformsettings                          jobformsettings[]
   jobcashsettings                          jobcashsettings[]
   jobcollections                           jobcollections[]
   jobexpenses                              jobexpenses[]
@@ -482,6 +486,8 @@ model erpproducts {
   branchid                                 Int?
   unitid                                   Int?
   brandid                                  Int?
+  groupid                                  Int?
+  serviceid                                Int?
   name                                     String?
   hscode                                   String?        @db.VarChar(20)
   barcode                                  String?        @db.VarChar(50)
@@ -500,6 +506,8 @@ model erpproducts {
   branches                                 branches?      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_erpproducts_branch")
   units                                    units?         @relation(fields: [unitid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_erpproducts_unit")
   brands                                   brands?        @relation(fields: [brandid], references: [recno], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_erpproducts_brand")
+  jobgroups                                jobgroups?     @relation(fields: [groupid], references: [groupid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_erpproducts_group")
+  jobcategories                            jobcategories? @relation(fields: [serviceid], references: [categoryid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_erpproducts_category")
   users_erpproducts_createdbyTousers       users?         @relation("erpproducts_createdbyTousers", fields: [createdby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_erpproducts_createdby")
   users_erpproducts_lastupdatedbyTousers   users?         @relation("erpproducts_lastupdatedbyTousers", fields: [lastupdatedby], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_erpproducts_lastupdatedby")
   organizations                            organizations? @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jsl_erpproducts_tenant")
@@ -852,6 +860,24 @@ model jobcashsettings {
 
   @@unique([tenantid, branchid], map: "uq_jobcashsettings_tenant_branch")
   @@index([tenantid, branchid], map: "idx_jobcashsettings_tenant_branch")
+}
+
+/// Per-branch complaint form field visibility and mandatory rules (admin vs distributor forms).
+model jobformsettings {
+  recno           Int           @id @default(autoincrement())
+  tenantid        Int
+  branchid        Int
+  formtype        String        @db.VarChar(20)
+  fieldsjson      String
+  createdby       Int?
+  createdat       DateTime?     @db.Timestamp(6)
+  lastupdatedby   Int?
+  lastupdatedat   DateTime?     @db.Timestamp(6)
+  branches        branches      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jobformsettings_branch")
+  organizations   organizations @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jobformsettings_tenant")
+
+  @@unique([tenantid, branchid, formtype], map: "uq_jobformsettings_tenant_branch_formtype")
+  @@index([tenantid, branchid], map: "idx_jobformsettings_tenant_branch")
 }
 
 model jobcollections {
