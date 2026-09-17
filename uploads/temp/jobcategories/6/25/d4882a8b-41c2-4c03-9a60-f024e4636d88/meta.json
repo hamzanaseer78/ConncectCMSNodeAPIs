@@ -1,0 +1,28 @@
+{
+  "uploadId": "d4882a8b-41c2-4c03-9a60-f024e4636d88",
+  "tenantid": 6,
+  "branchid": 5,
+  "userid": 25,
+  "originalName": "job-category-filled.xlsx",
+  "storedFilename": "source.xlsx",
+  "fileType": "excel",
+  "headers": [
+    "Name",
+    "Group",
+    "Color",
+    "Is Active",
+    "Created Date"
+  ],
+  "rowCount": 25,
+  "createdAt": "2026-06-23T09:19:49.559Z",
+  "expiresAt": "2026-06-24T09:19:49.559Z",
+  "columnMapping": {
+    "name": "Name",
+    "group": "Group",
+    "color": "Color",
+    "isactive": "Is Active",
+    "createdat": "Created Date"
+  },
+  "dateFormat": "YYYY-MM-DD",
+  "lastPreviewAt": "2026-06-23T09:19:56.259Z"
+}

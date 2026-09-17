@@ -1,0 +1,22 @@
+{
+  "uploadId": "672801ed-9f04-4ca2-8f71-e262cd17b42b",
+  "tenantid": 6,
+  "branchid": 5,
+  "userid": 25,
+  "originalName": "job-subcategories-filled2.xlsx",
+  "storedFilename": "source.xlsx",
+  "fileType": "excel",
+  "headers": [
+    "Name",
+    "Category",
+    "Group",
+    "Color",
+    "Is Active",
+    "Created Date"
+  ],
+  "rowCount": 54,
+  "createdAt": "2026-06-23T11:26:53.546Z",
+  "expiresAt": "2026-06-24T11:26:53.546Z",
+  "columnMapping": null,
+  "dateFormat": null
+}

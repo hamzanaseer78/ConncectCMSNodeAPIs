@@ -1,0 +1,35 @@
+{
+  "uploadId": "05ad63e6-8992-4f86-8cac-ff26f0da8e8f",
+  "tenantid": 1,
+  "branchid": 1,
+  "userid": 1,
+  "originalName": "erp-product-bulk-upload-template.xlsx",
+  "storedFilename": "source.xlsx",
+  "fileType": "excel",
+  "headers": [
+    "Name",
+    "HS Code",
+    "Barcode",
+    "ERP Code",
+    "Sale Rate",
+    "Purchase Rate",
+    "Discount Value",
+    "Discount Type",
+    "Product Type",
+    "Enable C-Pair Receive",
+    "Is Active",
+    "Unit",
+    "Brand",
+    "Created Date"
+  ],
+  "rowCount": 1,
+  "createdAt": "2026-08-31T10:19:17.385Z",
+  "expiresAt": "2026-09-01T10:19:17.385Z",
+  "columnMapping": {
+    "name": "Name",
+    "barcode": "Barcode",
+    "unit": "Unit"
+  },
+  "dateFormat": "DD/MM/YYYY",
+  "lastPreviewAt": "2026-08-31T10:21:02.468Z"
+}

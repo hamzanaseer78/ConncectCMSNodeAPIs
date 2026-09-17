@@ -1,0 +1,30 @@
+{
+  "uploadId": "cc14d099-a7e9-410e-8a6f-a0040fcea317",
+  "tenantid": 6,
+  "branchid": 5,
+  "userid": 25,
+  "originalName": "products-filled.xlsx",
+  "storedFilename": "source.xlsx",
+  "fileType": "excel",
+  "headers": [
+    "Name",
+    "HS Code",
+    "Barcode",
+    "ERP Code",
+    "Sale Rate",
+    "Purchase Rate",
+    "Discount Value",
+    "Discount Type",
+    "Product Type",
+    "Manage Stock",
+    "Is Active",
+    "Unit",
+    "Brand",
+    "Created Date"
+  ],
+  "rowCount": 20,
+  "createdAt": "2026-06-23T09:16:19.998Z",
+  "expiresAt": "2026-06-24T09:16:19.998Z",
+  "columnMapping": null,
+  "dateFormat": null
+}
