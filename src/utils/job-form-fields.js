@@ -4,6 +4,26 @@ const {
   NON_HIDEABLE_FIELD_NAMES
 } = require("../config/job-form-fields.registry");
 
+const JOB_FORM_LABEL_MAX_LENGTH = 120;
+
+function hasCustomLabelValue(value) {
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+
+function resolveFieldLabels(field, def = {}) {
+  const defaultLabel = String(def.label ?? def.fieldName ?? field.fieldName ?? "");
+  const rawCustom = field.label ?? field.displayName;
+
+  if (!hasCustomLabelValue(rawCustom)) {
+    return { label: defaultLabel, defaultLabel };
+  }
+
+  return {
+    label: String(rawCustom).trim(),
+    defaultLabel
+  };
+}
+
 function parseSavedFieldsJson(raw) {
   if (!raw) return [];
   try {
@@ -16,16 +36,25 @@ function parseSavedFieldsJson(raw) {
   }
 }
 
-function normalizeField(field, index, defaultsByName) {
+function normalizeField(field, index, defaultsByName, options = {}) {
   const def = defaultsByName.get(String(field.fieldName)) || {};
-  const merged = { ...def, ...field };
+  const savedField = options.savedField ?? null;
+  const { defaultLabel: _savedDefaultLabel, displayName: _displayName, ...fieldSettings } = field || {};
+  const merged = { ...def, ...fieldSettings };
   const isHideable = NON_HIDEABLE_FIELD_NAMES.has(merged.fieldName)
     ? false
     : def.isHideable !== false;
+  const labelSource =
+    savedField &&
+    (hasCustomLabelValue(savedField.label) || hasCustomLabelValue(savedField.displayName))
+      ? savedField
+      : {};
+  const { label, defaultLabel } = resolveFieldLabels(labelSource, def);
 
   const row = {
     fieldName: String(merged.fieldName),
-    label: merged.label ?? merged.fieldName,
+    label,
+    defaultLabel,
     section: merged.section ?? "customer",
     sortNo: Number.isFinite(Number(merged.sortNo)) ? Number(merged.sortNo) : index + 1,
     isMandatory: merged.isMandatory === true,
@@ -55,13 +84,21 @@ function mergeJobFormFields(formType, savedFields = []) {
 
   const merged = defaults.map((def, index) => {
     const saved = savedByName.get(def.fieldName);
-    return normalizeField(saved ? { ...def, ...saved, formType } : { ...def, formType }, index, defaultsByName);
+    return normalizeField(
+      saved ? { ...def, ...saved, formType } : { ...def, formType },
+      index,
+      defaultsByName,
+      { savedField: saved || null }
+    );
   });
 
   return merged.sort((left, right) => left.sortNo - right.sortNo);
 }
 
 module.exports = {
+  JOB_FORM_LABEL_MAX_LENGTH,
+  hasCustomLabelValue,
+  resolveFieldLabels,
   parseSavedFieldsJson,
   normalizeField,
   mergeJobFormFields

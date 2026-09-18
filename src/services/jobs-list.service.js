@@ -9,6 +9,7 @@ const { optionalJobservicesInclude } = require("../utils/prisma-jobservices");
 const { modelHasRelation, modelHasScalarField } = require("../utils/prisma-model-support");
 const { jobMainEquipmentFields } = require("../utils/job-equipment");
 const { enrichJobApiRow, loadJobListEnrichmentContext } = require("../utils/job-response-enrichment");
+const { buildJobCreatedByFields } = require("../utils/job-timeline");
 const { normalizeQuotationStatus } = require("../utils/quotation-status");
 const { canManageBranchJobs, isDistributor, applyDistributorJobScope } = require("../utils/job-access");
 const { loadTeamMemberIds } = require("../utils/user-manager");
@@ -108,7 +109,18 @@ function buildJobListInclude() {
       }
     },
     areas: { select: { recno: true, name: true } },
-    jobdetails: { orderBy: { recno: "desc" }, take: 1, select: { remarks: true } }
+    jobdetails: {
+      orderBy: { recno: "desc" },
+      take: 1,
+      select: {
+        remarks: true,
+        createdby: true,
+        createdat: true,
+        users_jobdetails_createdbyTousers: {
+          select: { userid: true, name: true, email: true }
+        }
+      }
+    }
   };
 
   if (modelHasRelation(prisma, "job", "followupbyuser")) {
@@ -312,7 +324,8 @@ function getAvailableJobFilters() {
  */
 function slimJobListRow(job, enrichmentContext = {}) {
   const { jobdetails, jobproducts, jobservices, jobaddonproducts: _jobaddonproducts, ...rest } = job;
-  const equipmentMain = jobMainEquipmentFields(jobdetails?.[0], rest.brandid);
+  const detail = Array.isArray(jobdetails) ? jobdetails[0] : jobdetails ?? null;
+  const equipmentMain = jobMainEquipmentFields(detail, rest.brandid);
 
   return {
     ...enrichJobApiRow(rest, enrichmentContext),
@@ -321,7 +334,8 @@ function slimJobListRow(job, enrichmentContext = {}) {
     ...equipmentMain,
     productLines: mapJobProductLines(jobproducts),
     serviceLines: mapJobServiceLines(jobservices),
-    totalCost: rest.totalcost ?? null
+    totalCost: rest.totalcost ?? null,
+    ...buildJobCreatedByFields(detail)
   };
 }
 

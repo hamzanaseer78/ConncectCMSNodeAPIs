@@ -29,16 +29,33 @@ function pickUserName(user) {
   return user?.name ?? null;
 }
 
+function buildJobCreatedByFields(detail) {
+  if (!detail) {
+    return {
+      createdBy: null,
+      createdByName: null,
+      createdAt: null
+    };
+  }
+
+  return {
+    createdBy: detail.createdby ?? null,
+    createdByName: pickUserName(detail.users_jobdetails_createdbyTousers),
+    createdAt: detail.createdat ?? null
+  };
+}
+
 function buildJobCreatedEvent(detail, createdAt, toTimelineIso) {
   if (!createdAt) {
     return null;
   }
+  const { createdBy, createdByName } = buildJobCreatedByFields(detail);
   return {
     type: "JOB_CREATED",
     at: toTimelineIso(createdAt),
     remarks: "Job created",
-    createdBy: detail?.createdby ?? null,
-    createdByName: pickUserName(detail?.users_jobdetails_createdbyTousers)
+    createdBy,
+    createdByName
   };
 }
 
@@ -147,6 +164,7 @@ module.exports = {
   JOB_TRAVEL_HISTORY_INCLUDE,
   JOB_WORK_HISTORY_INCLUDE,
   JOB_DETAIL_CREATED_SELECT,
+  buildJobCreatedByFields,
   buildJobCreatedEvent,
   buildAssignmentEvent,
   buildStatusChangedEvent,

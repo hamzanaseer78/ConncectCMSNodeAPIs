@@ -76,6 +76,7 @@ const {
   JOB_TRAVEL_HISTORY_INCLUDE,
   JOB_WORK_HISTORY_INCLUDE,
   JOB_DETAIL_CREATED_SELECT,
+  buildJobCreatedByFields,
   buildJobCreatedEvent,
   buildAssignmentEvent,
   buildStatusChangedEvent,
@@ -170,7 +171,15 @@ function buildJobFormInclude() {
         }
       }
     },
-    jobdetails: { orderBy: { recno: "asc" }, take: 1 },
+    jobdetails: {
+      orderBy: { recno: "asc" },
+      take: 1,
+      include: {
+        users_jobdetails_createdbyTousers: {
+          select: { userid: true, name: true, email: true }
+        }
+      }
+    },
     jobproducts: JOB_PRODUCT_LINE_INCLUDE,
     ...optionalJobservicesInclude()
   };
@@ -914,7 +923,8 @@ function jobToFormPayload(job, detail, customer, products = [], services = [], o
     quotationTermsAndConditions: job.quotationterms ?? null,
     jobNotes: job.notes ?? null,
     termsAndConditions: job.termsandconditions ?? null,
-    ...formatJobErpProductFields(job)
+    ...formatJobErpProductFields(job),
+    ...buildJobCreatedByFields(detail)
   };
 }
 

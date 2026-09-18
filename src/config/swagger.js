@@ -3316,7 +3316,7 @@ module.exports = swaggerJsdoc({
         get: {
           summary: "Get complaint form field settings",
           description:
-            "Returns per-branch field visibility and mandatory rules for the Create Complaint form. Defaults (before any branch save): admin shows all fields; distributor hides most of the assignment panel and service/parts tables, except ERP Product and Product Model remain visible. Query param formType: admin or distributor.",
+            "Returns per-branch field visibility, mandatory rules, and display names for the Create Complaint form. Each field includes label (effective display name) and defaultLabel (system default). Defaults (before any branch save): admin shows all fields; distributor hides most of the assignment panel and service/parts tables, except ERP Product and Product Model remain visible. Query param formType: admin or distributor.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           parameters: [
@@ -3342,7 +3342,7 @@ module.exports = swaggerJsdoc({
         put: {
           summary: "Save complaint form field settings (admin only)",
           description:
-            "Configure mandatory/show rules per field. Non-hideable fields (customer phone, customer name, job category, job sub category, fault/complaint) always remain visible. Only system administrators can change isHideable when allowHideableChanges is true.",
+            "Configure mandatory/show rules and custom display names (label) per field. Non-hideable fields (customer phone, customer name, job category, job sub category, fault/complaint) always remain visible. Only system administrators can change isHideable when allowHideableChanges is true.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -4084,7 +4084,7 @@ module.exports = swaggerJsdoc({
         get: {
           summary: "Get all jobs in tenant/branch (paged, filterable)",
           description:
-            "Returns all branch jobs for admins and managers. Technicians only see jobs assigned to them via `/api/jobs-my`.",
+            "Returns all branch jobs for admins and managers. Technicians only see jobs assigned to them via `/api/jobs-my`. Each job row includes createdBy, createdByName, and createdAt when available.",
           tags: [ALL_JOBS_TAG],
           security: [{ bearerAuth: [] }],
           parameters: jobListQueryParameters(),
@@ -8086,7 +8086,14 @@ module.exports = swaggerJsdoc({
               type: "string",
               description: "API field key (e.g. customerPhone, categoryId, serviceLines, productLines)"
             },
-            label: { type: "string" },
+            label: {
+              type: "string",
+              description: "Display name shown on the job form (branch-customizable)"
+            },
+            defaultLabel: {
+              type: "string",
+              description: "System default display name from the field registry"
+            },
             section: {
               type: "string",
               enum: ["customer", "assignment", "lines", "notes"],
@@ -8140,6 +8147,14 @@ module.exports = swaggerJsdoc({
                 required: ["fieldName"],
                 properties: {
                   fieldName: { type: "string" },
+                  label: {
+                    type: "string",
+                    description: "Custom display name for this field on the job form"
+                  },
+                  displayName: {
+                    type: "string",
+                    description: "Alias for label (same meaning)"
+                  },
                   isMandatory: { type: "boolean" },
                   isShow: { type: "boolean" },
                   isHideable: { type: "boolean" },
@@ -8686,6 +8701,22 @@ module.exports = swaggerJsdoc({
                   type: "string",
                   nullable: true,
                   description: "Follow-up user display name"
+                },
+                createdBy: {
+                  type: "integer",
+                  nullable: true,
+                  description: "User id who created the job"
+                },
+                createdByName: {
+                  type: "string",
+                  nullable: true,
+                  description: "Display name of the user who created the job"
+                },
+                createdAt: {
+                  type: "string",
+                  format: "date-time",
+                  nullable: true,
+                  description: "When the job was created"
                 },
                 deliveryTypeId: { type: "integer", nullable: true },
                 deliveryTypeName: { type: "string", nullable: true, description: "Delivery type label from deliverytypes" },

@@ -2,7 +2,12 @@ const prisma = require("../database/prisma");
 const { utcNow } = require("../utils/date");
 const serviceContainer = require("../utils/service-container");
 const { normalizeFormType, getDefaultJobFormFieldsByName } = require("../config/job-form-fields.registry");
-const { parseSavedFieldsJson, mergeJobFormFields } = require("../utils/job-form-fields");
+const {
+  JOB_FORM_LABEL_MAX_LENGTH,
+  hasCustomLabelValue,
+  parseSavedFieldsJson,
+  mergeJobFormFields
+} = require("../utils/job-form-fields");
 
 function clientError(message, status = 400) {
   const err = new Error(message);
@@ -85,6 +90,30 @@ class JobFormSettingsService {
     return settings.fields;
   }
 
+  normalizeInputFieldLabel(field, defaultsByName) {
+    const fieldName = String(field.fieldName);
+    const def = defaultsByName.get(fieldName);
+    const fallbackLabel = def?.label ?? fieldName;
+
+    if (!hasCustomLabelValue(field.label) && !hasCustomLabelValue(field.displayName)) {
+      return field;
+    }
+
+    const rawLabel = hasCustomLabelValue(field.label) ? field.label : field.displayName;
+    const label = String(rawLabel).trim();
+    if (!label) {
+      throw clientError(`Display name for "${fallbackLabel}" cannot be blank`);
+    }
+    if (label.length > JOB_FORM_LABEL_MAX_LENGTH) {
+      throw clientError(
+        `Display name for "${fallbackLabel}" must be at most ${JOB_FORM_LABEL_MAX_LENGTH} characters`
+      );
+    }
+
+    const { displayName: _displayName, ...rest } = field;
+    return { ...rest, label };
+  }
+
   validateInputFields(formType, inputFields = [], { allowHideableChanges = false } = {}) {
     if (!Array.isArray(inputFields) || !inputFields.length) {
       throw clientError("fields array is required");
@@ -99,10 +128,14 @@ class JobFormSettingsService {
       throw clientError(`Unknown field(s): ${unknown.join(", ")}`);
     }
 
-    const merged = mergeJobFormFields(
-      formType,
-      inputFields.map((field, index) => ({ ...field, sortNo: field.sortNo ?? index + 1 }))
+    const normalizedInput = inputFields.map((field, index) =>
+      this.normalizeInputFieldLabel(
+        { ...field, sortNo: field.sortNo ?? index + 1 },
+        defaultsByName
+      )
     );
+
+    const merged = mergeJobFormFields(formType, normalizedInput);
 
     merged.forEach((field) => {
       if (field.isMandatory && field.isShow !== true) {
