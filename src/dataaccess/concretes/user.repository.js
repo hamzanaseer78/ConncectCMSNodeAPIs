@@ -4,6 +4,7 @@ const {
   findUserByEmail,
   assertUserEmailAvailable
 } = require("../../utils/user-email");
+const { syncPostgresSequence } = require("../../utils/postgres-sequence");
 
 class UserRepository {
   async getAll() {
@@ -25,7 +26,10 @@ class UserRepository {
     if (data.email != null && data.email !== "") {
       data.email = await assertUserEmailAvailable(prisma, data.email);
     }
-    return prisma.users.create({ data });
+    return prisma.$transaction(async (tx) => {
+      await syncPostgresSequence(tx, "users", "userid");
+      return tx.users.create({ data });
+    });
   }
 
   async update(id, user) {

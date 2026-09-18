@@ -67,21 +67,24 @@ class AuthService {
             lastupdatedat: now
           }
         })
-      : await prisma.users.create({
-          data: {
-            name,
-            email: normalizedEmail,
-            isactive: true,
-            isdeleted: false,
-            signuptoken: token,
-            istokenused: false,
-            resettokengendatetime: now,
-            signupip: signupIp,
-            signuplatitude: signupLatitude,
-            signuplongitude: signupLongitude,
-            istermsaccepted: isTermsAccepted,
-            createdat: now
-          }
+      : await prisma.$transaction(async (tx) => {
+          await syncPostgresSequence(tx, "users", "userid");
+          return tx.users.create({
+            data: {
+              name,
+              email: normalizedEmail,
+              isactive: true,
+              isdeleted: false,
+              signuptoken: token,
+              istokenused: false,
+              resettokengendatetime: now,
+              signupip: signupIp,
+              signuplatitude: signupLatitude,
+              signuplongitude: signupLongitude,
+              istermsaccepted: isTermsAccepted,
+              createdat: now
+            }
+          });
         });
 
     const url = `${baseUrl || "http://localhost:3000"}/api/auth/signup/verify?token=${encodeURIComponent(token)}&email=${encodeURIComponent(normalizedEmail)}`;
@@ -444,6 +447,7 @@ class AuthService {
     const result = await prisma.$transaction(async (tx) => {
       if (!user) {
         await assertUserEmailAvailable(tx, email);
+        await syncPostgresSequence(tx, "users", "userid");
         user = await tx.users.create({
           data: {
             name,
