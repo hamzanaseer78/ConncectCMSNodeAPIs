@@ -5,12 +5,22 @@
  * @param {import("@prisma/client").Prisma.TransactionClient} tx
  * @param {string} table
  * @param {string} column
+ * @param {string} [schema]
  */
-async function syncPostgresSequence(tx, table, column) {
+async function syncPostgresSequence(tx, table, column, schema = "public") {
+  const qualifiedTable = `"${schema}"."${table}"`;
+  const sequenceExpr = `
+    COALESCE(
+      pg_get_serial_sequence('${schema}.${table}', '${column}'),
+      pg_get_serial_sequence('${table}', '${column}'),
+      '${schema}.${table}_${column}_seq'
+    )::regclass
+  `;
+
   await tx.$executeRawUnsafe(`
     SELECT setval(
-      pg_get_serial_sequence('${table}', '${column}'),
-      COALESCE((SELECT MAX("${column}") FROM "${table}"), 0) + 1,
+      ${sequenceExpr},
+      (SELECT COALESCE(MAX("${column}"), 0) FROM ${qualifiedTable}) + 1,
       false
     )
   `);

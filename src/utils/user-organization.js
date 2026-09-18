@@ -3,7 +3,7 @@ const prisma = require("../database/prisma");
 const { utcNow } = require("./date");
 const { normalizeUserEmail, assertUserEmailAvailable } = require("./user-email");
 const { resolveUserTypeFromInput } = require("./user-type");
-const { syncPostgresSequence } = require("./postgres-sequence");
+const { createUserInTransaction } = require("./user-create");
 const { applyTechnicianAffiliationFields } = require("./technician-affiliation");
 const { applyManagerFields } = require("./user-manager");
 const { generateRandomPassword } = require("./password");
@@ -114,23 +114,20 @@ async function createOrganizationUser(data, auth) {
 
   const user = await prisma.$transaction(async (tx) => {
     await assertUserEmailAvailable(tx, email);
-    await syncPostgresSequence(tx, "users", "userid");
 
-    const created = await tx.users.create({
-      data: {
-        name,
-        email,
-        contactno: data.contactno != null ? String(data.contactno).trim() : null,
-        usertype,
-        ...technicianFields,
-        ...managerFields,
-        password: passwordHash,
-        isactive: data.isactive !== false,
-        isdeleted: false,
-        createdtenantid: tenantid,
-        createdby: Number(auth.userid),
-        createdat: now
-      }
+    const created = await createUserInTransaction(tx, {
+      name,
+      email,
+      contactno: data.contactno != null ? String(data.contactno).trim() : null,
+      usertype,
+      ...technicianFields,
+      ...managerFields,
+      password: passwordHash,
+      isactive: data.isactive !== false,
+      isdeleted: false,
+      createdtenantid: tenantid,
+      createdby: Number(auth.userid),
+      createdat: now
     });
 
     await ensureOrganizationMembership(tx, {

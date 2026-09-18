@@ -26,6 +26,7 @@ const { applyManagerFields, formatManagerFields } = require("../../utils/user-ma
 const screenRightsService = require("./screenrights.service");
 const { enrichSessionProfileGeo } = require("../../utils/geo-labels");
 const { syncPostgresSequence } = require("../../utils/postgres-sequence");
+const { createUserInTransaction } = require("../../utils/user-create");
 const { assertResourceRight } = require("../../middlewares/authorization.middleware");
 const { createDefaultOrganizationPolicies } = require("../../services/default-organization-policies.service");
 
@@ -67,25 +68,22 @@ class AuthService {
             lastupdatedat: now
           }
         })
-      : await prisma.$transaction(async (tx) => {
-          await syncPostgresSequence(tx, "users", "userid");
-          return tx.users.create({
-            data: {
-              name,
-              email: normalizedEmail,
-              isactive: true,
-              isdeleted: false,
-              signuptoken: token,
-              istokenused: false,
-              resettokengendatetime: now,
-              signupip: signupIp,
-              signuplatitude: signupLatitude,
-              signuplongitude: signupLongitude,
-              istermsaccepted: isTermsAccepted,
-              createdat: now
-            }
-          });
-        });
+      : await prisma.$transaction(async (tx) =>
+          createUserInTransaction(tx, {
+            name,
+            email: normalizedEmail,
+            isactive: true,
+            isdeleted: false,
+            signuptoken: token,
+            istokenused: false,
+            resettokengendatetime: now,
+            signupip: signupIp,
+            signuplatitude: signupLatitude,
+            signuplongitude: signupLongitude,
+            istermsaccepted: isTermsAccepted,
+            createdat: now
+          })
+        );
 
     const url = `${baseUrl || "http://localhost:3000"}/api/auth/signup/verify?token=${encodeURIComponent(token)}&email=${encodeURIComponent(normalizedEmail)}`;
     
@@ -447,21 +445,18 @@ class AuthService {
     const result = await prisma.$transaction(async (tx) => {
       if (!user) {
         await assertUserEmailAvailable(tx, email);
-        await syncPostgresSequence(tx, "users", "userid");
-        user = await tx.users.create({
-          data: {
-            name,
-            email,
-            contactno: input.contactno != null ? String(input.contactno).trim() : null,
-            usertype,
-            ...technicianFields,
-            ...managerFields,
-            password: passwordHash,
-            isactive: input.isactive !== false,
-            isdeleted: false,
-            createdby: Number(auth.userid),
-            createdat: now
-          }
+        user = await createUserInTransaction(tx, {
+          name,
+          email,
+          contactno: input.contactno != null ? String(input.contactno).trim() : null,
+          usertype,
+          ...technicianFields,
+          ...managerFields,
+          password: passwordHash,
+          isactive: input.isactive !== false,
+          isdeleted: false,
+          createdby: Number(auth.userid),
+          createdat: now
         });
       } else {
         const updateData = {
