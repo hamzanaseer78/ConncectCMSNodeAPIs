@@ -11,8 +11,6 @@ router.get("/next-code", jobController.getNextJobCode);
 router.get("/quotation-statuses", jobController.listQuotationStatusOptions);
 router.get("/quotation/settings", jobController.getQuotationSettings);
 router.put("/quotation/settings", jobController.saveQuotationSettings);
-router.get("/form/settings", jobController.getFormSettings);
-router.put("/form/settings", jobController.saveFormSettings);
 router.get("/erp-products/dropdown", jobController.getErpProductsDropdown);
 router.get("/cash/settings", jobController.getCashSettings);
 router.put("/cash/settings", jobController.saveCashSettings);
