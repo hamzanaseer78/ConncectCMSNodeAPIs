@@ -1,6 +1,7 @@
 /**
  * Diagnose and fix users.userid serial drift.
  * Run on the server: node scripts/fix-users-userid-sequence.js
+ * For every table: node scripts/fix-all-postgres-sequences.js
  */
 
 const prisma = require("../src/database/prisma");
