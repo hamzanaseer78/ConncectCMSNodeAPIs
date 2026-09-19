@@ -29,10 +29,6 @@ function isUniqueViolationOnColumn(error, column) {
   return targetText.includes(String(column).toLowerCase());
 }
 
-async function lockTable(client, table) {
-  await client.$executeRawUnsafe(`LOCK TABLE "${table}" IN SHARE ROW EXCLUSIVE MODE`);
-}
-
 async function readMaxPrimaryKey(client, table, column) {
   const rows = await client.$queryRawUnsafe(`
     SELECT COALESCE(MAX("${column}"), 0)::int AS max
@@ -73,7 +69,6 @@ async function findNextFreePrimaryKey(client, modelName, config, startFrom = nul
  * @param {number|null} startFrom
  */
 async function allocateNextPrimaryKey(client, modelName, config, startFrom = null) {
-  await lockTable(client, config.table);
   const primaryKey = await findNextFreePrimaryKey(client, modelName, config, startFrom);
 
   try {
@@ -176,7 +171,6 @@ async function createManyWithExplicitPrimaryKeys(client, modelName, args) {
     return client[modelName].createMany(args);
   }
 
-  await lockTable(client, table);
   let candidate = (await readMaxPrimaryKey(client, table, column)) + 1;
   const data = [];
 
