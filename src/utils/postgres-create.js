@@ -1,6 +1,10 @@
 const { AsyncLocalStorage } = require("async_hooks");
 const { syncPostgresSequence } = require("./postgres-sequence");
 const { getAutoincrementConfig } = require("../config/postgres-autoincrement-models");
+const {
+  hasRelationWriteData,
+  flattenConnectCreateData
+} = require("../config/postgres-relation-flatteners");
 
 const RETRY_LIMIT = 5;
 const bypassSafeCreate = new AsyncLocalStorage();
@@ -95,7 +99,31 @@ async function createWithExplicitPrimaryKey(client, modelName, args) {
   const { column } = config;
   const data = args?.data;
   if (!data || data[column] != null) {
-    return client[modelName].create(args);
+    return runBypassSafeCreate(() => client[modelName].create(args));
+  }
+
+  // Prisma CreateInput rejects explicit PK values alongside relation connect/create writes.
+  if (hasRelationWriteData(data)) {
+    try {
+      await syncPostgresSequence(client, config.table, config.column);
+    } catch {
+      // Fall through; create may still succeed or retry with flattened data.
+    }
+
+    try {
+      return await runBypassSafeCreate(() => client[modelName].create(args));
+    } catch (error) {
+      if (!isUniqueViolationOnColumn(error, column)) {
+        throw error;
+      }
+
+      const flatData = flattenConnectCreateData(modelName, data);
+      if (flatData === data) {
+        throw error;
+      }
+
+      return createWithExplicitPrimaryKey(client, modelName, { ...args, data: flatData });
+    }
   }
 
   let lastError;
@@ -179,6 +207,8 @@ module.exports = {
   isBypassingSafeCreate,
   runBypassSafeCreate,
   isUniqueViolationOnColumn,
+  hasRelationWriteData,
+  flattenConnectCreateData,
   allocateNextPrimaryKey,
   createWithExplicitPrimaryKey,
   createManyWithExplicitPrimaryKeys
