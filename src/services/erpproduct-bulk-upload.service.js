@@ -30,28 +30,6 @@ const { getPrismaDelegateName } = require("../utils/prisma-metadata");
 
 const session = createBulkSessionStore("erpproducts");
 
-function parseNumber(value) {
-  if (value === undefined || value === null || value === "") return undefined;
-  const n = Number(String(value).replace(/,/g, ""));
-  return Number.isFinite(n) ? n : null;
-}
-
-function parseDiscountType(value) {
-  if (value === undefined || value === null || value === "") return undefined;
-  const text = String(value).trim();
-  if (text === "%") return "%";
-  if (text === "@") return "@";
-  return null;
-}
-
-function parseProductType(value) {
-  if (value === undefined || value === null || value === "") return undefined;
-  const text = String(value).trim().toLowerCase();
-  if (text === "service") return "service";
-  if (text === "part" || text === "parts") return "inventory";
-  return null;
-}
-
 async function loadLookupMaps(tenantid) {
   const [units, brands, groups, categories] = await Promise.all([
     prisma.units.findMany({
@@ -117,31 +95,11 @@ function validateMappedRow(mapped, { dateFormat, lookupMaps }) {
     payload[field] = String(mapped[field]).trim();
   });
 
-  ["salerate", "purchaserate", "discountvalue"].forEach((field) => {
-    if (mapped[field] === undefined || mapped[field] === "") return;
-    const n = parseNumber(mapped[field]);
-    if (n === null) issues.push(`${field} must be a number`);
-    else payload[field] = n;
-  });
-
-  if (mapped.discounttype !== undefined && mapped.discounttype !== "") {
-    const dt = parseDiscountType(mapped.discounttype);
-    if (dt === null) issues.push("discounttype must be % or @");
-    else payload.discounttype = dt;
+  if (mapped.isactive !== undefined && mapped.isactive !== "") {
+    const isactive = parseBoolean(mapped.isactive);
+    if (isactive === null) issues.push("isactive must be yes/no or true/false");
+    else payload.isactive = isactive;
   }
-
-  if (mapped.producttype !== undefined && mapped.producttype !== "") {
-    const pt = parseProductType(mapped.producttype);
-    if (pt === null) issues.push("producttype must be Part or Service");
-    else payload.producttype = pt;
-  }
-
-  ["isactive", "enablecpairreceive"].forEach((field) => {
-    if (mapped[field] === undefined || mapped[field] === "") return;
-    const b = parseBoolean(mapped[field]);
-    if (b === null) issues.push(`${field} must be yes/no or true/false`);
-    else payload[field] = b;
-  });
 
   if (mapped.unit !== undefined && mapped.unit !== "") {
     const unit = resolveLookup(mapped.unit, lookupMaps.unitByName, "Unit");

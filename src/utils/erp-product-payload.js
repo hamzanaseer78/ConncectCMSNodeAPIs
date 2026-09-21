@@ -1,29 +1,12 @@
 const prisma = require("../database/prisma");
+const resources = require("../config/resources");
+
+const ERP_PRODUCT_HIDDEN_FIELDS = new Set(resources.erpproducts?.hiddenFields || []);
 
 function trimOptionalCode(value) {
   if (value === undefined || value === null) return undefined;
   const text = String(value).trim();
   return text === "" ? null : text;
-}
-
-function parseBooleanFlag(value, defaultValue = false) {
-  if (value === undefined || value === null || value === "") {
-    return defaultValue;
-  }
-  if (value === true || value === 1) {
-    return true;
-  }
-  if (value === false || value === 0) {
-    return false;
-  }
-  const normalized = String(value).trim().toLowerCase();
-  if (normalized === "true" || normalized === "yes" || normalized === "1") {
-    return true;
-  }
-  if (normalized === "false" || normalized === "no" || normalized === "0") {
-    return false;
-  }
-  return defaultValue;
 }
 
 function parseOptionalInt(value) {
@@ -40,8 +23,34 @@ const EXCLUDED_ERP_PRODUCT_FIELDS = [
   "isservice",
   "isService",
   "taxtypeid",
-  "taxTypeId"
+  "taxTypeId",
+  "salerate",
+  "saleRate",
+  "purchaserate",
+  "purchaseRate",
+  "discountvalue",
+  "discountValue",
+  "discounttype",
+  "discountType",
+  "producttype",
+  "productType",
+  "enablecpairreceive",
+  "enableCPairReceive"
 ];
+
+function stripHiddenErpProductFields(row = {}) {
+  const next = { ...row };
+  ERP_PRODUCT_HIDDEN_FIELDS.forEach((field) => {
+    delete next[field];
+  });
+  delete next.enableCPairReceive;
+  delete next.saleRate;
+  delete next.purchaseRate;
+  delete next.discountValue;
+  delete next.discountType;
+  delete next.productType;
+  return next;
+}
 
 function normalizeErpProductPayload(data = {}) {
   const next = { ...data };
@@ -49,15 +58,6 @@ function normalizeErpProductPayload(data = {}) {
   EXCLUDED_ERP_PRODUCT_FIELDS.forEach((field) => {
     delete next[field];
   });
-
-  if (next.enableCPairReceive !== undefined && next.enablecpairreceive === undefined) {
-    next.enablecpairreceive = next.enableCPairReceive;
-  }
-  delete next.enableCPairReceive;
-
-  if (next.enablecpairreceive !== undefined) {
-    next.enablecpairreceive = parseBooleanFlag(next.enablecpairreceive, false);
-  }
 
   if (next.hsCode !== undefined && next.hscode === undefined) next.hscode = next.hsCode;
   if (next.HSCode !== undefined && next.hscode === undefined) next.hscode = next.HSCode;
@@ -100,13 +100,6 @@ function normalizeErpProductPayload(data = {}) {
 
   if (next.serviceid !== undefined) {
     next.serviceid = parseOptionalInt(next.serviceid);
-  }
-
-  if (next.producttype != null && String(next.producttype).trim() !== "") {
-    const type = String(next.producttype).trim().toLowerCase();
-    if (type === "service" || type === "inventory") {
-      next.producttype = type;
-    }
   }
 
   return next;
@@ -244,11 +237,10 @@ function enrichErpProductResponse(product) {
     return product;
   }
 
-  return {
+  return stripHiddenErpProductFields({
     ...product,
-    ...erpProductGroupCategoryLabels(product),
-    enableCPairReceive: product.enablecpairreceive === true
-  };
+    ...erpProductGroupCategoryLabels(product)
+  });
 }
 
 function formatErpProductDropdownRow(product) {
@@ -346,13 +338,7 @@ const ERP_PRODUCT_BULK_INSERT_FIELDS = [
   "hscode",
   "barcode",
   "erpcode",
-  "salerate",
-  "purchaserate",
-  "discountvalue",
-  "discounttype",
   "isactive",
-  "enablecpairreceive",
-  "producttype",
   "unitid",
   "brandid",
   "groupid",
