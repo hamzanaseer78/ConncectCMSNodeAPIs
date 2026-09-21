@@ -5,6 +5,7 @@ const {
   getListScalarFields,
   getModel,
   getScalarFields,
+  getVisibleScalarFields,
   getWritableFields,
   hasCreatedByField,
   toOpenApiType
@@ -156,7 +157,7 @@ function buildResourceSchemas() {
   const schemas = {};
 
   Object.entries(publicResources).forEach(([name, config]) => {
-    schemas[schemaName(name)] = buildObjectSchema(name, getScalarFields(name));
+    schemas[schemaName(name)] = buildObjectSchema(name, getVisibleScalarFields(name, config));
     schemas[schemaName(name, "ListItem")] = buildListItemSchema(name, config);
     schemas[schemaName(name, "CreateInput")] = buildObjectSchema(
       name,
@@ -902,7 +903,7 @@ const resourcePaths = Object.fromEntries(
           : name === "products"
             ? "Returns active products for the tenant (default limit 10000) with sale/purchase rates, discount info, unit/brand labels, and tax info when available. Use `includeInactive=true` to include inactive catalog rows, or `search` to filter by name/code."
             : name === "erpproducts"
-              ? "Returns active ERP products for the tenant (default limit 10000) with sale/purchase rates, discount info, unit/brand labels, and job group/category names. Optional filters: `groupId`, `categoryId` (aliases: `serviceId`). Excludes stock/service/tax fields. Use `includeInactive=true` or `search` like products."
+              ? "Returns active ERP products for the tenant (default limit 10000) with unit/brand labels and job group/category names. Optional filters: `groupId`, `categoryId` (aliases: `serviceId`). Dropdown items may include sale/purchase rates for job quotation use. Use `includeInactive=true` or `search` like products."
               : "Returns only active rows when the resource has an isactive column (`isactive` is not false).",
         tags: [config.tag || name],
         security: [{ bearerAuth: [] }],
@@ -991,6 +992,10 @@ module.exports = swaggerJsdoc({
     servers: [
       {
         url: "https://cmsapis.lightclouderp.com",
+        description: "Production server"
+      },
+      {
+        url: "https://betaapis.complaintpro.app",
         description: "Development server"
       },
       {

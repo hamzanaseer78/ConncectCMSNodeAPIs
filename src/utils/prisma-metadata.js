@@ -72,8 +72,23 @@ function getScalarFields(resourceName) {
   return scalarFieldsCache.get(resourceName);
 }
 
+function getHiddenFields(config = {}) {
+  return new Set(config.hiddenFields || []);
+}
+
+function getVisibleScalarFields(resourceName, config = {}) {
+  const hidden = getHiddenFields(config);
+  return getScalarFields(resourceName).filter((field) => !hidden.has(field.name));
+}
+
 function getWritableFields(resourceName, config, mode) {
+  const hidden = getHiddenFields(config);
+
   return getScalarFields(resourceName).filter((field) => {
+    if (hidden.has(field.name)) {
+      return false;
+    }
+
     if (field.name === config.id) {
       return false;
     }
@@ -120,14 +135,17 @@ function getSortableFields(resourceName) {
 
 function getListScalarFields(resourceName, config = {}) {
   const relationKey = Object.keys(config.listRelations || {}).sort().join(",");
-  const cacheKey = `${resourceName}|${config.id || ""}|${relationKey}`;
+  const hiddenKey = [...getHiddenFields(config)].sort().join(",");
+  const cacheKey = `${resourceName}|${config.id || ""}|${relationKey}|${hiddenKey}`;
   if (listScalarFieldsCache.has(cacheKey)) {
     return listScalarFieldsCache.get(cacheKey);
   }
 
+  const hidden = getHiddenFields(config);
   const relationKeys = new Set(Object.keys(config.listRelations || {}));
   const listScalarFields = getScalarFields(resourceName).filter((field) => (
     !field.isList &&
+    !hidden.has(field.name) &&
     (field.name === config.id || !hiddenListFields.has(field.name)) &&
     !relationKeys.has(field.name)
   ));
@@ -226,6 +244,7 @@ function coerceValue(field, value) {
 module.exports = {
   coerceValue,
   getFilterableFields,
+  getHiddenFields,
   getListFilterFields,
   hasCreatedByField,
   getRelationInclude,
@@ -234,6 +253,7 @@ module.exports = {
   getPrismaDelegateName,
   getScalarFields,
   getSortableFields,
+  getVisibleScalarFields,
   getWritableFields,
   toOpenApiType
 };

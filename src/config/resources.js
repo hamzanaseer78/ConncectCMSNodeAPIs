@@ -98,6 +98,14 @@ const resources = {
     tag: "ERP Products",
     screenNames: ["erpproduct", "erp products", "erpproducts"],
     requiredOnCreate: ["name"],
+    hiddenFields: [
+      "salerate",
+      "purchaserate",
+      "discountvalue",
+      "discounttype",
+      "producttype",
+      "enablecpairreceive"
+    ],
     listRelations: {
       branchid: { relation: "branches", field: "name", output: "branchname" },
       unitid: { relation: "units", field: "name", output: "unitname" },
