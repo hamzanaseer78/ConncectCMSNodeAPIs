@@ -1,4 +1,5 @@
 const JobsListService = require("./jobs-list.service");
+const { GRAPHQL_MAX_PAGE_SIZE } = require("../graphql/pagination");
 const { canManageBranchJobs } = require("../utils/job-access");
 const { graphqlJobsFilterToQuery } = require("../utils/graphql-jobs-report-filter");
 const reportColumnsService = require("./report-columns.service");
@@ -44,6 +45,7 @@ class JobsListReportService {
     const query = graphqlJobsFilterToQuery(args.filter, args, {
       sortFieldMap: JOBS_LIST_REPORT_SORT_FIELD_MAP
     });
+    query.maxPageSize = GRAPHQL_MAX_PAGE_SIZE;
     const result = await service.list(auth, query);
 
     return {
