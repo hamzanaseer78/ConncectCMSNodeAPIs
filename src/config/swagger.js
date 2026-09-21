@@ -995,7 +995,7 @@ module.exports = swaggerJsdoc({
         description: "Production server"
       },
       {
-        url: "https://betaapis.complaintpro.com",
+        url: "https://betaapis.complaintpro.app",
         description: "Development server"
       },
       {
