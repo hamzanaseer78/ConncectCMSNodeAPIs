@@ -1,4 +1,4 @@
-const { CONSTANTS } = require("../utils/constants");
+const CONSTANTS = require("../utils/constants");
 
 const GRAPHQL_MAX_PAGE_SIZE = CONSTANTS.PAGINATION.GRAPHQL_MAX_PAGE_SIZE;
 const DEFAULT_PAGE_SIZE = CONSTANTS.PAGINATION.DEFAULT_PAGE_SIZE;
