@@ -11,7 +11,7 @@ const {
   mapSummaryRow
 } = require("../reports/jobs-summary-report.registry");
 
-const { GRAPHQL_MAX_PAGE_SIZE } = require("../graphql/pagination");
+const MAX_PAGE_SIZE = 100;
 
 function buildListService(isManager) {
   return new JobsListService({
@@ -23,7 +23,7 @@ function buildListService(isManager) {
 function buildPagination(query = {}) {
   const page = Math.max(Number(query.page || 1), 1);
   const requestedPageSize = Math.max(Number(query.pageSize || query.limit || 25), 1);
-  const pageSize = Math.min(requestedPageSize, GRAPHQL_MAX_PAGE_SIZE);
+  const pageSize = Math.min(requestedPageSize, MAX_PAGE_SIZE);
   return { page, pageSize, skip: (page - 1) * pageSize };
 }
 

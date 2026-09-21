@@ -372,9 +372,7 @@ class JobsListService {
   buildPagination(query = {}) {
     const page = Math.max(Number(query.page || 1), 1);
     const requestedPageSize = Math.max(Number(query.pageSize || query.limit || 25), 1);
-    const maxPageSize =
-      Number(query.maxPageSize) > 0 ? Number(query.maxPageSize) : MAX_PAGE_SIZE;
-    const pageSize = Math.min(requestedPageSize, maxPageSize);
+    const pageSize = Math.min(requestedPageSize, MAX_PAGE_SIZE);
 
     return {
       page,

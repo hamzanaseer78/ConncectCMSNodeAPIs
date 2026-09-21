@@ -22,7 +22,6 @@ const {
   hasDefinitionUniquenessRules
 } = require("../services/definition-uniqueness.service");
 const { applyJobAccessScope } = require("../utils/job-access");
-const { resolveGraphqlPageSize } = require("./pagination");
 const { sendMailSafe } = require("../services/notifications.service");
 const {
   reportTypeDefs,
@@ -708,7 +707,7 @@ for (const [resourceName, config] of Object.entries(resources)) {
     await requireRight(auth, resourceName, "view");
 
     const page = Math.max(1, Number(args?.page ?? 1));
-    const pageSize = resolveGraphqlPageSize(args?.pageSize);
+    const pageSize = Math.min(100, Math.max(1, Number(args?.pageSize ?? 25)));
     const skip = (page - 1) * pageSize;
     const take = pageSize;
 
@@ -834,7 +833,7 @@ resolvers.jobs = async (args, context) => {
   const scope = { tenantid: Number(auth.tenantid), branchid: Number(auth.branchid) };
 
   const page = Math.max(1, Number(args?.page ?? 1));
-  const pageSize = resolveGraphqlPageSize(args?.pageSize);
+  const pageSize = Math.min(100, Math.max(1, Number(args?.pageSize ?? 25)));
   const skip = (page - 1) * pageSize;
 
   const where = await applyJobAccessScope(auth, { ...scope });
