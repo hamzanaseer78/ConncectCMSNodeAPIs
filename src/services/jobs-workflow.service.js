@@ -72,7 +72,6 @@ const {
 const { formatJobAttachmentRow, JOB_ATTACHMENT_INCLUDE } = require("../utils/job-attachments-payload");
 const { formatJobStatusLogRow, JOB_STATUS_LOG_INCLUDE } = require("../utils/job-status-log");
 const { buildTechnicianJobDetail } = require("../utils/job-technician-detail");
-const { JOB_ASSIGNMENT_LOG_INCLUDE } = require("../utils/job-timeline");
 const {
   JOB_ASSIGNMENT_LOG_INCLUDE,
   JOB_TRAVEL_HISTORY_INCLUDE,
