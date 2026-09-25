@@ -1,4 +1,5 @@
 const { parseEquipmentFromRemarks } = require("../utils/job-equipment");
+const { formatTechnicianAffiliationFields } = require("../utils/technician-affiliation");
 
 const SHARED_COUNT_COLUMNS = [
   {
@@ -80,6 +81,122 @@ function buildNameColumn(columnName, columnDescription) {
 
 function buildDefaultColumns(nameColumn) {
   return [nameColumn, ...SHARED_COUNT_COLUMNS.map((column) => ({ ...column }))];
+}
+
+function buildTechnicianSummaryColumns() {
+  const countColumns = SHARED_COUNT_COLUMNS.map((column, index) => ({
+    ...column,
+    sortNo: 10 + index
+  }));
+
+  return [
+    buildNameColumn("technicianName", "Technician"),
+    {
+      columnName: "technicianId",
+      columnDescription: "Technician User Id",
+      isShow: true,
+      sortable: true,
+      sortNo: 2,
+      minWidth: 120,
+      columnFieldType: "number",
+      clickable: false,
+      isRigtAligned: false,
+      color: "",
+      isMandatory: false
+    },
+    {
+      columnName: "technicianEmail",
+      columnDescription: "Email",
+      isShow: true,
+      sortable: true,
+      sortNo: 3,
+      minWidth: 180,
+      columnFieldType: "string",
+      clickable: false,
+      isRigtAligned: false,
+      color: "",
+      isMandatory: false
+    },
+    {
+      columnName: "technicianPhone",
+      columnDescription: "Phone",
+      isShow: true,
+      sortable: false,
+      sortNo: 4,
+      minWidth: 130,
+      columnFieldType: "string",
+      clickable: false,
+      isRigtAligned: false,
+      color: "",
+      isMandatory: false
+    },
+    {
+      columnName: "userType",
+      columnDescription: "User Type",
+      isShow: true,
+      sortable: true,
+      sortNo: 5,
+      minWidth: 120,
+      columnFieldType: "string",
+      clickable: false,
+      isRigtAligned: false,
+      color: "",
+      isMandatory: false
+    },
+    {
+      columnName: "technicianAffiliationLabel",
+      columnDescription: "Technician Affiliation",
+      isShow: true,
+      sortable: true,
+      sortNo: 6,
+      minWidth: 150,
+      columnFieldType: "string",
+      clickable: false,
+      isRigtAligned: false,
+      color: "",
+      isMandatory: false
+    },
+    {
+      columnName: "technicianAffiliation",
+      columnDescription: "Affiliation Code",
+      isShow: false,
+      sortable: true,
+      sortNo: 7,
+      minWidth: 130,
+      columnFieldType: "string",
+      clickable: false,
+      isRigtAligned: false,
+      color: "",
+      isMandatory: false
+    },
+    {
+      columnName: "companyName",
+      columnDescription: "Company Name (Third-party)",
+      isShow: true,
+      sortable: true,
+      sortNo: 8,
+      minWidth: 160,
+      columnFieldType: "string",
+      clickable: false,
+      isRigtAligned: false,
+      color: "",
+      isMandatory: false
+    },
+    {
+      columnName: "isActive",
+      columnDescription: "Active",
+      isShow: true,
+      sortable: true,
+      sortNo: 9,
+      minWidth: 90,
+      columnFieldType: "boolean",
+      clickable: false,
+      isRigtAligned: false,
+      color: "",
+      isMandatory: false
+    },
+    ...countColumns
+  ];
 }
 
 function bucketKey(value) {
@@ -353,6 +470,87 @@ const JOBS_SUMMARY_REPORT_REGISTRY = {
       return { isInWarranty: groupKey === "true" };
     }
   },
+  jobs_by_technician_summary: {
+    reportKey: "jobs_by_technician_summary",
+    title: "Jobs By Technician",
+    graphqlSuffix: "Technician",
+    nameField: "technicianName",
+    defaultColumns: buildTechnicianSummaryColumns(),
+    sortFieldMap: {
+      ...SHARED_SORT_FIELD_MAP,
+      technicianName: "groupName",
+      technicianId: "technicianId",
+      technicianEmail: "technicianEmail",
+      userType: "userType",
+      technicianAffiliationLabel: "technicianAffiliationLabel",
+      technicianAffiliation: "technicianAffiliation",
+      companyName: "companyName"
+    },
+    jobSelect: {
+      assignedto: true,
+      isresolved: true,
+      iscompleted: true
+    },
+    extractGroupKey: (job) => job.assignedto ?? null,
+    unassignedLabel: "Unassigned",
+    async loadGroupNames(auth, keys) {
+      const ids = keys.filter((key) => key != null).map(Number);
+      if (!ids.length) return new Map();
+      const rows = await auth.__prisma.users.findMany({
+        where: { userid: { in: ids } },
+        select: { userid: true, name: true }
+      });
+      return new Map(rows.map((row) => [row.userid, row.name ?? null]));
+    },
+    async loadGroupDetails(auth, keys) {
+      const ids = keys.filter((key) => key != null).map(Number);
+      if (!ids.length) return new Map();
+
+      const rows = await auth.__prisma.users.findMany({
+        where: { userid: { in: ids } },
+        select: {
+          userid: true,
+          name: true,
+          email: true,
+          contactno: true,
+          usertype: true,
+          technicianaffiliation: true,
+          companyname: true,
+          isactive: true
+        }
+      });
+
+      return new Map(
+        rows.map((row) => [
+          row.userid,
+          {
+            technicianId: row.userid,
+            technicianEmail: row.email ?? null,
+            technicianPhone: row.contactno ?? null,
+            userType: row.usertype ?? null,
+            isActive: row.isactive !== false,
+            ...formatTechnicianAffiliationFields(row)
+          }
+        ])
+      );
+    },
+    buildRowExtras(groupKey) {
+      if (groupKey == null) {
+        return {
+          technicianId: null,
+          assignedToId: null
+        };
+      }
+      const id = Number(groupKey);
+      return {
+        technicianId: id,
+        assignedToId: id
+      };
+    },
+    buildDrillDownFilter(groupKey) {
+      return groupKey == null ? {} : { assignedToId: Number(groupKey) };
+    }
+  },
   jobs_by_customer_summary: {
     reportKey: "jobs_by_customer_summary",
     title: "Jobs By Customer",
@@ -397,7 +595,7 @@ function listJobsSummaryReportDefinitions() {
   return Object.values(JOBS_SUMMARY_REPORT_REGISTRY);
 }
 
-function mapSummaryRow(definition, groupKey, groupName, counts) {
+function mapSummaryRow(definition, groupKey, groupName, counts, detailExtras = {}) {
   const nameFieldValue =
     groupName ?? (groupKey == null ? definition.unassignedLabel : null);
 
@@ -411,7 +609,8 @@ function mapSummaryRow(definition, groupKey, groupName, counts) {
     noOfCompleted: counts.completedCount ?? 0,
     noOfPendings: counts.pendingCount ?? 0,
     drillDownFilter: definition.buildDrillDownFilter(groupKey),
-    ...definition.buildRowExtras(groupKey)
+    ...definition.buildRowExtras(groupKey),
+    ...detailExtras
   };
 }
 

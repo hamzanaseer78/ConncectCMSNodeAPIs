@@ -211,6 +211,10 @@ function sortOverviewRows(rows = [], query = {}) {
     qty: (row) => Number(row.qty) || 0,
     lineQtyReceived: (row) => Number(row.lineQtyReceived) || 0,
     lineIssueQty: (row) => Number(row.lineIssueQty) || 0,
+    qtyPendingIssue: (row) =>
+      Math.max((Number(row.lineQtyReceived) || 0) - (Number(row.lineIssueQty) || 0), 0),
+    qtyPendingReceive: (row) =>
+      Math.max((Number(row.qty) || 0) - (Number(row.lineQtyReceived) || 0), 0),
     receiveStatus: (row) => row.receiveStatus ?? "",
     issueStatus: (row) => row.issueStatus ?? "",
     summaryReceiveStatus: (row) => row.summaryReceiveStatus ?? "",
@@ -229,6 +233,25 @@ function sortOverviewRows(rows = [], query = {}) {
 
 function buildOverviewWhere(auth, query = {}, options = {}) {
   return { partWhere: buildPartListWhere(auth, query, options) };
+}
+
+/**
+ * C-pair part lines with qty received from technician (lineqtyreceived > 0).
+ * Caller should still filter rows where lineIssueQty < lineQtyReceived.
+ */
+function buildReceivedNotIssuedPartWhere(auth, query = {}, options = {}) {
+  const partWhere = buildPartListWhere(auth, query, options);
+  partWhere.lineqtyreceived = { gt: 0 };
+  return partWhere;
+}
+
+/**
+ * C-pair part lines with expected qty (qty > 0). Caller filters where received < expected.
+ */
+function buildReceivablePartWhere(auth, query = {}, options = {}) {
+  const partWhere = buildPartListWhere(auth, query, options);
+  partWhere.qty = { gt: 0 };
+  return partWhere;
 }
 
 function getAvailableSummaryFilters() {
@@ -299,6 +322,8 @@ function getOverviewSortableColumns() {
     "qty",
     "lineQtyReceived",
     "lineIssueQty",
+    "qtyPendingIssue",
+    "qtyPendingReceive",
     "receiveStatus",
     "issueStatus",
     "summaryReceiveStatus",
@@ -313,6 +338,8 @@ module.exports = {
   buildSummaryOrderBy,
   buildPartListWhere,
   buildOverviewWhere,
+  buildReceivedNotIssuedPartWhere,
+  buildReceivablePartWhere,
   filterOverviewRows,
   sortOverviewRows,
   getAvailableSummaryFilters,
