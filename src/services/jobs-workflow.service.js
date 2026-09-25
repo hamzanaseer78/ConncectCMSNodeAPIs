@@ -71,6 +71,8 @@ const {
 } = require("../utils/job-customer-feedback");
 const { formatJobAttachmentRow, JOB_ATTACHMENT_INCLUDE } = require("../utils/job-attachments-payload");
 const { formatJobStatusLogRow, JOB_STATUS_LOG_INCLUDE } = require("../utils/job-status-log");
+const { buildTechnicianJobDetail } = require("../utils/job-technician-detail");
+const { JOB_ASSIGNMENT_LOG_INCLUDE } = require("../utils/job-timeline");
 const {
   JOB_ASSIGNMENT_LOG_INCLUDE,
   JOB_TRAVEL_HISTORY_INCLUDE,
@@ -1881,6 +1883,7 @@ class JobsWorkflowService {
       quotationStatusOptions: listQuotationStatusOptions(),
       jobNotes: row.notes ?? null,
       termsAndConditions: row.termsandconditions ?? null,
+      technicianJobDetail: buildTechnicianJobDetail(row, detail, row.jobassignmentlog),
       ...formatJobErpProductFields(row)
     };
   }
@@ -1938,7 +1941,10 @@ class JobsWorkflowService {
         jobproducts: JOB_PRODUCT_LINE_INCLUDE,
         ...optionalJobservicesInclude(),
         jobattachments: JOB_ATTACHMENT_INCLUDE,
-        jobassignmentlog: { orderBy: { assignedat: "desc" } },
+        jobassignmentlog: {
+          orderBy: { assignedat: "desc" },
+          ...JOB_ASSIGNMENT_LOG_INCLUDE
+        },
         jobstatuslog: { orderBy: { changedat: "desc" } },
         jobcustomerremarkslog: JOB_REMARK_INCLUDE,
         jobcustomerfeedback: JOB_CUSTOMER_FEEDBACK_INCLUDE,

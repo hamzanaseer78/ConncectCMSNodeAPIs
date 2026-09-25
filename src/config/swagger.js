@@ -4992,7 +4992,7 @@ module.exports = swaggerJsdoc({
         get: {
           summary: "Details page API for a job",
           description:
-            "Includes `remarks` (newest first, with addedByName) and `jobcustomerremarkslog`. Complaint notes from create are stored as separate remark rows. `jobattachments` include `addedby`, `addedByName`, and `addedByEmail`.",
+            "Includes `remarks` (newest first, with addedByName) and `jobcustomerremarkslog`. Complaint notes from create are stored as separate remark rows. `jobattachments` include `addedby`, `addedByName`, and `addedByEmail`. `technicianJobDetail` summarizes latest assignment (who/when) and job close datetime (`closedAt`: acknowledge/close, or completion if not yet acknowledged).",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
