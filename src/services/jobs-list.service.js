@@ -113,6 +113,7 @@ function buildJobListInclude() {
       orderBy: { recno: "desc" },
       take: 1,
       select: {
+        description: true,
         remarks: true,
         createdby: true,
         createdat: true,
@@ -326,9 +327,15 @@ function slimJobListRow(job, enrichmentContext = {}) {
   const { jobdetails, jobproducts, jobservices, jobaddonproducts: _jobaddonproducts, ...rest } = job;
   const detail = Array.isArray(jobdetails) ? jobdetails[0] : jobdetails ?? null;
   const equipmentMain = jobMainEquipmentFields(detail, rest.brandid);
+  const rawDescription = detail?.description ?? rest.notes ?? null;
+  const jobDescription =
+    rawDescription != null && String(rawDescription).trim() !== ""
+      ? String(rawDescription).trim()
+      : null;
 
   return {
     ...enrichJobApiRow(rest, enrichmentContext),
+    jobDescription,
     brandId: rest.brandid ?? equipmentMain.brandId ?? null,
     brandName: rest.brands?.name ?? null,
     ...equipmentMain,

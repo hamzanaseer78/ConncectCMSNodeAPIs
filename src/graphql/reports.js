@@ -159,6 +159,7 @@ type JobsListReportRow {
   state: String
   area: String
   productModel: String
+  jobDescription: String
   status: String
   statusColor: String
   priority: String
