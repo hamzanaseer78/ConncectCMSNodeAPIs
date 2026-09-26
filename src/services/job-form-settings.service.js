@@ -9,10 +9,51 @@ const {
   mergeJobFormFields
 } = require("../utils/job-form-fields");
 
+const JOB_FORM_SETTINGS_MIGRATION_HINT =
+  'Run database migration: npx prisma migrate deploy (migration 20260917120000_add_jobformsettings), then npx prisma generate and restart the API.';
+
 function clientError(message, status = 400) {
   const err = new Error(message);
   err.status = status;
   return err;
+}
+
+function isMissingJobFormSettingsTableError(err) {
+  const msg = String(err?.message || "");
+  return (
+    err?.code === "P2021" ||
+    err?.code === "42P01" ||
+    /jobformsettings/i.test(msg) && /does not exist/i.test(msg)
+  );
+}
+
+/** Cached after first probe; false when migration not applied yet. */
+let jobFormSettingsTableReadyCache;
+
+async function isJobFormSettingsTableReady() {
+  if (jobFormSettingsTableReadyCache === false) {
+    return false;
+  }
+  if (jobFormSettingsTableReadyCache === true) {
+    return true;
+  }
+  try {
+    await prisma.$queryRaw`SELECT 1 AS ok FROM "jobformsettings" LIMIT 1`;
+    jobFormSettingsTableReadyCache = true;
+    return true;
+  } catch (err) {
+    if (isMissingJobFormSettingsTableError(err)) {
+      jobFormSettingsTableReadyCache = false;
+      return false;
+    }
+    throw err;
+  }
+}
+
+function assertJobFormSettingsTableReady() {
+  if (jobFormSettingsTableReadyCache === false) {
+    throw clientError(`Job form settings are not available: ${JOB_FORM_SETTINGS_MIGRATION_HINT}`, 503);
+  }
 }
 
 function buildScope(auth, formType) {
@@ -67,13 +108,24 @@ class JobFormSettingsService {
   }
 
   async loadSettingsRow(scope) {
-    return prisma.jobformsettings.findFirst({
-      where: {
-        tenantid: scope.tenantid,
-        branchid: scope.branchid,
-        formtype: scope.formtype
+    if (!(await isJobFormSettingsTableReady())) {
+      return null;
+    }
+    try {
+      return await prisma.jobformsettings.findFirst({
+        where: {
+          tenantid: scope.tenantid,
+          branchid: scope.branchid,
+          formtype: scope.formtype
+        }
+      });
+    } catch (err) {
+      if (isMissingJobFormSettingsTableError(err)) {
+        jobFormSettingsTableReadyCache = false;
+        return null;
       }
-    });
+      throw err;
+    }
   }
 
   async getSettings(auth, formType = "admin") {
@@ -158,6 +210,8 @@ class JobFormSettingsService {
 
   async saveSettings(auth, body = {}) {
     await this.ensureAdmin(auth);
+    await isJobFormSettingsTableReady();
+    assertJobFormSettingsTableReady();
     const formType = normalizeFormType(body.formType ?? body.formtype);
     const scope = this.buildScope(auth, formType);
     await this.assertBranchInTenant(scope);
@@ -210,3 +264,5 @@ class JobFormSettingsService {
 
 module.exports = new JobFormSettingsService();
 module.exports.isSystemAdminUser = isSystemAdminUser;
+module.exports.JOB_FORM_SETTINGS_MIGRATION_HINT = JOB_FORM_SETTINGS_MIGRATION_HINT;
+module.exports.isJobFormSettingsTableReady = isJobFormSettingsTableReady;
