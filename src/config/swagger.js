@@ -991,12 +991,16 @@ module.exports = swaggerJsdoc({
     },
     servers: [
       {
+        url: "https://cmsapis.complaintpro.app",
+        description: "Production (Complaint Pro API)"
+      },
+      {
         url: "https://cmsapis.lightclouderp.com",
-        description: "Production server"
+        description: "Production (LightCloud ERP API)"
       },
       {
         url: "https://betaapis.complaintpro.app",
-        description: "Development server"
+        description: "Beta / staging"
       },
       {
         url: "http://localhost:3000",
@@ -3377,6 +3381,58 @@ module.exports = swaggerJsdoc({
           }
         }
       },
+      "/api/jobs/code/settings": {
+        get: {
+          summary: "Get job code format settings for the JWT branch",
+          description:
+            "Prefix, separator, padded sequence, and postfix used for auto-generated job codes. Default prefix is branch name initials (e.g. Head Office becomes HO). Default sequence starts at 00001 (pad width 5). Response includes nextCode preview.",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Job code settings",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                }
+              }
+            }
+          }
+        },
+        put: {
+          summary: "Save job code format settings (admin only)",
+          description:
+            "Example: prefix HO, nextSequence 00100, empty postfix yields codes like HO-00100. If that code exists in the organization, the next available sequence is used (HO-00101). Requires jobcodesettings migration on the server.",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobCodeSettingsSaveRequest" }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "Settings saved",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      message: { type: "string" },
+                      settings: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                    }
+                  }
+                }
+              }
+            },
+            403: { description: "Admin required" },
+            503: { description: "jobcodesettings table not migrated yet" }
+          }
+        }
+      },
       "/api/jobs/erp-products/dropdown": {
         get: {
           summary: "ERP products dropdown for job quotation lines",
@@ -3941,7 +3997,7 @@ module.exports = swaggerJsdoc({
         get: {
           summary: "Next auto-generated job code for the JWT branch",
           description:
-            "Uses per-branch job code settings (prefix + separator + padded sequence + postfix). Skips codes already used in the organization. Same logic as POST /api/jobs when `code` is omitted. Configure via GET/PUT /api/jobs/code/settings.",
+            "Uses per-branch job code settings (prefix + separator + padded sequence + postfix). Skips codes already used in the organization. Same logic as POST /api/jobs when code is omitted. Configure via GET/PUT /api/jobs/code/settings.",
           tags: [JOBS_TAG],
           security: [{ bearerAuth: [] }],
           responses: {
@@ -3954,39 +4010,6 @@ module.exports = swaggerJsdoc({
               }
             }
           }
-        }
-      },
-      "/api/jobs/code/settings": {
-        get: {
-          summary: "Job code format settings for the JWT branch",
-          description:
-            "Default prefix is derived from branch name initials (e.g. Head Office → HO). Default sequence starts at 00001 (pad width 5).",
-          tags: [JOBS_TAG],
-          security: [{ bearerAuth: [] }],
-          responses: {
-            200: {
-              description: "Settings + nextCode preview",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
-                }
-              }
-            }
-          }
-        },
-        put: {
-          summary: "Save job code format settings (admin)",
-          tags: [JOBS_TAG],
-          security: [{ bearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/JobCodeSettingsSaveRequest" }
-              }
-            }
-          },
-          responses: { 200: { description: "Settings saved" } }
         }
       },
       "/api/jobs": {
