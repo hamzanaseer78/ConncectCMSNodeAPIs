@@ -39,6 +39,8 @@ const {
   mergeJobdetailsRemarks,
   pickEquipmentBrandId,
   brandIdProvidedInPayload,
+  formatJobDetailForResponse,
+  normalizeJobDetailDescription,
   normalizeJobRequestBody
 } = require("../utils/job-equipment");
 const {
@@ -71,6 +73,7 @@ const {
 } = require("../utils/job-customer-feedback");
 const { formatJobAttachmentRow, JOB_ATTACHMENT_INCLUDE } = require("../utils/job-attachments-payload");
 const { formatJobStatusLogRow, JOB_STATUS_LOG_INCLUDE } = require("../utils/job-status-log");
+const { buildTechnicianJobDetail } = require("../utils/job-technician-detail");
 const {
   JOB_ASSIGNMENT_LOG_INCLUDE,
   JOB_TRAVEL_HISTORY_INCLUDE,
@@ -1851,10 +1854,12 @@ class JobsWorkflowService {
     const remarks = remarkRows.map(formatJobRemarkRow).filter(Boolean);
     const productLines = mapJobProductLines(row.jobproducts);
     const serviceLines = mapJobServiceLines(row.jobservices);
-    const detail = Array.isArray(row.jobdetails)
+    const rawDetail = Array.isArray(row.jobdetails)
       ? row.jobdetails[0] ?? null
       : row.jobdetails ?? null;
-    const equipmentMain = jobMainEquipmentFields(detail, row.brandid);
+    const equipmentMain = jobMainEquipmentFields(rawDetail, row.brandid);
+    const detail = formatJobDetailForResponse(rawDetail);
+    const description = normalizeJobDetailDescription(rawDetail?.description);
 
     const customerFeedback = formatCustomerFeedbackRow(row.jobcustomerfeedback);
 
@@ -1866,6 +1871,8 @@ class JobsWorkflowService {
       productLines,
       serviceLines,
       totalCost: row.totalcost ?? null,
+      description,
+      complaintDescription: description,
       remarks,
       remarksTotal: remarks.length,
       customerFeedback,
@@ -1881,6 +1888,7 @@ class JobsWorkflowService {
       quotationStatusOptions: listQuotationStatusOptions(),
       jobNotes: row.notes ?? null,
       termsAndConditions: row.termsandconditions ?? null,
+      technicianJobDetail: buildTechnicianJobDetail(row, detail, row.jobassignmentlog),
       ...formatJobErpProductFields(row)
     };
   }
@@ -1938,7 +1946,10 @@ class JobsWorkflowService {
         jobproducts: JOB_PRODUCT_LINE_INCLUDE,
         ...optionalJobservicesInclude(),
         jobattachments: JOB_ATTACHMENT_INCLUDE,
-        jobassignmentlog: { orderBy: { assignedat: "desc" } },
+        jobassignmentlog: {
+          orderBy: { assignedat: "desc" },
+          ...JOB_ASSIGNMENT_LOG_INCLUDE
+        },
         jobstatuslog: { orderBy: { changedat: "desc" } },
         jobcustomerremarkslog: JOB_REMARK_INCLUDE,
         jobcustomerfeedback: JOB_CUSTOMER_FEEDBACK_INCLUDE,

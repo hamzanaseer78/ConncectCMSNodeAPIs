@@ -132,11 +132,24 @@ const DEFAULT_JOBS_LIST_REPORT_COLUMNS = [
     isMandatory: true
   },
   {
+    columnName: "jobDescription",
+    columnDescription: "Job Description",
+    isShow: true,
+    sortable: false,
+    sortNo: 11,
+    minWidth: 200,
+    columnFieldType: "string",
+    clickable: false,
+    isRigtAligned: false,
+    color: "",
+    isMandatory: false
+  },
+  {
     columnName: "status",
     columnDescription: "Status",
     isShow: true,
     sortable: true,
-    sortNo: 11,
+    sortNo: 12,
     minWidth: 130,
     columnFieldType: "string",
     clickable: false,
@@ -149,7 +162,7 @@ const DEFAULT_JOBS_LIST_REPORT_COLUMNS = [
     columnDescription: "Priority",
     isShow: true,
     sortable: true,
-    sortNo: 12,
+    sortNo: 13,
     minWidth: 110,
     columnFieldType: "string",
     clickable: false,
@@ -255,6 +268,7 @@ function mapSlimJobToReportRow(row) {
     state: row.cityName ?? row.countryName ?? null,
     area: row.areaName ?? null,
     productModel: row.productModel ?? null,
+    jobDescription: row.jobDescription ?? null,
     status: row.statusName ?? null,
     statusColor: row.statusColor ?? null,
     priority: row.priority ?? null

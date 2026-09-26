@@ -41,7 +41,14 @@ function sortSummaryRows(rows, query = {}, definition) {
     if (nameSortFields.has(sortBy) || sortBy === "groupName") {
       return row.groupName ?? row[definition.nameField] ?? "";
     }
-    return Number(row[sortBy]) || 0;
+    const raw = row[sortBy];
+    if (typeof raw === "string") {
+      return raw.toLowerCase();
+    }
+    if (typeof raw === "boolean") {
+      return raw ? 1 : 0;
+    }
+    return Number(raw) || 0;
   };
 
   return [...rows].sort((left, right) => {
@@ -98,10 +105,13 @@ class JobsSummaryReportService {
     });
 
     const buckets = aggregateJobsByGroup(jobs, definition.extractGroupKey);
-    const nameMap = await definition.loadGroupNames(
-      { ...auth, __prisma: prisma },
-      [...buckets.values()].map((bucket) => bucket.groupKey)
-    );
+    const groupKeys = [...buckets.values()].map((bucket) => bucket.groupKey);
+    const authWithPrisma = { ...auth, __prisma: prisma };
+    const nameMap = await definition.loadGroupNames(authWithPrisma, groupKeys);
+    const detailMap =
+      typeof definition.loadGroupDetails === "function"
+        ? await definition.loadGroupDetails(authWithPrisma, groupKeys)
+        : new Map();
 
     const rows = sortSummaryRows(
       [...buckets.values()].map((bucket) => {
@@ -110,7 +120,10 @@ class JobsSummaryReportService {
             ? definition.unassignedLabel
             : nameMap.get(bucket.groupKey) ?? nameMap.get(String(bucket.groupKey)) ?? null;
 
-        return mapSummaryRow(definition, bucket.groupKey, groupName, bucket);
+        const detailExtras =
+          detailMap.get(bucket.groupKey) ?? detailMap.get(String(bucket.groupKey)) ?? {};
+
+        return mapSummaryRow(definition, bucket.groupKey, groupName, bucket, detailExtras);
       }),
       query,
       definition

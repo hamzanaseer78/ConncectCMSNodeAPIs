@@ -1,5 +1,10 @@
 const jobsListReportService = require("../services/jobs-list-report.service");
 const jobsSummaryReportService = require("../services/jobs-summary-report.service");
+const technicianMonthlyBillsReportService = require("../services/technician-monthly-bills-report.service");
+const jobRevenueReportService = require("../services/job-revenue-report.service");
+const cpairReceivedNotIssuedReportService = require("../services/cpair-received-not-issued-report.service");
+const cpairReceivableReportService = require("../services/cpair-receivable-report.service");
+const partsWarrantyConsumptionReportService = require("../services/parts-warranty-consumption-report.service");
 const { listJobsSummaryReportDefinitions } = require("../reports/jobs-summary-report.registry");
 const { buildJobsReportsCatalog } = require("../reports/jobs-reports-catalog");
 
@@ -86,6 +91,7 @@ type JobsReportDrillDownFilter {
   cityId: Int
   areaId: Int
   customerId: Int
+  assignedToId: Int
   isInWarranty: Boolean
 }
 
@@ -109,6 +115,16 @@ type JobsSummaryReportRow {
   areaName: String
   customerName: String
   warrantyName: String
+  technicianId: Int
+  technicianName: String
+  assignedToId: Int
+  technicianEmail: String
+  technicianPhone: String
+  userType: String
+  technicianAffiliation: String
+  technicianAffiliationLabel: String
+  companyName: String
+  isActive: Boolean
   noOfJobs: Int!
   noOfResolved: Int!
   noOfCompleted: Int!
@@ -143,6 +159,7 @@ type JobsListReportRow {
   state: String
   area: String
   productModel: String
+  jobDescription: String
   status: String
   statusColor: String
   priority: String
@@ -159,6 +176,262 @@ type JobsListReportResult {
 type JobsListReportColumnsResult {
   reportKey: String!
   columns: [ReportColumn!]!
+}
+
+type TechnicianMonthlyBillsSummaryReportRow {
+  technicianId: Int
+  technicianName: String!
+  technicianAffiliation: String
+  technicianAffiliationLabel: String
+  cashCollected: Float!
+  expenses: Float!
+  balance: Float!
+}
+
+type TechnicianMonthlyBillsSummaryReportResult {
+  mode: String!
+  reportKey: String!
+  data: [TechnicianMonthlyBillsSummaryReportRow!]!
+  pageInfo: PageInfo!
+  filters: [ReportFilterMeta!]!
+  columns: [ReportColumn!]!
+  detailReportKey: String!
+}
+
+type TechnicianMonthlyBillsSummaryReportColumnsResult {
+  reportKey: String!
+  columns: [ReportColumn!]!
+}
+
+type TechnicianMonthlyBillsDetailReportRow {
+  jobId: Int!
+  activityDate: String
+  jobCode: String
+  technicianId: Int
+  technicianName: String!
+  technicianAffiliation: String
+  technicianAffiliationLabel: String
+  customerName: String
+  customerAddress: String
+  customerPhone: String
+  jobDescription: String
+  invoiceNumber: String
+  status: String
+  statusColor: String
+  cashCollected: Float!
+  expenses: Float!
+  balance: Float!
+}
+
+type TechnicianMonthlyBillsDetailReportResult {
+  mode: String!
+  reportKey: String!
+  data: [TechnicianMonthlyBillsDetailReportRow!]!
+  pageInfo: PageInfo!
+  filters: [ReportFilterMeta!]!
+  columns: [ReportColumn!]!
+}
+
+type TechnicianMonthlyBillsDetailReportColumnsResult {
+  reportKey: String!
+  columns: [ReportColumn!]!
+}
+
+type JobRevenueReportRow {
+  jobId: Int!
+  jobCode: String
+  manualJobNo: String
+  jobDate: String
+  customerName: String
+  customerPhone: String
+  assignedToId: Int
+  assignedToName: String
+  status: String
+  statusColor: String
+  amountToCollect: Float!
+  collectedAmount: Float!
+  outstandingBalance: Float!
+  collectedAt: String
+  collectionStatus: String
+}
+
+type JobRevenueReportResult {
+  mode: String!
+  reportKey: String!
+  data: [JobRevenueReportRow!]!
+  pageInfo: PageInfo!
+  filters: [ReportFilterMeta!]!
+  columns: [ReportColumn!]!
+}
+
+type JobRevenueReportColumnsResult {
+  reportKey: String!
+  columns: [ReportColumn!]!
+}
+
+type CpairReceivedNotIssuedReportRow {
+  partId: Int
+  summaryId: Int
+  jobId: Int
+  jobNo: String
+  manualJobNo: String
+  jobProductId: Int
+  productId: Int
+  partName: String
+  customerId: Int
+  customerName: String
+  technicianId: Int
+  technicianName: String
+  faultId: Int
+  faultName: String
+  qty: Int
+  installedQty: Int
+  wastageQty: Int
+  lineQtyReceived: Int!
+  lineWastageReceived: Int
+  lineIssueQty: Int!
+  qtyPendingIssue: Int!
+  receiveStatus: String
+  issueStatus: String
+  summaryReceiveStatus: String
+  summaryIssueStatus: String
+  remarks: String
+  createdAt: String
+}
+
+type CpairReceivedNotIssuedReportResult {
+  mode: String!
+  reportKey: String!
+  data: [CpairReceivedNotIssuedReportRow!]!
+  pageInfo: PageInfo!
+  filters: [ReportFilterMeta!]!
+  columns: [ReportColumn!]!
+}
+
+type CpairReceivedNotIssuedReportColumnsResult {
+  reportKey: String!
+  columns: [ReportColumn!]!
+}
+
+type CpairReceivableReportRow {
+  partId: Int
+  summaryId: Int
+  jobId: Int
+  jobNo: String
+  manualJobNo: String
+  jobProductId: Int
+  productId: Int
+  partName: String
+  customerId: Int
+  customerName: String
+  technicianId: Int
+  technicianName: String
+  faultId: Int
+  faultName: String
+  qty: Int!
+  installedQty: Int
+  wastageQty: Int
+  lineQtyReceived: Int!
+  lineWastageReceived: Int
+  lineIssueQty: Int
+  qtyPendingReceive: Int!
+  receiveStatus: String
+  issueStatus: String
+  summaryReceiveStatus: String
+  summaryIssueStatus: String
+  remarks: String
+  createdAt: String
+}
+
+type CpairReceivableReportResult {
+  mode: String!
+  reportKey: String!
+  data: [CpairReceivableReportRow!]!
+  pageInfo: PageInfo!
+  filters: [ReportFilterMeta!]!
+  columns: [ReportColumn!]!
+}
+
+type CpairReceivableReportColumnsResult {
+  reportKey: String!
+  columns: [ReportColumn!]!
+}
+
+type PartsWarrantyConsumptionReportRow {
+  jobProductLineId: Int!
+  jobId: Int!
+  jobCode: String
+  manualJobNo: String
+  jobDate: String
+  productId: Int
+  productName: String
+  barcode: String
+  modelNo: String
+  partNo: String
+  saleReferenceNo: String
+  lineNo: Int
+  qty: Float!
+  price: Float
+  totalAmount: Float
+  inclusiveAmount: Float
+  taxAmount: Float
+  customerId: Int
+  customerName: String
+  customerPhone: String
+  assignedToId: Int
+  assignedToName: String
+  inWarranty: Boolean!
+  status: String
+  statusColor: String
+  serviceId: Int
+  serviceName: String
+  categoryId: Int
+  categoryName: String
+  faultId: Int
+  faultName: String
+  productModel: String
+  serialNumber: String
+  invoiceNumber: String
+  remarks: String
+}
+
+type PartsWarrantyConsumptionReportResult {
+  mode: String!
+  reportKey: String!
+  data: [PartsWarrantyConsumptionReportRow!]!
+  pageInfo: PageInfo!
+  filters: [ReportFilterMeta!]!
+  columns: [ReportColumn!]!
+}
+
+type PartsWarrantyConsumptionReportColumnsResult {
+  reportKey: String!
+  columns: [ReportColumn!]!
+}
+
+input CpairReportFilterInput {
+  from: String
+  to: String
+  search: String
+  summaryId: Int
+  jobId: Int
+  technicianId: Int
+  customerId: Int
+  customerName: String
+  customerPhone: String
+  customerEmail: String
+  technicianName: String
+  faultId: Int
+  faultName: String
+  receiveStatus: String
+  issueStatus: String
+  productId: Int
+  jobProductId: Int
+  partName: String
+  lineReceiveStatus: String
+  lineIssueStatus: String
+  createdBy: Int
+  createdByName: String
 }
 
 input ReportColumnInput {
@@ -223,6 +496,8 @@ input JobsReportFilterInput {
   statusid: Int
   customerid: Int
   assignedto: Int
+  technicianId: Int
+  technicianAffiliation: String
 }
 `;
 
@@ -245,6 +520,72 @@ const reportQueryFields = `
   Column chooser configuration for Jobs list detail report.
   """
   jobsListReportColumns: JobsListReportColumnsResult!
+  """
+  Technician monthly bills summary (cash collected vs job expenses by technician).
+  """
+  technicianMonthlyBillsSummaryReport(
+    page: Int = 1
+    pageSize: Int = 25
+    sortBy: String
+    sortOrder: String = "desc"
+    filter: JobsReportFilterInput
+  ): TechnicianMonthlyBillsSummaryReportResult!
+  technicianMonthlyBillsSummaryReportColumns: TechnicianMonthlyBillsSummaryReportColumnsResult!
+  """
+  Technician monthly bills detail (cash and expenses per job).
+  """
+  technicianMonthlyBillsDetailReport(
+    page: Int = 1
+    pageSize: Int = 25
+    sortBy: String
+    sortOrder: String = "desc"
+    filter: JobsReportFilterInput
+  ): TechnicianMonthlyBillsDetailReportResult!
+  technicianMonthlyBillsDetailReportColumns: TechnicianMonthlyBillsDetailReportColumnsResult!
+  """
+  Job-wise revenue: amount to be collected (job total cost) vs collected cash.
+  """
+  jobRevenueReport(
+    page: Int = 1
+    pageSize: Int = 25
+    sortBy: String
+    sortOrder: String = "desc"
+    filter: JobsReportFilterInput
+  ): JobRevenueReportResult!
+  jobRevenueReportColumns: JobRevenueReportColumnsResult!
+  """
+  C-pair parts received from technicians but not yet fully issued to store.
+  """
+  cpairReceivedNotIssuedReport(
+    page: Int = 1
+    pageSize: Int = 25
+    sortBy: String
+    sortOrder: String = "desc"
+    filter: CpairReportFilterInput
+  ): CpairReceivedNotIssuedReportResult!
+  cpairReceivedNotIssuedReportColumns: CpairReceivedNotIssuedReportColumnsResult!
+  """
+  C-pair qty still to receive from technicians (expected minus received).
+  """
+  cpairReceivableReport(
+    page: Int = 1
+    pageSize: Int = 25
+    sortBy: String
+    sortOrder: String = "desc"
+    filter: CpairReportFilterInput
+  ): CpairReceivableReportResult!
+  cpairReceivableReportColumns: CpairReceivableReportColumnsResult!
+  """
+  Parts used on jobs (job product lines), warranty jobs only.
+  """
+  partsWarrantyConsumptionReport(
+    page: Int = 1
+    pageSize: Int = 25
+    sortBy: String
+    sortOrder: String = "desc"
+    filter: JobsReportFilterInput
+  ): PartsWarrantyConsumptionReportResult!
+  partsWarrantyConsumptionReportColumns: PartsWarrantyConsumptionReportColumnsResult!
 ${summaryGraphql.queries}
 `;
 
@@ -253,6 +594,12 @@ const reportMutationFields = `
   Save column chooser preferences (JSON) for Jobs list detail report.
   """
   updateJobsListReportColumns(columns: [ReportColumnInput!]!): JobsListReportColumnsResult!
+  updateTechnicianMonthlyBillsSummaryReportColumns(columns: [ReportColumnInput!]!): TechnicianMonthlyBillsSummaryReportColumnsResult!
+  updateTechnicianMonthlyBillsDetailReportColumns(columns: [ReportColumnInput!]!): TechnicianMonthlyBillsDetailReportColumnsResult!
+  updateJobRevenueReportColumns(columns: [ReportColumnInput!]!): JobRevenueReportColumnsResult!
+  updateCpairReceivedNotIssuedReportColumns(columns: [ReportColumnInput!]!): CpairReceivedNotIssuedReportColumnsResult!
+  updateCpairReceivableReportColumns(columns: [ReportColumnInput!]!): CpairReceivableReportColumnsResult!
+  updatePartsWarrantyConsumptionReportColumns(columns: [ReportColumnInput!]!): PartsWarrantyConsumptionReportColumnsResult!
 ${summaryGraphql.mutations}
 `;
 
@@ -309,6 +656,144 @@ function registerReportResolvers(resolvers) {
   resolvers.updateJobsListReportColumns = async ({ columns }, context) => {
     const auth = requireAuth(context);
     return jobsListReportService.updateColumns(auth, columns || []);
+  };
+
+  resolvers.technicianMonthlyBillsSummaryReport = async (args, context) => {
+    const auth = requireAuth(context);
+    const result = await technicianMonthlyBillsReportService.getSummaryReport(auth, args);
+    return {
+      ...result,
+      filters: mapReportFilterMeta(result.filters)
+    };
+  };
+
+  resolvers.technicianMonthlyBillsSummaryReportColumns = async (_args, context) => {
+    const auth = requireAuth(context);
+    const columns = await technicianMonthlyBillsReportService.getSummaryColumns(auth);
+    return {
+      reportKey: "technician_monthly_bills_summary",
+      columns
+    };
+  };
+
+  resolvers.updateTechnicianMonthlyBillsSummaryReportColumns = async ({ columns }, context) => {
+    const auth = requireAuth(context);
+    return technicianMonthlyBillsReportService.updateSummaryColumns(auth, columns || []);
+  };
+
+  resolvers.technicianMonthlyBillsDetailReport = async (args, context) => {
+    const auth = requireAuth(context);
+    const result = await technicianMonthlyBillsReportService.getDetailReport(auth, args);
+    return {
+      ...result,
+      filters: mapReportFilterMeta(result.filters)
+    };
+  };
+
+  resolvers.technicianMonthlyBillsDetailReportColumns = async (_args, context) => {
+    const auth = requireAuth(context);
+    const columns = await technicianMonthlyBillsReportService.getDetailColumns(auth);
+    return {
+      reportKey: "technician_monthly_bills_detail",
+      columns
+    };
+  };
+
+  resolvers.updateTechnicianMonthlyBillsDetailReportColumns = async ({ columns }, context) => {
+    const auth = requireAuth(context);
+    return technicianMonthlyBillsReportService.updateDetailColumns(auth, columns || []);
+  };
+
+  resolvers.jobRevenueReport = async (args, context) => {
+    const auth = requireAuth(context);
+    const result = await jobRevenueReportService.getReport(auth, args);
+    return {
+      ...result,
+      filters: mapReportFilterMeta(result.filters)
+    };
+  };
+
+  resolvers.jobRevenueReportColumns = async (_args, context) => {
+    const auth = requireAuth(context);
+    const columns = await jobRevenueReportService.getColumns(auth);
+    return {
+      reportKey: "job_revenue",
+      columns
+    };
+  };
+
+  resolvers.updateJobRevenueReportColumns = async ({ columns }, context) => {
+    const auth = requireAuth(context);
+    return jobRevenueReportService.updateColumns(auth, columns || []);
+  };
+
+  resolvers.cpairReceivedNotIssuedReport = async (args, context) => {
+    const auth = requireAuth(context);
+    const result = await cpairReceivedNotIssuedReportService.getReport(auth, args);
+    return {
+      ...result,
+      filters: mapReportFilterMeta(result.filters)
+    };
+  };
+
+  resolvers.cpairReceivedNotIssuedReportColumns = async (_args, context) => {
+    const auth = requireAuth(context);
+    const columns = await cpairReceivedNotIssuedReportService.getColumns(auth);
+    return {
+      reportKey: "cpair_received_not_issued",
+      columns
+    };
+  };
+
+  resolvers.updateCpairReceivedNotIssuedReportColumns = async ({ columns }, context) => {
+    const auth = requireAuth(context);
+    return cpairReceivedNotIssuedReportService.updateColumns(auth, columns || []);
+  };
+
+  resolvers.cpairReceivableReport = async (args, context) => {
+    const auth = requireAuth(context);
+    const result = await cpairReceivableReportService.getReport(auth, args);
+    return {
+      ...result,
+      filters: mapReportFilterMeta(result.filters)
+    };
+  };
+
+  resolvers.cpairReceivableReportColumns = async (_args, context) => {
+    const auth = requireAuth(context);
+    const columns = await cpairReceivableReportService.getColumns(auth);
+    return {
+      reportKey: "cpair_receivable",
+      columns
+    };
+  };
+
+  resolvers.updateCpairReceivableReportColumns = async ({ columns }, context) => {
+    const auth = requireAuth(context);
+    return cpairReceivableReportService.updateColumns(auth, columns || []);
+  };
+
+  resolvers.partsWarrantyConsumptionReport = async (args, context) => {
+    const auth = requireAuth(context);
+    const result = await partsWarrantyConsumptionReportService.getReport(auth, args);
+    return {
+      ...result,
+      filters: mapReportFilterMeta(result.filters)
+    };
+  };
+
+  resolvers.partsWarrantyConsumptionReportColumns = async (_args, context) => {
+    const auth = requireAuth(context);
+    const columns = await partsWarrantyConsumptionReportService.getColumns(auth);
+    return {
+      reportKey: "parts_warranty_consumption",
+      columns
+    };
+  };
+
+  resolvers.updatePartsWarrantyConsumptionReportColumns = async ({ columns }, context) => {
+    const auth = requireAuth(context);
+    return partsWarrantyConsumptionReportService.updateColumns(auth, columns || []);
   };
 
   listJobsSummaryReportDefinitions().forEach((definition) => {
