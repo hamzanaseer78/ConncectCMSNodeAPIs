@@ -3939,14 +3939,14 @@ module.exports = swaggerJsdoc({
       },
       "/api/jobs/next-code": {
         get: {
-          summary: "Next auto-generated job code (max + next) for the JWT organization",
+          summary: "Next auto-generated job code for the JWT branch",
           description:
-            "Uses the same advisory lock + MAX(code) logic as job create. Job codes are unique per organization (tenant), shared across all branches. For production creates, omit `code` on POST /api/jobs so the code is allocated atomically with insert.",
+            "Uses per-branch job code settings (prefix + separator + padded sequence + postfix). Skips codes already used in the organization. Same logic as POST /api/jobs when `code` is omitted. Configure via GET/PUT /api/jobs/code/settings.",
           tags: [JOBS_TAG],
           security: [{ bearerAuth: [] }],
           responses: {
             200: {
-              description: "maxCode, maxNum, nextCode, nextNum",
+              description: "nextCode preview (and sequence metadata)",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/JobNextCodeResponse" }
@@ -3954,6 +3954,39 @@ module.exports = swaggerJsdoc({
               }
             }
           }
+        }
+      },
+      "/api/jobs/code/settings": {
+        get: {
+          summary: "Job code format settings for the JWT branch",
+          description:
+            "Default prefix is derived from branch name initials (e.g. Head Office → HO). Default sequence starts at 00001 (pad width 5).",
+          tags: [JOBS_TAG],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Settings + nextCode preview",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                }
+              }
+            }
+          }
+        },
+        put: {
+          summary: "Save job code format settings (admin)",
+          tags: [JOBS_TAG],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobCodeSettingsSaveRequest" }
+              }
+            }
+          },
+          responses: { 200: { description: "Settings saved" } }
         }
       },
       "/api/jobs": {
@@ -7871,16 +7904,52 @@ module.exports = swaggerJsdoc({
         JobNextCodeResponse: {
           type: "object",
           description:
-            "Numeric sequence for job.code in this organization (tenant). maxNum uses only purely digit codes; nextCode is zero-padded to 6. Codes are unique per tenant, not per branch.",
+            "Next job.code for the branch using prefix + separator + sequence + postfix. Codes remain unique per organization (tenant).",
           properties: {
-            maxCode: {
+            maxCode: { type: "string", nullable: true },
+            maxNum: { type: "integer" },
+            nextCode: { type: "string", example: "HO-00100" },
+            nextNum: { type: "integer", example: 100 },
+            nextSequenceNumber: { type: "integer", example: 100 },
+            prefix: { type: "string", example: "HO" },
+            postfix: { type: "string", example: "" },
+            separator: { type: "string", example: "-" },
+            sequencePadWidth: { type: "integer", example: 5 },
+            usingLegacyNumericCodes: {
+              type: "boolean",
+              description: "True only when jobcodesettings table is not migrated yet (6-digit numeric fallback)"
+            }
+          }
+        },
+        JobCodeSettingsResponse: {
+          type: "object",
+          properties: {
+            tenantid: { type: "integer" },
+            branchid: { type: "integer" },
+            prefix: { type: "string", example: "HO" },
+            postfix: { type: "string", example: "" },
+            separator: { type: "string", example: "-" },
+            nextSequenceNumber: { type: "integer", example: 100 },
+            sequencePadWidth: { type: "integer", example: 5 },
+            nextSequence: { type: "string", example: "00100", description: "Padded display of next sequence counter" },
+            defaultPrefixFromBranch: { type: "string", example: "HO" },
+            nextCode: { type: "string", example: "HO-00100" },
+            lastUpdatedAt: { type: "string", format: "date-time", nullable: true },
+            usingLegacyNumericCodes: { type: "boolean" }
+          }
+        },
+        JobCodeSettingsSaveRequest: {
+          type: "object",
+          properties: {
+            prefix: { type: "string", example: "HO" },
+            postfix: { type: "string", example: "" },
+            separator: { type: "string", example: "-" },
+            nextSequence: {
               type: "string",
-              nullable: true,
-              description: "Raw MAX(code) from database for this organization (may be null or non-numeric)"
+              example: "00100",
+              description: "Next sequence to use (pad width inferred from length unless sequencePadWidth set)"
             },
-            maxNum: { type: "integer", description: "Numeric max when maxCode is all digits, otherwise 0" },
-            nextCode: { type: "string", example: "000042", description: "Suggested next code (pad 6)" },
-            nextNum: { type: "integer", example: 42, description: "maxNum + 1" }
+            sequencePadWidth: { type: "integer", minimum: 1, maximum: 12, example: 5 }
           }
         },
         JobSaveRequest: {
@@ -7891,7 +7960,7 @@ module.exports = swaggerJsdoc({
             code: {
               type: "string",
               description:
-                "Optional. Omit or send empty to auto-assign the next 6-digit code in the same transaction as create (recommended). Must be unique within the organization (tenant). GET /api/jobs/next-code previews max/next."
+                "Optional. Omit or send empty to auto-assign the next formatted code (branch settings: prefix + sequence + postfix) in the same transaction as create. Must be unique within the organization (tenant). GET /api/jobs/next-code previews the next code."
             },
             date: { type: "string", format: "date-time" },
             assignedto: { type: "integer" },

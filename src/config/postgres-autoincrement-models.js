@@ -29,6 +29,7 @@ const POSTGRES_AUTOINCREMENT_MODELS = {
   jobquotationsettings: { table: "jobquotationsettings", column: "recno" },
   jobcashsettings: { table: "jobcashsettings", column: "recno" },
   jobformsettings: { table: "jobformsettings", column: "recno" },
+  jobcodesettings: { table: "jobcodesettings", column: "recno" },
   jobcollections: { table: "jobcollections", column: "recno" },
   jobexpenses: { table: "jobexpenses", column: "recno" },
   jobcpairsummary: { table: "jobcpairsummary", column: "recno" },

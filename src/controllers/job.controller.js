@@ -6,6 +6,7 @@ const jobsTeamService = require("../services/jobs-team.service");
 const jobApprovalService = require("../services/job-approval.service");
 const jobQuotationSettingsService = require("../services/job-quotation-settings.service");
 const jobFormSettingsService = require("../services/job-form-settings.service");
+const jobCodeSettingsService = require("../services/job-code-settings.service");
 const jobCashService = require("../services/job-cash.service");
 const {
   jobCollectionsAllService,
@@ -27,6 +28,26 @@ async function getNextJobCode(req, res, next) {
     const data = await jobsWorkflowService.getNextJobCode(req.auth);
     res.status(200).json(data);
   } catch (err) {
+    next(err);
+  }
+}
+
+async function getJobCodeSettings(req, res, next) {
+  try {
+    const data = await jobCodeSettingsService.getSettings(req.auth);
+    res.status(200).json(data);
+  } catch (err) {
+    if (err.status) err.statusCode = err.status;
+    next(err);
+  }
+}
+
+async function saveJobCodeSettings(req, res, next) {
+  try {
+    const data = await jobCodeSettingsService.saveSettings(req.auth, req.body);
+    res.status(200).json(data);
+  } catch (err) {
+    if (err.status) err.statusCode = err.status;
     next(err);
   }
 }
@@ -1141,6 +1162,8 @@ module.exports = {
   getJob,
   getJobApproval,
   getNextJobCode,
+  getJobCodeSettings,
+  saveJobCodeSettings,
   listPendingApprovals,
   rejectJob,
   saveApprovalSettings,
