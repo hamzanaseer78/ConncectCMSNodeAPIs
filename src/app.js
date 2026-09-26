@@ -16,6 +16,7 @@ const orgBranchRoutes = require("./routes/orgbranch.routes");
 const createDropdownRoutes = require("./routes/dropdowns.routes");
 const jobRoutes = require("./routes/job.routes");
 const jobFormSettingsRoutes = require("./routes/job-form-settings.routes");
+const jobCodeSettingsRoutes = require("./routes/job-code-settings.routes");
 const jobsAllRoutes = require("./routes/jobs-all.routes");
 const jobsMyRoutes = require("./routes/jobs-my.routes");
 const jobsTeamRoutes = require("./routes/jobs-team.routes");
@@ -183,10 +184,17 @@ app.get('/health', async (req, res) => {
  * Ready Check Endpoint
  * Used for deployment readiness probes
  */
-app.get('/ready', (req, res) => {
+app.get("/ready", (req, res) => {
   res.status(200).json({
-    status: 'ready',
-    timestamp: new Date().toISOString()
+    status: "ready",
+    timestamp: new Date().toISOString(),
+    features: {
+      jobCodeSettingsApi: true,
+      jobCodeSettingsPaths: [
+        "/api/jobs/code/settings",
+        "/api/jobs/form/code-settings"
+      ]
+    }
   });
 });
 
@@ -212,6 +220,7 @@ app.use("/api/announcements", announcementsRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/org", orgBranchRoutes);
 app.use("/api/jobs/form", jobFormSettingsRoutes);
+app.use("/api/jobs/code", jobCodeSettingsRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/jobs-all", jobsAllRoutes);
 app.use("/api/jobs-my", jobsMyRoutes);
