@@ -3383,9 +3383,63 @@ module.exports = swaggerJsdoc({
       },
       "/api/jobs/code/settings": {
         get: {
-          summary: "Get job code format settings for the JWT branch",
+          summary: "Get job code format settings (canonical path)",
           description:
-            "Prefix, separator, padded sequence, and postfix used for auto-generated job codes. Default prefix is branch name initials (e.g. Head Office becomes HO). Default sequence starts at 00001 (pad width 5). Response includes nextCode preview.",
+            "Prefix + separator + padded sequence + postfix for auto job codes. Requires latest job.routes.js on the server. If you get 404, use GET /api/jobs/form/code-settings instead.",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Job code settings",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                }
+              }
+            },
+            404: { description: "Route not deployed yet — use /api/jobs/form/code-settings" }
+          }
+        },
+        put: {
+          summary: "Save job code format settings (canonical path, admin)",
+          description:
+            "Example: prefix HO, nextSequence 00100 → HO-00100 (bumps if taken). Requires jobcodesettings migration. If 404, use PUT /api/jobs/form/code-settings.",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobCodeSettingsSaveRequest" }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "Settings saved",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      message: { type: "string" },
+                      settings: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                    }
+                  }
+                }
+              }
+            },
+            403: { description: "Admin required" },
+            503: { description: "jobcodesettings table not migrated yet" },
+            404: { description: "Route not deployed yet — use /api/jobs/form/code-settings" }
+          }
+        }
+      },
+      "/api/jobs/form/code-settings": {
+        get: {
+          summary: "Get job code format settings (form router alias)",
+          description:
+            "Same as GET /api/jobs/code/settings. Prefer this path when the canonical route returns 404 on older deployments.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           responses: {
@@ -3400,9 +3454,7 @@ module.exports = swaggerJsdoc({
           }
         },
         put: {
-          summary: "Save job code format settings (admin only)",
-          description:
-            "Example: prefix HO, nextSequence 00100, empty postfix yields codes like HO-00100. If that code exists in the organization, the next available sequence is used (HO-00101). Requires jobcodesettings migration on the server.",
+          summary: "Save job code format settings (form router alias, admin)",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           requestBody: {
