@@ -39,6 +39,8 @@ const {
   mergeJobdetailsRemarks,
   pickEquipmentBrandId,
   brandIdProvidedInPayload,
+  formatJobDetailForResponse,
+  normalizeJobDetailDescription,
   normalizeJobRequestBody
 } = require("../utils/job-equipment");
 const {
@@ -1852,10 +1854,12 @@ class JobsWorkflowService {
     const remarks = remarkRows.map(formatJobRemarkRow).filter(Boolean);
     const productLines = mapJobProductLines(row.jobproducts);
     const serviceLines = mapJobServiceLines(row.jobservices);
-    const detail = Array.isArray(row.jobdetails)
+    const rawDetail = Array.isArray(row.jobdetails)
       ? row.jobdetails[0] ?? null
       : row.jobdetails ?? null;
-    const equipmentMain = jobMainEquipmentFields(detail, row.brandid);
+    const equipmentMain = jobMainEquipmentFields(rawDetail, row.brandid);
+    const detail = formatJobDetailForResponse(rawDetail);
+    const description = normalizeJobDetailDescription(rawDetail?.description);
 
     const customerFeedback = formatCustomerFeedbackRow(row.jobcustomerfeedback);
 
@@ -1867,6 +1871,8 @@ class JobsWorkflowService {
       productLines,
       serviceLines,
       totalCost: row.totalcost ?? null,
+      description,
+      complaintDescription: description,
       remarks,
       remarksTotal: remarks.length,
       customerFeedback,

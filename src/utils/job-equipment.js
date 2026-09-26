@@ -143,6 +143,26 @@ function hasEquipmentFieldInput(data = {}) {
 }
 
 /** Job-level fields: brandId on job.brandid; other equipment fields in jobdetails.remarks JSON. */
+function normalizeJobDetailDescription(value) {
+  if (value == null || String(value).trim() === "") return null;
+  return String(value).trim();
+}
+
+/**
+ * Job details API: never expose jobdetails.remarks as a stand-in for missing description.
+ * Equipment JSON in remarks is still used server-side via jobMainEquipmentFields before masking.
+ */
+function formatJobDetailForResponse(detail) {
+  if (!detail) return null;
+
+  const description = normalizeJobDetailDescription(detail.description);
+  return {
+    ...detail,
+    description,
+    remarks: description ? detail.remarks ?? null : null
+  };
+}
+
 function jobMainEquipmentFields(detailOrRemarks, jobBrandid = null) {
   const remarks =
     detailOrRemarks != null && typeof detailOrRemarks === "object"
@@ -182,6 +202,8 @@ module.exports = {
   brandIdProvidedInPayload,
   mergeJobdetailsRemarks,
   hasEquipmentFieldInput,
+  normalizeJobDetailDescription,
+  formatJobDetailForResponse,
   jobMainEquipmentFields,
   normalizeJobRequestBody
 };
