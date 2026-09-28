@@ -185,16 +185,19 @@ app.get('/health', async (req, res) => {
  * Used for deployment readiness probes
  */
 app.get("/ready", (req, res) => {
+  const { findJobCodeSettingsInApp } = require("./utils/express-route-diagnostics");
+  const jobCode = findJobCodeSettingsInApp(req.app);
   res.status(200).json({
     status: "ready",
     timestamp: new Date().toISOString(),
     features: {
-      jobCodeSettingsApi: true,
+      jobCodeSettingsApi: jobCode.mounted === true,
       jobCodeSettingsPaths: [
         "/api/jobs/code/settings",
         "/api/jobs/form/code-settings"
       ]
-    }
+    },
+    deployInfoUrl: "/api/public/deploy-info"
   });
 });
 
