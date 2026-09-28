@@ -2,14 +2,16 @@ const express = require("express");
 const authenticateJwt = require("../middlewares/auth.middleware");
 const { uploadJobActionFiles } = require("../middlewares/upload.middleware");
 const jobController = require("../controllers/job.controller");
+const settingsController = require("../controllers/settings.controller");
 
 const router = express.Router();
 
 router.use(authenticateJwt);
 
 router.get("/next-code", jobController.getNextJobCode);
-router.get("/code-settings", jobController.getJobCodeSettings);
-router.put("/code-settings", jobController.saveJobCodeSettings);
+/** @deprecated Prefer GET/PUT /api/settings/code */
+router.get("/code/settings", settingsController.getJobCodeSettings);
+router.put("/code/settings", settingsController.saveJobCodeSettings);
 router.get("/quotation-statuses", jobController.listQuotationStatusOptions);
 router.get("/quotation/settings", jobController.getQuotationSettings);
 router.put("/quotation/settings", jobController.saveQuotationSettings);

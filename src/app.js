@@ -17,6 +17,7 @@ const createDropdownRoutes = require("./routes/dropdowns.routes");
 const jobRoutes = require("./routes/job.routes");
 const jobFormSettingsRoutes = require("./routes/job-form-settings.routes");
 const jobCodeSettingsRoutes = require("./routes/job-code-settings.routes");
+const settingsRoutes = require("./routes/settings.routes");
 const jobsAllRoutes = require("./routes/jobs-all.routes");
 const jobsMyRoutes = require("./routes/jobs-my.routes");
 const jobsTeamRoutes = require("./routes/jobs-team.routes");
@@ -180,27 +181,6 @@ app.get('/health', async (req, res) => {
   });
 });
 
-/**
- * Ready Check Endpoint
- * Used for deployment readiness probes
- */
-app.get("/ready", (req, res) => {
-  const { findJobCodeSettingsInApp } = require("./utils/express-route-diagnostics");
-  const jobCode = findJobCodeSettingsInApp(req.app);
-  res.status(200).json({
-    status: "ready",
-    timestamp: new Date().toISOString(),
-    features: {
-      jobCodeSettingsApi: jobCode.mounted === true,
-      jobCodeSettingsPaths: [
-        "/api/jobs/code/settings",
-        "/api/jobs/form/code-settings"
-      ]
-    },
-    deployInfoUrl: "/api/public/deploy-info"
-  });
-});
-
 // API Documentation
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -222,9 +202,12 @@ app.use("/api/user-activity-logs", userActivityLogRoutes);
 app.use("/api/announcements", announcementsRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/org", orgBranchRoutes);
+app.use("/api/settings", settingsRoutes);
 app.use("/api/jobs/form", jobFormSettingsRoutes);
 app.use("/api/jobs/code", jobCodeSettingsRoutes);
 app.use("/api/jobs", jobRoutes);
+if (!app.locals.features) app.locals.features = {};
+app.locals.features.jobCodeSettingsApi = true;
 app.use("/api/jobs-all", jobsAllRoutes);
 app.use("/api/jobs-my", jobsMyRoutes);
 app.use("/api/jobs-team", jobsTeamRoutes);
@@ -245,6 +228,33 @@ Object.entries(resources).forEach(([resourceName, config]) => {
     return;
   }
   app.use(`/api/${resourceName}`, createResourceRouter(resourceName));
+});
+
+/**
+ * Ready check — registered after routes so diagnostics see the live router stack.
+ */
+app.get("/ready", (req, res) => {
+  const {
+    findJobCodeSettingsInApp,
+    readJobCodeOnDiskHints
+  } = require("./utils/express-route-diagnostics");
+  const jobCode = findJobCodeSettingsInApp(req.app);
+  const runtimeFlag = req.app.locals?.features?.jobCodeSettingsApi === true;
+  res.status(200).json({
+    status: "ready",
+    timestamp: new Date().toISOString(),
+    features: {
+      jobCodeSettingsApi: jobCode.mounted === true || runtimeFlag,
+      jobCodeSettingsVia: jobCode.via ?? (runtimeFlag ? "app.locals.features" : null),
+      jobCodeSettingsPaths: [
+        "/api/settings/code",
+        "/api/jobs/code/settings",
+        "/api/jobs/form/code-settings"
+      ]
+    },
+    onDisk: readJobCodeOnDiskHints(),
+    deployInfoUrl: "/api/public/deploy-info"
+  });
 });
 
 // 404 Handler - must be before error handler

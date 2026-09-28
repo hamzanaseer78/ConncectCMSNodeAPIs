@@ -6,8 +6,8 @@ const router = express.Router();
 
 router.use(authenticateJwt);
 
-/** @deprecated Prefer GET/PUT /api/settings/code */
-router.get("/settings", settingsController.getJobCodeSettings);
-router.put("/settings", settingsController.saveJobCodeSettings);
+/** Job auto-code format: prefix, separator, sequence, postfix (per branch). */
+router.get("/code", settingsController.getJobCodeSettings);
+router.put("/code", settingsController.saveJobCodeSettings);
 
 module.exports = router;
