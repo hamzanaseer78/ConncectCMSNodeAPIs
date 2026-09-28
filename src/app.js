@@ -17,6 +17,7 @@ const createDropdownRoutes = require("./routes/dropdowns.routes");
 const jobRoutes = require("./routes/job.routes");
 const jobFormSettingsRoutes = require("./routes/job-form-settings.routes");
 const jobCodeSettingsRoutes = require("./routes/job-code-settings.routes");
+const settingsRoutes = require("./routes/settings.routes");
 const jobsAllRoutes = require("./routes/jobs-all.routes");
 const jobsMyRoutes = require("./routes/jobs-my.routes");
 const jobsTeamRoutes = require("./routes/jobs-team.routes");
@@ -201,6 +202,7 @@ app.use("/api/user-activity-logs", userActivityLogRoutes);
 app.use("/api/announcements", announcementsRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/org", orgBranchRoutes);
+app.use("/api/settings", settingsRoutes);
 app.use("/api/jobs/form", jobFormSettingsRoutes);
 app.use("/api/jobs/code", jobCodeSettingsRoutes);
 app.use("/api/jobs", jobRoutes);
@@ -245,6 +247,7 @@ app.get("/ready", (req, res) => {
       jobCodeSettingsApi: jobCode.mounted === true || runtimeFlag,
       jobCodeSettingsVia: jobCode.via ?? (runtimeFlag ? "app.locals.features" : null),
       jobCodeSettingsPaths: [
+        "/api/settings/code",
         "/api/jobs/code/settings",
         "/api/jobs/form/code-settings"
       ]

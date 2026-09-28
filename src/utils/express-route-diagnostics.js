@@ -23,6 +23,7 @@ function resolveRouterMountPath(layer) {
     return null;
   }
   const probes = [
+    "/api/settings/__probe__",
     "/api/jobs/code/__probe__",
     "/api/jobs/form/__probe__",
     "/api/jobs/__probe__",
@@ -60,6 +61,21 @@ function collectMountedRouters(app) {
 
 function findJobCodeSettingsInApp(app) {
   const mounts = collectMountedRouters(app);
+
+  for (const mount of mounts) {
+    if (mount.mountPath === "/api/settings") {
+      const route = mount.routes.find(
+        (r) => r.path === "/code" && r.methods.includes("get")
+      );
+      if (route) {
+        return {
+          mounted: true,
+          via: "api/settings/code",
+          mountPattern: mount.pattern
+        };
+      }
+    }
+  }
 
   for (const mount of mounts) {
     if (mount.mountPath === "/api/jobs/code") {
@@ -118,19 +134,25 @@ function findJobCodeSettingsInApp(app) {
 function readJobCodeOnDiskHints() {
   const rootDir = path.join(__dirname, "..", "..");
   const routerFile = path.join(rootDir, "src/routes/job-code-settings.routes.js");
+  const settingsRouterFile = path.join(rootDir, "src/routes/settings.routes.js");
   const appFile = path.join(rootDir, "src/app.js");
   const jobRoutesFile = path.join(rootDir, "src/routes/job.routes.js");
   const serviceFile = path.join(rootDir, "src/services/job-code-settings.service.js");
 
   let appJsReferencesJobCodeMount = null;
+  let appJsReferencesSettingsModule = null;
   let jobRoutesHasCodeSettings = null;
   try {
     const appSource = fs.readFileSync(appFile, "utf8");
     appJsReferencesJobCodeMount =
       appSource.includes('app.use("/api/jobs/code"') ||
       appSource.includes("app.use('/api/jobs/code'");
+    appJsReferencesSettingsModule =
+      appSource.includes('app.use("/api/settings"') ||
+      appSource.includes("app.use('/api/settings'");
   } catch {
     appJsReferencesJobCodeMount = null;
+    appJsReferencesSettingsModule = null;
   }
   try {
     const jobRoutesSource = fs.readFileSync(jobRoutesFile, "utf8");
@@ -140,15 +162,17 @@ function readJobCodeOnDiskHints() {
   }
 
   return {
+    settingsModuleRouterFile: fs.existsSync(settingsRouterFile),
     jobCodeSettingsRouterFile: fs.existsSync(routerFile),
     jobCodeSettingsServiceFile: fs.existsSync(serviceFile),
+    appJsReferencesSettingsModule,
     appJsReferencesJobCodeMount,
     jobRoutesHasCodeSettings
   };
 }
 
 function buildRouteDiagnostics(app) {
-  const jobController = require("../controllers/job.controller");
+  const settingsController = require("../controllers/settings.controller");
 
   return {
     processCwd: process.cwd(),
@@ -159,8 +183,8 @@ function buildRouteDiagnostics(app) {
     runningProcess: {
       ...findJobCodeSettingsInApp(app),
       handlers: {
-        getJobCodeSettings: typeof jobController.getJobCodeSettings,
-        saveJobCodeSettings: typeof jobController.saveJobCodeSettings
+        getJobCodeSettings: typeof settingsController.getJobCodeSettings,
+        saveJobCodeSettings: typeof settingsController.saveJobCodeSettings
       }
     },
     hint:
