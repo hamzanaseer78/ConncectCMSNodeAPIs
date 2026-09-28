@@ -2938,6 +2938,7 @@ class DashboardService {
         select: {
           userid: true,
           name: true,
+          contactno: true,
           technicianaffiliation: true,
           companyname: true
         },
@@ -3031,6 +3032,7 @@ class DashboardService {
         return {
           technicianId: userid,
           technicianName: tech.name ?? null,
+          phoneNo: tech.contactno ?? null,
           ...formatTechnicianAffiliationFields(tech),
           status: resolveManagerTechnicianStatus(userid, activity, attendanceByUser),
           code: activeJobCodeForTechnician(userid, activity),

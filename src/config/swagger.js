@@ -619,6 +619,12 @@ function jobListQueryParameters() {
     { in: "query", name: "followupby", schema: { type: "integer" }, description: "Follow-up user id (alias: followUpById)" },
     { in: "query", name: "followUpById", schema: { type: "integer" }, description: "Follow-up user id (job.followupby)" },
     { in: "query", name: "assignedToName", schema: { type: "string" }, description: "Partial assignee name" },
+    {
+      in: "query",
+      name: "technicianPhone",
+      schema: { type: "string" },
+      description: "Partial assigned technician phone (users.contactno). Aliases: assignedToPhone, phoneNo"
+    },
     { in: "query", name: "followUpByName", schema: { type: "string" }, description: "Partial follow-up user name" },
     { in: "query", name: "city", schema: { type: "integer" } },
     { in: "query", name: "area", schema: { type: "integer" } },
@@ -7606,6 +7612,11 @@ module.exports = swaggerJsdoc({
           properties: {
             technicianId: { type: "integer" },
             technicianName: { type: "string", nullable: true },
+            phoneNo: {
+              type: "string",
+              nullable: true,
+              description: "Technician phone (users.contactno)"
+            },
             technicianAffiliation: { $ref: "#/components/schemas/TechnicianAffiliation", nullable: true },
             companyName: { type: "string", nullable: true },
             status: {
@@ -8835,6 +8846,11 @@ module.exports = swaggerJsdoc({
                 recno: { type: "integer", description: "Job primary key" },
                 assignedToId: { type: "integer", nullable: true },
                 assignedToName: { type: "string", nullable: true, description: "Assigned technician display name" },
+                assignedToPhone: {
+                  type: "string",
+                  nullable: true,
+                  description: "Assigned technician phone (users.contactno)"
+                },
                 assignedToAffiliation: { $ref: "#/components/schemas/TechnicianAffiliation", nullable: true },
                 assignedToCompanyName: {
                   type: "string",

@@ -92,6 +92,7 @@ function flattenJobRelationLabels(job) {
     customerName: c?.name ?? null,
     assignedToId: u?.userid ?? main.assignedto ?? null,
     assignedToName: u?.name ?? null,
+    assignedToPhone: u?.contactno ?? null,
     assignedToAffiliation: u?.technicianaffiliation ?? null,
     assignedToCompanyName: u?.companyname ?? null,
     followUpById: followUpUser?.userid ?? main.followupby ?? null,
