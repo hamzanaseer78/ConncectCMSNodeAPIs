@@ -8,8 +8,9 @@ const router = express.Router();
 router.use(authenticateJwt);
 
 router.get("/next-code", jobController.getNextJobCode);
-router.get("/code-settings", jobController.getJobCodeSettings);
-router.put("/code-settings", jobController.saveJobCodeSettings);
+/** Same handlers as /api/jobs/code/settings — works when only this router is mounted (e.g. main without app.js mount). */
+router.get("/code/settings", jobController.getJobCodeSettings);
+router.put("/code/settings", jobController.saveJobCodeSettings);
 router.get("/quotation-statuses", jobController.listQuotationStatusOptions);
 router.get("/quotation/settings", jobController.getQuotationSettings);
 router.put("/quotation/settings", jobController.saveQuotationSettings);

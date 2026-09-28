@@ -180,27 +180,6 @@ app.get('/health', async (req, res) => {
   });
 });
 
-/**
- * Ready Check Endpoint
- * Used for deployment readiness probes
- */
-app.get("/ready", (req, res) => {
-  const { findJobCodeSettingsInApp } = require("./utils/express-route-diagnostics");
-  const jobCode = findJobCodeSettingsInApp(req.app);
-  res.status(200).json({
-    status: "ready",
-    timestamp: new Date().toISOString(),
-    features: {
-      jobCodeSettingsApi: jobCode.mounted === true,
-      jobCodeSettingsPaths: [
-        "/api/jobs/code/settings",
-        "/api/jobs/form/code-settings"
-      ]
-    },
-    deployInfoUrl: "/api/public/deploy-info"
-  });
-});
-
 // API Documentation
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -245,6 +224,31 @@ Object.entries(resources).forEach(([resourceName, config]) => {
     return;
   }
   app.use(`/api/${resourceName}`, createResourceRouter(resourceName));
+});
+
+/**
+ * Ready check — registered after routes so diagnostics see the live router stack.
+ */
+app.get("/ready", (req, res) => {
+  const {
+    findJobCodeSettingsInApp,
+    readJobCodeOnDiskHints
+  } = require("./utils/express-route-diagnostics");
+  const jobCode = findJobCodeSettingsInApp(req.app);
+  res.status(200).json({
+    status: "ready",
+    timestamp: new Date().toISOString(),
+    features: {
+      jobCodeSettingsApi: jobCode.mounted === true,
+      jobCodeSettingsVia: jobCode.via ?? null,
+      jobCodeSettingsPaths: [
+        "/api/jobs/code/settings",
+        "/api/jobs/form/code-settings"
+      ]
+    },
+    onDisk: readJobCodeOnDiskHints(),
+    deployInfoUrl: "/api/public/deploy-info"
+  });
 });
 
 // 404 Handler - must be before error handler
