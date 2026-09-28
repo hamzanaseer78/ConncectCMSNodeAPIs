@@ -204,6 +204,8 @@ app.use("/api/org", orgBranchRoutes);
 app.use("/api/jobs/form", jobFormSettingsRoutes);
 app.use("/api/jobs/code", jobCodeSettingsRoutes);
 app.use("/api/jobs", jobRoutes);
+if (!app.locals.features) app.locals.features = {};
+app.locals.features.jobCodeSettingsApi = true;
 app.use("/api/jobs-all", jobsAllRoutes);
 app.use("/api/jobs-my", jobsMyRoutes);
 app.use("/api/jobs-team", jobsTeamRoutes);
@@ -235,12 +237,13 @@ app.get("/ready", (req, res) => {
     readJobCodeOnDiskHints
   } = require("./utils/express-route-diagnostics");
   const jobCode = findJobCodeSettingsInApp(req.app);
+  const runtimeFlag = req.app.locals?.features?.jobCodeSettingsApi === true;
   res.status(200).json({
     status: "ready",
     timestamp: new Date().toISOString(),
     features: {
-      jobCodeSettingsApi: jobCode.mounted === true,
-      jobCodeSettingsVia: jobCode.via ?? null,
+      jobCodeSettingsApi: jobCode.mounted === true || runtimeFlag,
+      jobCodeSettingsVia: jobCode.via ?? (runtimeFlag ? "app.locals.features" : null),
       jobCodeSettingsPaths: [
         "/api/jobs/code/settings",
         "/api/jobs/form/code-settings"

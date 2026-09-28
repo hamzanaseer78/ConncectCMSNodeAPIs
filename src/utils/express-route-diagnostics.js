@@ -1,18 +1,52 @@
 const fs = require("fs");
 const path = require("path");
 
+/** Express 5 uses `app.router`; Express 4 uses `app._router`. */
+function getAppRouterStack(app) {
+  return app?.router?.stack ?? app?._router?.stack ?? [];
+}
+
 function layerPathPattern(layer) {
-  if (!layer?.regexp) return null;
-  return String(layer.regexp);
+  if (layer?.path) return layer.path;
+  if (layer?.regexp) return String(layer.regexp);
+  return null;
+}
+
+/**
+ * Express 5 sets `layer.path` only after `layer.match()`. Probe known job mounts.
+ */
+function resolveRouterMountPath(layer) {
+  if (layer?.path && String(layer.path).startsWith("/")) {
+    return layer.path;
+  }
+  if (typeof layer?.match !== "function") {
+    return null;
+  }
+  const probes = [
+    "/api/jobs/code/__probe__",
+    "/api/jobs/form/__probe__",
+    "/api/jobs/__probe__",
+    "/api/jobs-all/__probe__",
+    "/api/jobs-my/__probe__",
+    "/api/jobs-team/__probe__"
+  ];
+  for (const probe of probes) {
+    if (layer.match(probe)) {
+      return layer.path ?? null;
+    }
+  }
+  return null;
 }
 
 function collectMountedRouters(app) {
   const mounts = [];
-  const stack = app?._router?.stack || [];
+  const stack = getAppRouterStack(app);
   stack.forEach((layer) => {
     if (layer.name !== "router" || !layer.handle?.stack) return;
+    const mountPath = resolveRouterMountPath(layer);
     mounts.push({
-      pattern: layerPathPattern(layer),
+      mountPath,
+      pattern: layerPathPattern(layer) ?? mountPath,
       routes: layer.handle.stack
         .filter((inner) => inner.route?.path != null)
         .map((inner) => ({
@@ -24,54 +58,61 @@ function collectMountedRouters(app) {
   return mounts;
 }
 
-function isJobsMainMountPattern(pattern) {
-  if (!pattern.includes("jobs")) return false;
-  if (/jobs-all|jobs-my|jobs-team/i.test(pattern)) return false;
-  return true;
-}
-
 function findJobCodeSettingsInApp(app) {
   const mounts = collectMountedRouters(app);
 
   for (const mount of mounts) {
-    const pattern = mount.pattern || "";
-    if (!pattern.includes("jobs") || !pattern.includes("code")) continue;
-    const settings = mount.routes.find(
-      (route) => route.path === "/settings" && route.methods.includes("get")
-    );
-    if (settings) {
-      return {
-        mounted: true,
-        via: "api/jobs/code",
-        mountPattern: pattern,
-        routes: mount.routes
-      };
+    if (mount.mountPath === "/api/jobs/code") {
+      const settings = mount.routes.find(
+        (route) => route.path === "/settings" && route.methods.includes("get")
+      );
+      if (settings) {
+        return {
+          mounted: true,
+          via: "api/jobs/code",
+          mountPattern: mount.pattern,
+          routes: mount.routes
+        };
+      }
     }
   }
 
   for (const mount of mounts) {
-    const pattern = mount.pattern || "";
-    if (!isJobsMainMountPattern(pattern) || pattern.includes("form")) continue;
-    const route = mount.routes.find(
-      (r) => r.path === "/code/settings" && r.methods.includes("get")
-    );
-    if (route) {
-      return { mounted: true, via: "api/jobs/code/settings (job.routes)", mountPattern: pattern };
+    if (mount.mountPath === "/api/jobs") {
+      const route = mount.routes.find(
+        (r) => r.path === "/code/settings" && r.methods.includes("get")
+      );
+      if (route) {
+        return {
+          mounted: true,
+          via: "api/jobs/code/settings (job.routes)",
+          mountPattern: mount.pattern
+        };
+      }
     }
   }
 
   for (const mount of mounts) {
-    const pattern = mount.pattern || "";
-    if (!pattern.includes("jobs") || !pattern.includes("form")) continue;
-    const route = mount.routes.find(
-      (r) => r.path === "/code-settings" && r.methods.includes("get")
-    );
-    if (route) {
-      return { mounted: true, via: "api/jobs/form/code-settings", mountPattern: pattern };
+    if (mount.mountPath === "/api/jobs/form") {
+      const route = mount.routes.find(
+        (r) => r.path === "/code-settings" && r.methods.includes("get")
+      );
+      if (route) {
+        return {
+          mounted: true,
+          via: "api/jobs/form/code-settings",
+          mountPattern: mount.pattern
+        };
+      }
     }
   }
 
-  return { mounted: false, mounts: mounts.map((m) => m.pattern).slice(0, 20) };
+  return {
+    mounted: false,
+    mounts: mounts
+      .filter((m) => m.mountPath && String(m.mountPath).includes("jobs"))
+      .map((m) => ({ mountPath: m.mountPath, routes: m.routes.length }))
+  };
 }
 
 function readJobCodeOnDiskHints() {
@@ -113,6 +154,7 @@ function buildRouteDiagnostics(app) {
     processCwd: process.cwd(),
     serverEntry: require.main?.filename ?? null,
     uptimeSeconds: Math.round(process.uptime()),
+    expressVersion: require("express/package.json").version,
     onDisk: readJobCodeOnDiskHints(),
     runningProcess: {
       ...findJobCodeSettingsInApp(app),
@@ -122,12 +164,13 @@ function buildRouteDiagnostics(app) {
       }
     },
     hint:
-      "If onDisk files exist but runningProcess.mounted is false, Stop then Start the aaPanel Node Project (same path as processCwd). If onDisk is false, git pull dev (or merge dev into main) in that folder."
+      "If onDisk is true but mounted is false on Express 5+, pull latest diagnostics fix. Otherwise Stop then Start the aaPanel Node Project from processCwd."
   };
 }
 
 module.exports = {
   buildRouteDiagnostics,
   findJobCodeSettingsInApp,
-  readJobCodeOnDiskHints
+  readJobCodeOnDiskHints,
+  collectMountedRouters
 };
