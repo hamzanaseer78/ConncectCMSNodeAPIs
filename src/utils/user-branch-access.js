@@ -1,4 +1,13 @@
 const prisma = require("../database/prisma");
+const { ensureOrganizationMembership } = require("./user-organization");
+
+/** Legacy rows often have isblocked = null; treat as active unless explicitly true. */
+function activeMembershipWhere(extra = {}) {
+  return {
+    ...extra,
+    OR: [{ isblocked: false }, { isblocked: null }]
+  };
+}
 
 function clientError(message, status = 400) {
   const err = new Error(message);
@@ -188,14 +197,95 @@ async function syncUserBranchAccess(tx, options) {
   return targetIds;
 }
 
-async function loadUserBranchIds(userid, tenantid) {
-  const rows = await prisma.userorganizations.findMany({
+/**
+ * Old users may only have userpolicies or createdtenantid without userorganizations rows.
+ * Creates missing memberships from policies or the org's first branch.
+ */
+async function repairLegacyUserBranchAccess(userid) {
+  const uid = Number(userid);
+  if (!Number.isFinite(uid) || uid <= 0) {
+    return { repaired: false, reason: "invalid_userid" };
+  }
+
+  const existing = await prisma.userorganizations.findFirst({
+    where: activeMembershipWhere({ userid: uid, branchid: { not: null } })
+  });
+  if (existing) {
+    return { repaired: false, reason: "already_has_membership" };
+  }
+
+  const policyRows = await prisma.userpolicies.findMany({
     where: {
-      userid: Number(userid),
-      tenantid: Number(tenantid),
-      isblocked: false,
+      userid: uid,
+      tenantid: { not: null },
       branchid: { not: null }
     },
+    select: { tenantid: true, branchid: true, createdby: true }
+  });
+
+  const pairs = new Map();
+  policyRows.forEach((row) => {
+    const key = `${row.tenantid}:${row.branchid}`;
+    if (!pairs.has(key)) {
+      pairs.set(key, row);
+    }
+  });
+
+  if (pairs.size > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const row of pairs.values()) {
+        await ensureOrganizationMembership(tx, {
+          userid: uid,
+          tenantid: row.tenantid,
+          branchid: row.branchid,
+          createdby: row.createdby ?? uid
+        });
+      }
+    });
+    return { repaired: true, source: "userpolicies", branches: pairs.size };
+  }
+
+  const user = await prisma.users.findUnique({
+    where: { userid: uid },
+    select: { createdtenantid: true, createdby: true }
+  });
+  const tenantid = user?.createdtenantid;
+  if (!tenantid) {
+    return { repaired: false, reason: "no_policies_or_tenant" };
+  }
+
+  const branch = await prisma.branches.findFirst({
+    where: { tenantid: Number(tenantid) },
+    orderBy: { branchid: "asc" },
+    select: { branchid: true }
+  });
+  if (!branch?.branchid) {
+    return { repaired: false, reason: "no_branch_in_tenant" };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await ensureOrganizationMembership(tx, {
+      userid: uid,
+      tenantid: Number(tenantid),
+      branchid: Number(branch.branchid),
+      createdby: user.createdby ?? uid
+    });
+  });
+
+  return {
+    repaired: true,
+    source: "createdtenantid_default_branch",
+    branchid: branch.branchid
+  };
+}
+
+async function loadUserBranchIds(userid, tenantid) {
+  const rows = await prisma.userorganizations.findMany({
+    where: activeMembershipWhere({
+      userid: Number(userid),
+      tenantid: Number(tenantid),
+      branchid: { not: null }
+    }),
     select: { branchid: true },
     orderBy: { branchid: "asc" }
   });
@@ -206,5 +296,7 @@ module.exports = {
   parseBranchIdsFromInput,
   assertBranchesBelongToTenant,
   syncUserBranchAccess,
-  loadUserBranchIds
+  loadUserBranchIds,
+  activeMembershipWhere,
+  repairLegacyUserBranchAccess
 };

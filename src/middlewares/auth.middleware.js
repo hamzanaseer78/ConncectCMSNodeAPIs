@@ -1,6 +1,7 @@
 const { verifyToken } = require("../config/jwt");
 const logger = require("../utils/logger");
 const prisma = require("../database/prisma");
+const { activeMembershipWhere } = require("../utils/user-branch-access");
 
 async function assertActiveBranchMembership(auth) {
   if (process.env.SKIP_BRANCH_MEMBERSHIP_CHECK === "true") {
@@ -11,12 +12,11 @@ async function assertActiveBranchMembership(auth) {
   }
 
   const membership = await prisma.userorganizations.findFirst({
-    where: {
+    where: activeMembershipWhere({
       userid: Number(auth.userid),
       tenantid: Number(auth.tenantid),
-      branchid: Number(auth.branchid),
-      isblocked: false
-    },
+      branchid: Number(auth.branchid)
+    }),
     select: { recno: true }
   });
 
