@@ -29,6 +29,12 @@ const { syncPostgresSequence } = require("../../utils/postgres-sequence");
 const { createUserInTransaction } = require("../../utils/user-create");
 const { assertResourceRight } = require("../../middlewares/authorization.middleware");
 const { createDefaultOrganizationPolicies } = require("../../services/default-organization-policies.service");
+const {
+  parseBranchIdsFromInput,
+  assertBranchesBelongToTenant,
+  syncUserBranchAccess
+} = require("../../utils/user-branch-access");
+const { assertNotLastActiveAdminForBranch } = require("./admin-users.service");
 
 class AuthService {
   async signup({ name, email, baseUrl, signupIp, signupLatitude, signupLongitude, isTermsAccepted }) {
@@ -404,12 +410,22 @@ class AuthService {
     await assertResourceRight(auth, "users", "add");
 
     const tenantid = Number(auth.tenantid);
-    const targetBranchId = Number(input.branchid || auth.branchid);
+    const branchIds = parseBranchIdsFromInput(input, auth.branchid);
+    await assertBranchesBelongToTenant(tenantid, branchIds);
+    const primaryBranchId = branchIds[0];
     const usertype = resolveUserTypeFromInput(input, { defaultType: "technician" });
-    const targetPolicyId = await this.resolveInvitePolicyId(tenantid, input.policyid, usertype, {
-      branchid: targetBranchId,
-      createdBy: Number(auth.userid)
-    });
+    const explicitPolicyId =
+      input.policyid !== undefined && input.policyid !== null && input.policyid !== ""
+        ? Number(input.policyid)
+        : null;
+    const resolvePolicyIdForBranch = async (branchid) =>
+      explicitPolicyId != null && Number.isFinite(explicitPolicyId)
+        ? explicitPolicyId
+        : this.resolveInvitePolicyId(tenantid, null, usertype, {
+            branchid,
+            createdBy: Number(auth.userid)
+          });
+    const targetPolicyId = await resolvePolicyIdForBranch(primaryBranchId);
     const resetExisting = input.resetPassword !== false;
     const sendEmail = input.sendEmail !== false;
     const technicianFields = applyTechnicianAffiliationFields(input, usertype, { mode: "create" });
@@ -497,46 +513,18 @@ class AuthService {
         });
       }
 
-      const existingMembership = await tx.userorganizations.findFirst({
-        where: { userid: user.userid, tenantid, branchid: targetBranchId }
+      const syncedBranchIds = await syncUserBranchAccess(tx, {
+        userid: user.userid,
+        tenantid,
+        branchIds,
+        createdby: Number(auth.userid),
+        now,
+        resolvePolicyIdForBranch,
+        beforeRemoveBranch: (branchid) =>
+          assertNotLastActiveAdminForBranch(user.userid, tenantid, branchid)
       });
 
-      if (!existingMembership) {
-        await tx.userorganizations.create({
-          data: {
-            userid: user.userid,
-            tenantid,
-            branchid: targetBranchId,
-            isblocked: false,
-            createdby: Number(auth.userid),
-            createdat: now
-          }
-        });
-      }
-
-      const existingPolicy = await tx.userpolicies.findFirst({
-        where: {
-          userid: user.userid,
-          tenantid,
-          branchid: targetBranchId,
-          policyid: targetPolicyId
-        }
-      });
-
-      if (!existingPolicy) {
-        await tx.userpolicies.create({
-          data: {
-            userid: user.userid,
-            tenantid,
-            branchid: targetBranchId,
-            policyid: targetPolicyId,
-            createdby: Number(auth.userid),
-            createdat: now
-          }
-        });
-      }
-
-      return { user, isNewUser };
+      return { user, isNewUser, syncedBranchIds };
     });
 
     let emailSent = false;
@@ -571,7 +559,8 @@ class AuthService {
       ...formatManagerFields(result.user),
       isNewUser: result.isNewUser,
       policyid: targetPolicyId,
-      branchid: targetBranchId,
+      branchid: primaryBranchId,
+      branchIds: result.syncedBranchIds,
       passwordEmailSent: emailSent,
       generatedPasswordSent: Boolean(generatedPassword && emailSent)
     };

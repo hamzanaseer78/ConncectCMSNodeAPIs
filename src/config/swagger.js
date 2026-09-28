@@ -6525,8 +6525,27 @@ module.exports = swaggerJsdoc({
                 "Required for technicians when assigning a manager. Must reference an active admin or manager user in the same organization. Aliases: managerid, manager."
             },
             contactno: { type: "string", nullable: true },
-            branchid: { type: "integer", description: "Defaults to JWT branchid" },
-            policyid: { type: "integer", description: "Defaults to first non-admin policy for tenant" },
+            branchid: {
+              type: "integer",
+              description: "Single branch (legacy). Prefer branchIds for multiple branches."
+            },
+            branchIds: {
+              type: "array",
+              items: { type: "integer" },
+              description:
+                "Branches this user may access (org membership + policy per branch). Defaults to JWT branchid when omitted."
+            },
+            branches: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  branchid: { type: "integer" }
+                }
+              },
+              description: "Alias shape for branchIds"
+            },
+            policyid: { type: "integer", description: "Applied on each selected branch (defaults by usertype when omitted)" },
             isactive: { type: "boolean", default: true },
             resetPassword: {
               type: "boolean",
@@ -6562,11 +6581,25 @@ module.exports = swaggerJsdoc({
             faceAttendanceEnabled: { type: "boolean" },
             branchid: {
               type: "integer",
-              description: "Branch context for policy/membership updates (default JWT branchid)"
+              description: "Branch context for policy/membership updates when branchIds not sent (default JWT branchid)"
+            },
+            branchIds: {
+              type: "array",
+              items: { type: "integer" },
+              description:
+                "Replace the user's branch access list in this tenant. User can only view data for JWT branch when it is in this list (switch-context between assigned branches)."
+            },
+            branches: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: { branchid: { type: "integer" } }
+              },
+              description: "Alias shape for branchIds"
             },
             policyid: {
               type: "integer",
-              description: "Replace the user's policy for the target branch"
+              description: "Policy applied on target branch, or on each branch when branchIds is set"
             },
             password: {
               type: "string",
