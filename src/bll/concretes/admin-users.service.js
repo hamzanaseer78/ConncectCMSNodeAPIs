@@ -753,7 +753,9 @@ class AdminUsersService {
     }
 
     const branchIdsProvided =
-      hasOwn(input, "branchIds") || hasOwn(input, "branches");
+      hasOwn(input, "branchids") ||
+      hasOwn(input, "branchIds") ||
+      hasOwn(input, "branches");
     let syncedBranchIds = null;
     if (branchIdsProvided) {
       syncedBranchIds = parseBranchIdsFromInput(input, targetBranchId);

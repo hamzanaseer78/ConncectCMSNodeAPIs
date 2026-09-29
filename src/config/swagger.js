@@ -3006,7 +3006,7 @@ module.exports = swaggerJsdoc({
         post: {
           summary: "Create user — random password emailed",
           description:
-            "Requires Users add permission. Creates user (or updates existing), assigns org membership and policy per **branchIds**, emails credentials. Omit branchIds to use JWT branch only. Aliases: POST /api/auth/users/create, POST /api/user/admin/create",
+            "Requires Users add permission. Creates user (or updates existing), assigns org membership and policy per **branchids**, emails credentials. Omit branchids to use JWT branch only. Aliases: POST /api/auth/users/create, POST /api/user/admin/create",
           tags: ["Auth"],
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -3044,7 +3044,7 @@ module.exports = swaggerJsdoc({
         post: {
           summary: "Create user (alias of /api/auth/invite)",
           description:
-            "Requires Users add permission. Set **branchIds** (array of branch IDs) so the user can only access those branches. Same body as InviteUserRequest.",
+            "Requires Users add permission. Set **branchids** so the user can only access those branches. Same body as InviteUserRequest.",
           tags: ["User Profile"],
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -3053,14 +3053,17 @@ module.exports = swaggerJsdoc({
               "application/json": {
                 schema: { $ref: "#/components/schemas/InviteUserRequest" },
                 example: {
-                  name: "Jane Technician",
-                  email: "jane@example.com",
-                  usertype: "technician",
+                  name: "string",
+                  email: "user@example.com",
+                  usertype: "admin",
                   technicianAffiliation: "in_house",
-                  contactno: "+923001234567",
-                  branchIds: [1, 2],
-                  policyid: 5,
+                  companyName: "string",
+                  managerId: 0,
+                  contactno: "string",
+                  branchids: [1, 2],
+                  policyid: 0,
                   isactive: true,
+                  resetPassword: true,
                   sendEmail: true
                 }
               }
@@ -3073,7 +3076,7 @@ module.exports = swaggerJsdoc({
         post: {
           summary: "Update organization user",
           description:
-            "Requires Users update permission. Send **branchIds** to replace which branches the user may access. Other fields: profile, isactive, policyid (with branchIds), password reset, etc.",
+            "Requires Users update permission. Send **branchids** to replace which branches the user may access. Other fields: profile, isactive, policyid (with branchids), password reset, etc.",
           tags: ["User Profile"],
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -3084,7 +3087,7 @@ module.exports = swaggerJsdoc({
                 example: {
                   userid: 75,
                   name: "Jane Technician",
-                  branchIds: [1, 2],
+                  branchids: [1, 2],
                   policyid: 5,
                   isactive: true
                 }
@@ -6544,17 +6547,17 @@ module.exports = swaggerJsdoc({
                 "Required for technicians when assigning a manager. Must reference an active admin or manager user in the same organization. Aliases: managerid, manager."
             },
             contactno: { type: "string", nullable: true },
-            branchIds: {
+            branchids: {
               type: "array",
               items: { type: "integer", minimum: 1 },
               minItems: 1,
               description:
-                "Branch IDs in this organization the user may access (membership + policy on each). Omit to use the caller JWT branch only."
+                "Branch IDs in this organization the user may access (membership + policy on each). Omit to use the caller JWT branch only. Alias: branchIds."
             },
             policyid: {
               type: "integer",
               minimum: 1,
-              description: "Policy applied on each branch in branchIds (defaults by usertype when omitted)"
+              description: "Policy applied on each branch in branchids (defaults by usertype when omitted)"
             },
             isactive: { type: "boolean", default: true },
             resetPassword: {
@@ -6566,13 +6569,15 @@ module.exports = swaggerJsdoc({
           },
           required: ["name", "email"],
           example: {
-            name: "Jane Technician",
-            email: "jane@example.com",
-            usertype: "technician",
+            name: "string",
+            email: "user@example.com",
+            usertype: "admin",
             technicianAffiliation: "in_house",
-            contactno: "+923001234567",
-            branchIds: [1, 2],
-            policyid: 5,
+            companyName: "string",
+            managerId: 0,
+            contactno: "string",
+            branchids: [1, 2],
+            policyid: 0,
             isactive: true,
             resetPassword: true,
             sendEmail: true
@@ -6601,17 +6606,17 @@ module.exports = swaggerJsdoc({
             },
             allowFaceApprovalRequest: { type: "boolean" },
             faceAttendanceEnabled: { type: "boolean" },
-            branchIds: {
+            branchids: {
               type: "array",
               items: { type: "integer", minimum: 1 },
               minItems: 1,
               description:
-                "Replace the user's allowed branches in this tenant. User sees data only for branches listed here (switch JWT branch among them)."
+                "Replace the user's allowed branches in this tenant. User sees data only for branches listed here (switch JWT branch among them). Alias: branchIds."
             },
             policyid: {
               type: "integer",
               minimum: 1,
-              description: "When sent with branchIds, applied on each listed branch"
+              description: "When sent with branchids, applied on each listed branch"
             },
             password: {
               type: "string",
@@ -6630,9 +6635,9 @@ module.exports = swaggerJsdoc({
           },
           example: {
             userid: 75,
-            name: "Jane Technician",
-            branchIds: [1, 2],
-            policyid: 5,
+            name: "string",
+            branchids: [1, 2],
+            policyid: 0,
             isactive: true
           }
         },

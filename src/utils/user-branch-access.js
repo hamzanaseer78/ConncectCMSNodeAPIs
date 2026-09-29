@@ -30,9 +30,12 @@ function uniquePositiveIntegers(values) {
 }
 
 /**
- * branchIds: [1, 2] | branches: [{ branchid: 1 }] | branchid: single (legacy)
+ * branchids: [1, 2] | branchIds (alias) | branches: [{ branchid: 1 }] | branchid (legacy)
  */
 function parseBranchIdsFromInput(input = {}, fallbackBranchId) {
+  if (Array.isArray(input.branchids) && input.branchids.length) {
+    return uniquePositiveIntegers(input.branchids);
+  }
   if (Array.isArray(input.branchIds) && input.branchIds.length) {
     return uniquePositiveIntegers(input.branchIds);
   }
@@ -55,7 +58,7 @@ function parseBranchIdsFromInput(input = {}, fallbackBranchId) {
 
 async function assertBranchesBelongToTenant(tenantid, branchIds) {
   if (!branchIds.length) {
-    throw clientError("At least one branch is required (branchIds or branchid)");
+    throw clientError("At least one branch is required (branchids or branchid)");
   }
   const rows = await prisma.branches.findMany({
     where: {
@@ -65,7 +68,7 @@ async function assertBranchesBelongToTenant(tenantid, branchIds) {
     select: { branchid: true, name: true }
   });
   if (rows.length !== branchIds.length) {
-    throw clientError("One or more branchIds are invalid for this organization");
+    throw clientError("One or more branchids are invalid for this organization");
   }
   return rows;
 }
@@ -117,7 +120,7 @@ async function syncUserBranchAccess(tx, options) {
 
   const targetIds = uniquePositiveIntegers(branchIds);
   if (!targetIds.length) {
-    throw clientError("At least one branch is required (branchIds or branchid)");
+    throw clientError("At least one branch is required (branchids or branchid)");
   }
 
   const existing = await tx.userorganizations.findMany({
