@@ -101,6 +101,11 @@ router.post("/:id/customer-remarks", jobController.createCustomerRemark);
 
 router.get("/:id/customer-feedback", jobController.getCustomerFeedback);
 router.put("/:id/customer-feedback", jobController.saveCustomerFeedback);
+router.put(
+  "/:id/technician-customer-feedback",
+  uploadJobActionFiles,
+  jobController.saveTechnicianCustomerFeedback
+);
 router.put("/:id/customer-remarks/:remarkId", jobController.updateCustomerRemark);
 router.delete("/:id/customer-remarks/:remarkId", jobController.deleteCustomerRemark);
 

@@ -5490,6 +5490,38 @@ module.exports = swaggerJsdoc({
           responses: { 200: { description: "Feedback saved" } }
         }
       },
+      "/api/jobs/{id}/technician-customer-feedback": {
+        put: {
+          summary: "Technician customer feedback (feedback + attachments)",
+          description:
+            "Assigned technician or admin. Combines PUT `/customer-feedback` and POST `/attachments`: upserts customer feedback (rating required) and optionally adds one or more attachments via `attachments` array, top-level `url`/`attachmentname`, or multipart `files`/`file`.",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TechnicianCustomerFeedbackBody" }
+              },
+              "multipart/form-data": {
+                schema: { $ref: "#/components/schemas/TechnicianCustomerFeedbackMultipartBody" }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "Feedback saved; attachments created when provided",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/TechnicianCustomerFeedbackResponse" }
+                }
+              }
+            },
+            403: { description: "Not assigned to this job" }
+          }
+        }
+      },
       "/api/jobs/{id}/cash/collection": {
         get: {
           summary: "Get cash collection recorded for a job",
@@ -9273,6 +9305,55 @@ module.exports = swaggerJsdoc({
             comments: { type: "string", description: "Alternate top-level comments" }
           }
         },
+        TechnicianCustomerFeedbackBody: {
+          allOf: [
+            { $ref: "#/components/schemas/JobCustomerFeedbackBody" },
+            {
+              type: "object",
+              properties: {
+                attachments: {
+                  type: "array",
+                  items: { $ref: "#/components/schemas/JobAttachmentInput" },
+                  description: "Optional files to attach with the feedback (same as job actions)"
+                },
+                attachmentname: {
+                  type: "string",
+                  description: "Single attachment (POST /attachments shape); use with url"
+                },
+                url: { type: "string", description: "Single attachment URL" },
+                remarks: { type: "string", description: "Remarks for single attachment" }
+              }
+            }
+          ]
+        },
+        TechnicianCustomerFeedbackMultipartBody: {
+          allOf: [
+            { $ref: "#/components/schemas/JobActionMultipartBody" },
+            {
+              type: "object",
+              required: ["customerFeedback"],
+              properties: {
+                customerFeedback: {
+                  type: "string",
+                  description: "JSON string: { rating, comments }"
+                }
+              }
+            }
+          ]
+        },
+        TechnicianCustomerFeedbackResponse: {
+          type: "object",
+          properties: {
+            message: { type: "string", example: "Customer feedback saved" },
+            jobid: { type: "integer" },
+            customerFeedback: { $ref: "#/components/schemas/JobCustomerFeedback" },
+            attachments: {
+              type: "array",
+              items: { $ref: "#/components/schemas/JobAttachmentItem" }
+            },
+            attachmentsTotal: { type: "integer" }
+          }
+        },
         JobCompleteBody: {
           allOf: [
             { $ref: "#/components/schemas/JobActionWithAttachmentsBody" },
@@ -9969,27 +10050,17 @@ module.exports = swaggerJsdoc({
                   }
                 },
             tenantid: { type: "integer" },
-            branchid: { type: "integer", description: "Active JWT branch (one of branchids)" },
+            branchid: { type: "integer", description: "Active JWT branch" },
             branchids: {
               type: "array",
               items: { type: "integer" },
-              description: "All branch IDs the user may access in the current tenant"
-            },
-            branches: {
-              type: "array",
-              description: "Same branches as branchids with names (current tenant)",
-              items: {
-                type: "object",
-                properties: {
-                  branchid: { type: "integer" },
-                  branchname: { type: "string" },
-                  name: { type: "string", nullable: true }
-                }
-              }
+              description:
+                "Branch IDs the user may access in the JWT tenant (same IDs as organizations[].branches for that tenant)"
             },
             organizations: {
               type: "array",
-              description: "Organizations with nested branches (all tenants the user belongs to)",
+              description:
+                "Organizations the user belongs to; branches lists only branches the user may access (with branchid, branchname, name)",
               items: { type: "object" }
             }
           }
@@ -10009,18 +10080,8 @@ module.exports = swaggerJsdoc({
                 branchid: { type: "integer" },
                 branchids: {
                   type: "array",
-                  items: { type: "integer" }
-                },
-                branches: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      branchid: { type: "integer" },
-                      branchname: { type: "string" },
-                      name: { type: "string", nullable: true }
-                    }
-                  }
+                  items: { type: "integer" },
+                  description: "Accessible branch IDs for the JWT tenant"
                 },
                 organizations: {
                   type: "array",

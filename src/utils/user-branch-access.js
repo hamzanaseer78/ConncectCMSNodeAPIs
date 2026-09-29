@@ -361,28 +361,51 @@ async function loadUserBranchIds(userid, tenantid) {
   return rows.map((row) => Number(row.branchid)).filter((id) => id > 0);
 }
 
-function formatBranchesForSession(contexts, tenantid) {
-  const org = (contexts || []).find((row) => Number(row.tenantid) === Number(tenantid));
-  const list = org?.branches || [];
-  const seen = new Set();
-  const branches = [];
-  for (const branch of list) {
-    const branchid = Number(branch.branchid);
-    if (!Number.isFinite(branchid) || branchid <= 0 || seen.has(branchid)) {
+function mapAccessibleBranchRow(row) {
+  return {
+    branchid: Number(row.branchid),
+    name: row.name ?? null,
+    branchname: row.name ?? null,
+    isactive: row.isactive ?? null
+  };
+}
+
+/**
+ * organizations[].branches = only branches the user may access (membership), with names from branches table.
+ * branchids = same IDs for the JWT tenant (flat list for switcher).
+ */
+async function enrichOrganizationsWithAccessibleBranches(contexts, sessionTenantid, userid) {
+  const list = Array.isArray(contexts) ? [...contexts] : [];
+  const uid = Number(userid);
+  const sessionTid = Number(sessionTenantid);
+
+  const enriched = [];
+  for (const org of list) {
+    const tid = Number(org.tenantid);
+    if (!Number.isFinite(tid)) {
+      enriched.push(org);
       continue;
     }
-    seen.add(branchid);
-    const branchname = branch.name ?? branch.branchname ?? "";
-    branches.push({
-      branchid,
-      branchname,
-      name: branchname || branch.name || null
+
+    const assignedIds = await loadUserBranchIds(uid, tid);
+    const rows = assignedIds.length
+      ? await prisma.branches.findMany({
+          where: { tenantid: tid, branchid: { in: assignedIds } },
+          orderBy: { branchid: "asc" }
+        })
+      : [];
+
+    enriched.push({
+      ...org,
+      branches: rows.map(mapAccessibleBranchRow)
     });
   }
-  branches.sort((a, b) => a.branchid - b.branchid);
+
+  const sessionBranchids = sessionTid ? await loadUserBranchIds(uid, sessionTid) : [];
+
   return {
-    branches,
-    branchids: branches.map((row) => row.branchid)
+    contexts: enriched,
+    branchids: sessionBranchids
   };
 }
 
@@ -394,5 +417,5 @@ module.exports = {
   activeMembershipWhere,
   repairLegacyUserBranchAccess,
   syncMissingBranchMembershipsFromPolicies,
-  formatBranchesForSession
+  enrichOrganizationsWithAccessibleBranches
 };

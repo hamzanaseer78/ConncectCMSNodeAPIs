@@ -3253,6 +3253,52 @@ class JobsWorkflowService {
     return formatCustomerFeedbackRow(row);
   }
 
+  /**
+   * Assigned technician (or admin): save customer feedback and optional attachments in one request.
+   */
+  async saveTechnicianCustomerFeedback(auth, id, payload) {
+    const scope = this.buildScope(auth);
+    const job = await this.getScopedJob(auth, id);
+    await this.ensureAssignedUser(auth, job);
+    if (!parseCustomerFeedbackInput(payload || {})) {
+      const err = new Error("customerFeedback with rating (0-5) is required");
+      err.status = 400;
+      throw err;
+    }
+
+    let attachmentRows = [];
+    await prisma.$transaction(async (tx) => {
+      await upsertJobCustomerFeedback(tx, auth, scope, job.recno, payload || {});
+      attachmentRows = await this.createAttachmentsFromAction(
+        tx,
+        auth,
+        scope,
+        job.recno,
+        payload,
+        "technician customer feedback"
+      );
+    });
+
+    const row = await prisma.jobcustomerfeedback.findFirst({
+      where: { jobid: job.recno },
+      ...JOB_CUSTOMER_FEEDBACK_INCLUDE
+    });
+    const customerFeedback = formatCustomerFeedbackRow(row);
+    const attachments = attachmentRows.map(formatJobAttachmentRow).filter(Boolean);
+
+    attachmentRows.forEach((att) =>
+      pushDispatch.onJobAttachment(job, auth, att.attachmentname)
+    );
+
+    return {
+      message: "Customer feedback saved",
+      jobid: job.recno,
+      customerFeedback,
+      attachments,
+      attachmentsTotal: attachments.length
+    };
+  }
+
   async updateFirstResponse(auth, id, payload) {
     const now = utcNow();
     const scope = this.buildScope(auth);

@@ -32,7 +32,7 @@ const { createDefaultOrganizationPolicies } = require("../../services/default-or
 const {
   parseBranchIdsFromInput,
   syncMissingBranchMembershipsFromPolicies,
-  formatBranchesForSession,
+  enrichOrganizationsWithAccessibleBranches,
   assertBranchesBelongToTenant,
   syncUserBranchAccess,
   activeMembershipWhere,
@@ -821,6 +821,8 @@ class AuthService {
   async buildSessionProfileResponse(user, tenantid, branchid) {
     await syncMissingBranchMembershipsFromPolicies(user.userid);
     const contexts = await this.getUserContexts(user.userid);
+    const { contexts: orgContexts, branchids } =
+      await enrichOrganizationsWithAccessibleBranches(contexts, tenantid, user.userid);
     const rights = await screenRightsService.getScreenRights({
       userid: user.userid,
       tenantid,
@@ -828,9 +830,8 @@ class AuthService {
     });
     const { user: enrichedUser, organizations } = await enrichSessionProfileGeo(
       this.toUserDto(user),
-      contexts
+      orgContexts
     );
-    const { branches, branchids } = formatBranchesForSession(organizations, tenantid);
 
     return {
       token: this.createSessionToken(user, tenantid, branchid),
@@ -840,7 +841,6 @@ class AuthService {
       tenantid,
       branchid,
       branchids,
-      branches,
       organizations,
       isAdmin: rights.isAdmin,
       screenRights: rights.screenRights
