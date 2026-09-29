@@ -29,10 +29,14 @@ function formatUserDropdownRow(item, { idField = "userid", labelField = "name" }
   const label = item[labelField] || `users #${value}`;
   const userType = item.usertype ?? null;
 
+  const phone = item.contactno ?? item.phone ?? null;
+
   return {
     value,
     label,
     email: item.email ?? null,
+    phone,
+    contactno: phone,
     usertype: userType,
     userType,
     ...formatTechnicianAffiliationFields(item),

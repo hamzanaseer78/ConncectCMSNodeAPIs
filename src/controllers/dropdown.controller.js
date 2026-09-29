@@ -144,6 +144,7 @@ class DropdownController {
       if (resourceName === "users" || config.organizationScoped) {
         selectFields.name = true;
         selectFields.email = true;
+        selectFields.contactno = true;
         selectFields.usertype = true;
         selectFields.technicianaffiliation = true;
         selectFields.companyname = true;
