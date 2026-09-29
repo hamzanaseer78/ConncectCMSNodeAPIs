@@ -3006,7 +3006,7 @@ module.exports = swaggerJsdoc({
         post: {
           summary: "Create user — random password emailed",
           description:
-            "Requires Users add permission on the caller's assigned policy for the current JWT tenant+branch. User type is not checked. Creates user (or updates existing), assigns org membership and policy, sends login credentials by email. Alias: POST /api/auth/users/create and POST /api/user/admin/create",
+            "Requires Users add permission. Creates user (or updates existing), assigns org membership and policy per **branchIds**, emails credentials. Omit branchIds to use JWT branch only. Aliases: POST /api/auth/users/create, POST /api/user/admin/create",
           tags: ["Auth"],
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -3043,14 +3043,26 @@ module.exports = swaggerJsdoc({
       "/api/user/admin/create": {
         post: {
           summary: "Create user (alias of /api/auth/invite)",
-          description: "Requires Users add permission on the caller's assigned policy.",
+          description:
+            "Requires Users add permission. Set **branchIds** (array of branch IDs) so the user can only access those branches. Same body as InviteUserRequest.",
           tags: ["User Profile"],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InviteUserRequest" }
+                schema: { $ref: "#/components/schemas/InviteUserRequest" },
+                example: {
+                  name: "Jane Technician",
+                  email: "jane@example.com",
+                  usertype: "technician",
+                  technicianAffiliation: "in_house",
+                  contactno: "+923001234567",
+                  branchIds: [1, 2],
+                  policyid: 5,
+                  isactive: true,
+                  sendEmail: true
+                }
               }
             }
           },
@@ -3061,14 +3073,21 @@ module.exports = swaggerJsdoc({
         post: {
           summary: "Update organization user",
           description:
-            "Requires Users update permission on the caller's assigned policy for the current JWT tenant+branch. Update profile fields, active/blocked flags, branch membership, policy assignment, face approval flags, and optional password reset/email. User type is not checked on the caller.",
+            "Requires Users update permission. Send **branchIds** to replace which branches the user may access. Other fields: profile, isactive, policyid (with branchIds), password reset, etc.",
           tags: ["User Profile"],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/AdminUpdateUserRequest" }
+                schema: { $ref: "#/components/schemas/AdminUpdateUserRequest" },
+                example: {
+                  userid: 75,
+                  name: "Jane Technician",
+                  branchIds: [1, 2],
+                  policyid: 5,
+                  isactive: true
+                }
               }
             }
           },
@@ -6525,27 +6544,18 @@ module.exports = swaggerJsdoc({
                 "Required for technicians when assigning a manager. Must reference an active admin or manager user in the same organization. Aliases: managerid, manager."
             },
             contactno: { type: "string", nullable: true },
-            branchid: {
-              type: "integer",
-              description: "Single branch (legacy). Prefer branchIds for multiple branches."
-            },
             branchIds: {
               type: "array",
-              items: { type: "integer" },
+              items: { type: "integer", minimum: 1 },
+              minItems: 1,
               description:
-                "Branches this user may access (org membership + policy per branch). Defaults to JWT branchid when omitted."
+                "Branch IDs in this organization the user may access (membership + policy on each). Omit to use the caller JWT branch only."
             },
-            branches: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  branchid: { type: "integer" }
-                }
-              },
-              description: "Alias shape for branchIds"
+            policyid: {
+              type: "integer",
+              minimum: 1,
+              description: "Policy applied on each branch in branchIds (defaults by usertype when omitted)"
             },
-            policyid: { type: "integer", description: "Applied on each selected branch (defaults by usertype when omitted)" },
             isactive: { type: "boolean", default: true },
             resetPassword: {
               type: "boolean",
@@ -6554,7 +6564,19 @@ module.exports = swaggerJsdoc({
             },
             sendEmail: { type: "boolean", default: true, description: "Send credentials / invitation email" }
           },
-          required: ["name", "email"]
+          required: ["name", "email"],
+          example: {
+            name: "Jane Technician",
+            email: "jane@example.com",
+            usertype: "technician",
+            technicianAffiliation: "in_house",
+            contactno: "+923001234567",
+            branchIds: [1, 2],
+            policyid: 5,
+            isactive: true,
+            resetPassword: true,
+            sendEmail: true
+          }
         },
         AdminUpdateUserRequest: {
           type: "object",
@@ -6579,27 +6601,17 @@ module.exports = swaggerJsdoc({
             },
             allowFaceApprovalRequest: { type: "boolean" },
             faceAttendanceEnabled: { type: "boolean" },
-            branchid: {
-              type: "integer",
-              description: "Branch context for policy/membership updates when branchIds not sent (default JWT branchid)"
-            },
             branchIds: {
               type: "array",
-              items: { type: "integer" },
+              items: { type: "integer", minimum: 1 },
+              minItems: 1,
               description:
-                "Replace the user's branch access list in this tenant. User can only view data for JWT branch when it is in this list (switch-context between assigned branches)."
-            },
-            branches: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: { branchid: { type: "integer" } }
-              },
-              description: "Alias shape for branchIds"
+                "Replace the user's allowed branches in this tenant. User sees data only for branches listed here (switch JWT branch among them)."
             },
             policyid: {
               type: "integer",
-              description: "Policy applied on target branch, or on each branch when branchIds is set"
+              minimum: 1,
+              description: "When sent with branchIds, applied on each listed branch"
             },
             password: {
               type: "string",
@@ -6615,6 +6627,13 @@ module.exports = swaggerJsdoc({
               default: true,
               description: "When password is reset, email the new credentials"
             }
+          },
+          example: {
+            userid: 75,
+            name: "Jane Technician",
+            branchIds: [1, 2],
+            policyid: 5,
+            isactive: true
           }
         },
         JobCreateCustomer: {
