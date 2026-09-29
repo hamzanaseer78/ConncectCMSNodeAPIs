@@ -31,6 +31,8 @@ const { assertResourceRight } = require("../../middlewares/authorization.middlew
 const { createDefaultOrganizationPolicies } = require("../../services/default-organization-policies.service");
 const {
   parseBranchIdsFromInput,
+  syncMissingBranchMembershipsFromPolicies,
+  formatBranchesForSession,
   assertBranchesBelongToTenant,
   syncUserBranchAccess,
   activeMembershipWhere,
@@ -738,6 +740,7 @@ class AuthService {
     });
 
     const organizationsById = new Map();
+    const branchIdsByTenant = new Map();
 
     memberships.forEach((membership) => {
       if (!membership.tenantid) {
@@ -750,12 +753,21 @@ class AuthService {
           tenantid: membership.tenantid,
           branches: []
         });
+        branchIdsByTenant.set(membership.tenantid, new Set());
       }
 
       if (membership.branchid) {
-        organizationsById.get(membership.tenantid).branches.push(membership.branches || {
-          branchid: membership.branchid
-        });
+        const tenantKey = membership.tenantid;
+        const bid = Number(membership.branchid);
+        const seen = branchIdsByTenant.get(tenantKey);
+        if (!seen.has(bid)) {
+          seen.add(bid);
+          organizationsById.get(tenantKey).branches.push(
+            membership.branches || {
+              branchid: membership.branchid
+            }
+          );
+        }
       }
     });
 
@@ -807,6 +819,7 @@ class AuthService {
   }
 
   async buildSessionProfileResponse(user, tenantid, branchid) {
+    await syncMissingBranchMembershipsFromPolicies(user.userid);
     const contexts = await this.getUserContexts(user.userid);
     const rights = await screenRightsService.getScreenRights({
       userid: user.userid,
@@ -817,6 +830,7 @@ class AuthService {
       this.toUserDto(user),
       contexts
     );
+    const { branches, branchids } = formatBranchesForSession(organizations, tenantid);
 
     return {
       token: this.createSessionToken(user, tenantid, branchid),
@@ -825,6 +839,8 @@ class AuthService {
       user: enrichedUser,
       tenantid,
       branchid,
+      branchids,
+      branches,
       organizations,
       isAdmin: rights.isAdmin,
       screenRights: rights.screenRights

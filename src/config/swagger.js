@@ -9969,9 +9969,27 @@ module.exports = swaggerJsdoc({
                   }
                 },
             tenantid: { type: "integer" },
-            branchid: { type: "integer" },
+            branchid: { type: "integer", description: "Active JWT branch (one of branchids)" },
+            branchids: {
+              type: "array",
+              items: { type: "integer" },
+              description: "All branch IDs the user may access in the current tenant"
+            },
+            branches: {
+              type: "array",
+              description: "Same branches as branchids with names (current tenant)",
+              items: {
+                type: "object",
+                properties: {
+                  branchid: { type: "integer" },
+                  branchname: { type: "string" },
+                  name: { type: "string", nullable: true }
+                }
+              }
+            },
             organizations: {
               type: "array",
+              description: "Organizations with nested branches (all tenants the user belongs to)",
               items: { type: "object" }
             }
           }
@@ -9989,6 +10007,21 @@ module.exports = swaggerJsdoc({
                 expiresIn: { type: "string", example: "7d" },
                 tenantid: { type: "integer" },
                 branchid: { type: "integer" },
+                branchids: {
+                  type: "array",
+                  items: { type: "integer" }
+                },
+                branches: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      branchid: { type: "integer" },
+                      branchname: { type: "string" },
+                      name: { type: "string", nullable: true }
+                    }
+                  }
+                },
                 organizations: {
                   type: "array",
                   items: { type: "object" }
