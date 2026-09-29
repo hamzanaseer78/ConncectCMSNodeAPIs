@@ -47,7 +47,7 @@ const resources = {
   jobcategories: {
     id: "categoryid",
     tenantScoped: true,
-    branchScoped: true,
+    branchScoped: false,
     noRemove: true,
     tag: "Job Categories",
     screenNames: ["jobcategory", "job category", "jobcategories", "job categories"],
@@ -58,13 +58,13 @@ const resources = {
     },
     dropdownFilters: [{ field: "groupid", params: ["groupId", "groupid"] }]
   },
-  jobgroups: { id: "groupid", tenantScoped: true, branchScoped: true,noRemove: true, tag: "Job Groups", screenNames: ["jobgroup", "job group", "jobgroups", "job groups"], requiredOnCreate: ["name"], listRelations: { branchid: { relation: "branches", field: "name", output: "branchname" } } },
+  jobgroups: { id: "groupid", tenantScoped: true, branchScoped: false, noRemove: true, tag: "Job Groups", screenNames: ["jobgroup", "job group", "jobgroups", "job groups"], requiredOnCreate: ["name"], listRelations: { branchid: { relation: "branches", field: "name", output: "branchname" } } },
   jobstauses: { id: "recno", prismaModel: "jobstatuses", tenantScoped: true, branchScoped: false,noRemove: true, tag: "Job Statuses", screenNames: ["jobstatus", "job status", "jobstauses", "job statuses"], requiredOnCreate: ["title"] },
   jobsubcategories: {
     id: "subcategoryid",
     tenantScoped: true,
     noRemove: true,
-    branchScoped: true,
+    branchScoped: false,
     tag: "Job Subcategories",
     screenNames: ["jobsubcategory", "job subcategory", "jobsubcategories", "job subcategories"],
     requiredOnCreate: ["name", "categoryid"],
