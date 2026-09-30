@@ -117,6 +117,30 @@ async function assertNotLastActiveAdminForBranch(userid, tenantid, branchid) {
   }
 }
 
+async function assertAdminPolicyChangeAllowed(userid, tenantid, branchid, newPolicyId) {
+  const isTargetAdmin = await screenRightsService.isDefaultAdmin(
+    userid,
+    tenantid,
+    branchid
+  );
+  if (!isTargetAdmin) {
+    return;
+  }
+
+  const adminPolicy = await prisma.policies.findFirst({
+    where: { tenantid: Number(tenantid), isdefaultpolicy: true },
+    select: { recno: true }
+  });
+  if (!adminPolicy) {
+    return;
+  }
+  if (Number(newPolicyId) === Number(adminPolicy.recno)) {
+    return;
+  }
+
+  await assertNotLastActiveAdminForBranch(userid, tenantid, branchid);
+}
+
 class AdminUsersService {
   constructor(authService) {
     this.authService = authService;
@@ -694,6 +718,10 @@ class AdminUsersService {
     const policyProvided = hasOwn(input, "policyid", "policyId");
     let targetPolicyId = null;
     let shouldSyncPolicy = policyProvided;
+    const branchIdsProvidedEarly =
+      hasOwn(input, "branchids") ||
+      hasOwn(input, "branchIds") ||
+      hasOwn(input, "branches");
     if (policyProvided) {
       targetPolicyId = await this.authService.resolveInvitePolicyId(
         tenantid,
@@ -701,21 +729,23 @@ class AdminUsersService {
         effectiveType,
         { branchid: targetBranchId, createdBy: actorId }
       );
-      const adminPolicy = await prisma.policies.findFirst({
-        where: { tenantid, isdefaultpolicy: true },
-        select: { recno: true }
-      });
-      if (adminPolicy) {
-        const currentAdminAssignment = await prisma.userpolicies.findFirst({
-          where: {
-            userid: uid,
-            tenantid,
-            branchid: targetBranchId,
-            policyid: adminPolicy.recno
-          }
+      if (!branchIdsProvidedEarly) {
+        const adminPolicy = await prisma.policies.findFirst({
+          where: { tenantid, isdefaultpolicy: true },
+          select: { recno: true }
         });
-        if (currentAdminAssignment && targetPolicyId !== adminPolicy.recno) {
-          await this.assertNotLastActiveAdmin(uid, tenantid, targetBranchId);
+        if (adminPolicy) {
+          const currentAdminAssignment = await prisma.userpolicies.findFirst({
+            where: {
+              userid: uid,
+              tenantid,
+              branchid: targetBranchId,
+              policyid: adminPolicy.recno
+            }
+          });
+          if (currentAdminAssignment && targetPolicyId !== adminPolicy.recno) {
+            await this.assertNotLastActiveAdmin(uid, tenantid, targetBranchId);
+          }
         }
       }
     }
@@ -752,10 +782,7 @@ class AdminUsersService {
       shouldSyncPolicy = true;
     }
 
-    const branchIdsProvided =
-      hasOwn(input, "branchids") ||
-      hasOwn(input, "branchIds") ||
-      hasOwn(input, "branches");
+    const branchIdsProvided = branchIdsProvidedEarly;
     let syncedBranchIds = null;
     if (branchIdsProvided) {
       syncedBranchIds = parseBranchIdsFromInput(input, targetBranchId);
@@ -807,7 +834,9 @@ class AdminUsersService {
           now,
           resolvePolicyIdForBranch,
           beforeRemoveBranch: (branchid) =>
-            assertNotLastActiveAdminForBranch(uid, tenantid, branchid)
+            assertNotLastActiveAdminForBranch(uid, tenantid, branchid),
+          beforeAdminPolicyChange: (branchid, policyid) =>
+            assertAdminPolicyChangeAllowed(uid, tenantid, branchid, policyid)
         });
       } else if (shouldSyncPolicy) {
         await tx.userpolicies.deleteMany({

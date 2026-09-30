@@ -5494,7 +5494,7 @@ module.exports = swaggerJsdoc({
         put: {
           summary: "Technician customer feedback (feedback + attachments)",
           description:
-            "Assigned technician or admin. Combines PUT `/customer-feedback` and POST `/attachments`: upserts customer feedback (rating required) and optionally adds one or more attachments via `attachments` array, top-level `url`/`attachmentname`, or multipart `files`/`file`.",
+            "Assigned technician or admin. Saves customer feedback (`rating`, optional `comments`) and optional `attachments`. Multipart: send `rating`/`comments` form fields plus `files`/`file`.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
@@ -5502,7 +5502,18 @@ module.exports = swaggerJsdoc({
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/TechnicianCustomerFeedbackBody" }
+                schema: { $ref: "#/components/schemas/TechnicianCustomerFeedbackBody" },
+                example: {
+                  rating: 5,
+                  comments: "string",
+                  attachments: [
+                    {
+                      url: "string",
+                      attachmentname: "string",
+                      remarks: "string"
+                    }
+                  ]
+                }
               },
               "multipart/form-data": {
                 schema: { $ref: "#/components/schemas/TechnicianCustomerFeedbackMultipartBody" }
@@ -9306,37 +9317,37 @@ module.exports = swaggerJsdoc({
           }
         },
         TechnicianCustomerFeedbackBody: {
-          allOf: [
-            { $ref: "#/components/schemas/JobCustomerFeedbackBody" },
-            {
-              type: "object",
-              properties: {
-                attachments: {
-                  type: "array",
-                  items: { $ref: "#/components/schemas/JobAttachmentInput" },
-                  description: "Optional files to attach with the feedback (same as job actions)"
-                },
-                attachmentname: {
-                  type: "string",
-                  description: "Single attachment (POST /attachments shape); use with url"
-                },
-                url: { type: "string", description: "Single attachment URL" },
-                remarks: { type: "string", description: "Remarks for single attachment" }
-              }
+          type: "object",
+          required: ["rating"],
+          properties: {
+            rating: {
+              type: "integer",
+              minimum: 0,
+              maximum: 5,
+              description: "Customer satisfaction score (0-5)"
+            },
+            comments: { type: "string", description: "Optional customer comments" },
+            attachments: {
+              type: "array",
+              items: { $ref: "#/components/schemas/JobAttachmentInput" },
+              description: "Optional attachment URLs (from prior upload) to link with this feedback"
             }
-          ]
+          }
         },
         TechnicianCustomerFeedbackMultipartBody: {
           allOf: [
             { $ref: "#/components/schemas/JobActionMultipartBody" },
             {
               type: "object",
-              required: ["customerFeedback"],
+              required: ["rating"],
               properties: {
-                customerFeedback: {
-                  type: "string",
-                  description: "JSON string: { rating, comments }"
-                }
+                rating: {
+                  type: "integer",
+                  minimum: 0,
+                  maximum: 5,
+                  description: "Customer satisfaction score (0-5)"
+                },
+                comments: { type: "string", description: "Optional customer comments" }
               }
             }
           ]

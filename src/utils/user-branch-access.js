@@ -115,7 +115,8 @@ async function syncUserBranchAccess(tx, options) {
     createdby,
     now,
     resolvePolicyIdForBranch,
-    beforeRemoveBranch
+    beforeRemoveBranch,
+    beforeAdminPolicyChange
   } = options;
 
   const targetIds = uniquePositiveIntegers(branchIds);
@@ -160,6 +161,9 @@ async function syncUserBranchAccess(tx, options) {
     });
     const hasTarget = policiesOnBranch.some((row) => row.policyid === policyid);
     if (!hasTarget) {
+      if (typeof beforeAdminPolicyChange === "function") {
+        await beforeAdminPolicyChange(Number(branchid), policyid);
+      }
       if (policiesOnBranch.length) {
         await tx.userpolicies.deleteMany({
           where: {
