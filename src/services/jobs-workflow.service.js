@@ -74,6 +74,7 @@ const {
 } = require("../utils/job-customer-feedback");
 const { formatJobAttachmentRow, JOB_ATTACHMENT_INCLUDE } = require("../utils/job-attachments-payload");
 const { buildNameContainsFilter } = require("../utils/list-filter");
+const { createWithExplicitPrimaryKey } = require("../utils/postgres-create");
 const { formatJobStatusLogRow, JOB_STATUS_LOG_INCLUDE } = require("../utils/job-status-log");
 const { buildTechnicianJobDetail } = require("../utils/job-technician-detail");
 const {
@@ -647,23 +648,29 @@ async function upsertJobCustomerFeedback(tx, auth, scope, jobId, body) {
   if (!parsed) return null;
 
   const now = utcNow();
-  const data = {
-    jobid: Number(jobId),
-    ...scope,
+  const jobid = Number(jobId);
+  const updateData = {
     rating: parsed.rating,
     comments: parsed.comments,
     recordedby: Number(auth.userid),
     recordedat: now
   };
 
-  return tx.jobcustomerfeedback.upsert({
-    where: { jobid: Number(jobId) },
-    create: data,
-    update: {
-      rating: parsed.rating,
-      comments: parsed.comments,
-      recordedby: Number(auth.userid),
-      recordedat: now
+  const existing = await tx.jobcustomerfeedback.findUnique({
+    where: { jobid }
+  });
+  if (existing) {
+    return tx.jobcustomerfeedback.update({
+      where: { jobid },
+      data: updateData
+    });
+  }
+
+  return createWithExplicitPrimaryKey(tx, "jobcustomerfeedback", {
+    data: {
+      jobid,
+      ...scope,
+      ...updateData
     }
   });
 }
@@ -1363,7 +1370,7 @@ class JobsWorkflowService {
     const created = [];
 
     for (const item of items) {
-      const row = await tx.jobattachments.create({
+      const row = await createWithExplicitPrimaryKey(tx, "jobattachments", {
         data: {
           jobid: Number(jobId),
           ...scope,
@@ -2727,7 +2734,7 @@ class JobsWorkflowService {
       throw new Error("attachmentname or url is required");
     }
 
-    const row = await prisma.jobattachments.create({
+    const row = await createWithExplicitPrimaryKey(prisma, "jobattachments", {
       data: {
         jobid: Number(job.recno),
         ...scope,
