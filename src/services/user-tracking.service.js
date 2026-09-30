@@ -205,14 +205,20 @@ class UserTrackingService {
       });
     }
 
-    const rows = await prisma.$transaction(
-      prepared.map((data) =>
-        prisma.userlocations.create({
-          data,
-          include: PING_INCLUDE
-        })
-      )
-    );
+    // Interactive transaction: array $transaction requires raw Prisma promises, but
+    // userlocations.create is wrapped for explicit PK allocation (postgres-create).
+    const rows = await prisma.$transaction(async (tx) => {
+      const created = [];
+      for (const data of prepared) {
+        created.push(
+          await tx.userlocations.create({
+            data,
+            include: PING_INCLUDE
+          })
+        );
+      }
+      return created;
+    });
 
     const data = rows.map((row) => this.toDto(row));
     return {
