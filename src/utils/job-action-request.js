@@ -1,4 +1,4 @@
-const { pickAttachmentList, normalizeAttachmentItem } = require("./job-attachments-payload");
+const { pickAttachmentList } = require("./job-attachments-payload");
 
 function collectMulterFiles(req) {
   const out = [];
@@ -76,22 +76,9 @@ function buildJobActionPayload(req) {
   return body;
 }
 
-/**
- * PUT /api/jobs/:id/technician-customer-feedback — feedback + attachments (URLs, array, or multipart).
- */
+/** PUT /api/jobs/:id/technician-customer-feedback — rating, comments, attachments[] (+ multipart files). */
 function buildTechnicianCustomerFeedbackPayload(req) {
-  const body = buildJobActionPayload(req);
-  const items = [...(body._attachmentItems || [])];
-  if (!items.length) {
-    const hasUrl = body.url != null && String(body.url).trim() !== "";
-    const hasName =
-      body.attachmentname != null && String(body.attachmentname).trim() !== "";
-    if (hasUrl || hasName) {
-      items.push(normalizeAttachmentItem(body));
-    }
-  }
-  body._attachmentItems = items;
-  return body;
+  return buildJobActionPayload(req);
 }
 
 module.exports = {
