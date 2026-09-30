@@ -651,7 +651,11 @@ async function closeJob(req, res, next) {
 
 async function listJobAttachments(req, res, next) {
   try {
-    const data = await jobsWorkflowService.listAttachments(req.auth, req.params.id);
+    const data = await jobsWorkflowService.listAttachments(
+      req.auth,
+      req.params.id,
+      req.query || {}
+    );
     res.status(200).json(data);
   } catch (err) {
     next(err);
