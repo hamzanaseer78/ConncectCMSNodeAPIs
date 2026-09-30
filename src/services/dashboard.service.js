@@ -2470,8 +2470,7 @@ class DashboardService {
       ? await prisma.jobgroups.findMany({
           where: {
             groupid: { in: groupIds },
-            tenantid: scope.tenantid,
-            branchid: scope.branchid
+            tenantid: scope.tenantid
           },
           select: { groupid: true, name: true, color: true }
         })
@@ -2602,8 +2601,7 @@ class DashboardService {
       ? await prisma.jobcategories.findMany({
           where: {
             categoryid: { in: categoryIds },
-            tenantid,
-            branchid
+            tenantid
           },
           select: {
             categoryid: true,
@@ -2688,8 +2686,7 @@ class DashboardService {
       ? await prisma.jobsubcategories.findMany({
           where: {
             subcategoryid: { in: faultIds },
-            tenantid: scope.tenantid,
-            branchid: scope.branchid
+            tenantid: scope.tenantid
           },
           select: {
             subcategoryid: true,
@@ -2938,6 +2935,7 @@ class DashboardService {
         select: {
           userid: true,
           name: true,
+          contactno: true,
           technicianaffiliation: true,
           companyname: true
         },
@@ -3031,6 +3029,7 @@ class DashboardService {
         return {
           technicianId: userid,
           technicianName: tech.name ?? null,
+          phoneNo: tech.contactno ?? null,
           ...formatTechnicianAffiliationFields(tech),
           status: resolveManagerTechnicianStatus(userid, activity, attendanceByUser),
           code: activeJobCodeForTechnician(userid, activity),
@@ -3318,13 +3317,10 @@ class DashboardService {
     const now = utcNow();
     const scope = await buildJobScope(auth, query);
     const tenantid = Number(auth.tenantid);
-    const branchid = Number(auth.branchid);
-
     const [categories, details] = await Promise.all([
       prisma.jobcategories.findMany({
         where: {
           tenantid,
-          branchid,
           isactive: { not: false }
         },
         select: {

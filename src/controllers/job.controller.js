@@ -1,5 +1,8 @@
 const jobsWorkflowService = require("../services/jobs-workflow.service");
-const { buildJobActionPayload } = require("../utils/job-action-request");
+const {
+  buildJobActionPayload,
+  buildTechnicianCustomerFeedbackPayload
+} = require("../utils/job-action-request");
 const jobsAllService = require("../services/jobs-all.service");
 const jobsMyService = require("../services/jobs-my.service");
 const jobsTeamService = require("../services/jobs-team.service");
@@ -921,6 +924,21 @@ async function saveCustomerFeedback(req, res, next) {
   }
 }
 
+async function saveTechnicianCustomerFeedback(req, res, next) {
+  try {
+    const payload = buildTechnicianCustomerFeedbackPayload(req);
+    const data = await jobsWorkflowService.saveTechnicianCustomerFeedback(
+      req.auth,
+      req.params.id,
+      payload
+    );
+    res.status(200).json(data);
+  } catch (err) {
+    if (err.status) err.statusCode = err.status;
+    next(err);
+  }
+}
+
 async function listCustomerRemarks(req, res, next) {
   return listJobRemarks(req, res, next);
 }
@@ -1129,6 +1147,7 @@ module.exports = {
   createCustomerRemark,
   getCustomerFeedback,
   saveCustomerFeedback,
+  saveTechnicianCustomerFeedback,
   createJobRemark,
   createJobAssignment,
   createJobAttachment,

@@ -29,6 +29,16 @@ const { syncPostgresSequence } = require("../../utils/postgres-sequence");
 const { createUserInTransaction } = require("../../utils/user-create");
 const { assertResourceRight } = require("../../middlewares/authorization.middleware");
 const { createDefaultOrganizationPolicies } = require("../../services/default-organization-policies.service");
+const {
+  parseBranchIdsFromInput,
+  syncMissingBranchMembershipsFromPolicies,
+  enrichOrganizationsWithAccessibleBranches,
+  assertBranchesBelongToTenant,
+  syncUserBranchAccess,
+  activeMembershipWhere,
+  repairLegacyUserBranchAccess
+} = require("../../utils/user-branch-access");
+const { assertNotLastActiveAdminForBranch } = require("./admin-users.service");
 
 class AuthService {
   async signup({ name, email, baseUrl, signupIp, signupLatitude, signupLongitude, isTermsAccepted }) {
@@ -371,7 +381,21 @@ class AuthService {
 
   async login({ email, password}) {
     const user = await this.validateEmailPassword(email, password);
-    const membership = await this.resolveMembership(user.userid, null, null);
+    await repairLegacyUserBranchAccess(user.userid);
+    let membership;
+    try {
+      membership = await this.resolveMembership(user.userid, null, null);
+    } catch (err) {
+      if (String(err?.message || "").includes("no active organization")) {
+        const blocked = new Error(
+          "Your account has no branch assigned yet. An administrator must assign at least one branch (branchIds) before you can sign in."
+        );
+        blocked.status = 403;
+        blocked.code = "NO_BRANCH_ASSIGNED";
+        throw blocked;
+      }
+      throw err;
+    }
     return this.buildSessionProfileResponse(user, membership.tenantid, membership.branchid);
   }
 
@@ -404,12 +428,22 @@ class AuthService {
     await assertResourceRight(auth, "users", "add");
 
     const tenantid = Number(auth.tenantid);
-    const targetBranchId = Number(input.branchid || auth.branchid);
+    const branchIds = parseBranchIdsFromInput(input, auth.branchid);
+    await assertBranchesBelongToTenant(tenantid, branchIds);
+    const primaryBranchId = branchIds[0];
     const usertype = resolveUserTypeFromInput(input, { defaultType: "technician" });
-    const targetPolicyId = await this.resolveInvitePolicyId(tenantid, input.policyid, usertype, {
-      branchid: targetBranchId,
-      createdBy: Number(auth.userid)
-    });
+    const explicitPolicyId =
+      input.policyid !== undefined && input.policyid !== null && input.policyid !== ""
+        ? Number(input.policyid)
+        : null;
+    const resolvePolicyIdForBranch = async (branchid) =>
+      explicitPolicyId != null && Number.isFinite(explicitPolicyId)
+        ? explicitPolicyId
+        : this.resolveInvitePolicyId(tenantid, null, usertype, {
+            branchid,
+            createdBy: Number(auth.userid)
+          });
+    const targetPolicyId = await resolvePolicyIdForBranch(primaryBranchId);
     const resetExisting = input.resetPassword !== false;
     const sendEmail = input.sendEmail !== false;
     const technicianFields = applyTechnicianAffiliationFields(input, usertype, { mode: "create" });
@@ -497,46 +531,18 @@ class AuthService {
         });
       }
 
-      const existingMembership = await tx.userorganizations.findFirst({
-        where: { userid: user.userid, tenantid, branchid: targetBranchId }
+      const syncedBranchIds = await syncUserBranchAccess(tx, {
+        userid: user.userid,
+        tenantid,
+        branchIds,
+        createdby: Number(auth.userid),
+        now,
+        resolvePolicyIdForBranch,
+        beforeRemoveBranch: (branchid) =>
+          assertNotLastActiveAdminForBranch(user.userid, tenantid, branchid)
       });
 
-      if (!existingMembership) {
-        await tx.userorganizations.create({
-          data: {
-            userid: user.userid,
-            tenantid,
-            branchid: targetBranchId,
-            isblocked: false,
-            createdby: Number(auth.userid),
-            createdat: now
-          }
-        });
-      }
-
-      const existingPolicy = await tx.userpolicies.findFirst({
-        where: {
-          userid: user.userid,
-          tenantid,
-          branchid: targetBranchId,
-          policyid: targetPolicyId
-        }
-      });
-
-      if (!existingPolicy) {
-        await tx.userpolicies.create({
-          data: {
-            userid: user.userid,
-            tenantid,
-            branchid: targetBranchId,
-            policyid: targetPolicyId,
-            createdby: Number(auth.userid),
-            createdat: now
-          }
-        });
-      }
-
-      return { user, isNewUser };
+      return { user, isNewUser, syncedBranchIds };
     });
 
     let emailSent = false;
@@ -571,7 +577,8 @@ class AuthService {
       ...formatManagerFields(result.user),
       isNewUser: result.isNewUser,
       policyid: targetPolicyId,
-      branchid: targetBranchId,
+      branchid: primaryBranchId,
+      branchIds: result.syncedBranchIds,
       passwordEmailSent: emailSent,
       generatedPasswordSent: Boolean(generatedPassword && emailSent)
     };
@@ -685,10 +692,9 @@ class AuthService {
   }
 
   async resolveMembership(userid, tenantid, branchid) {
-    const where = {
-      userid: Number(userid),
-      isblocked: false
-    };
+    const where = activeMembershipWhere({
+      userid: Number(userid)
+    });
 
     if (tenantid) {
       where.tenantid = Number(tenantid);
@@ -696,6 +702,8 @@ class AuthService {
 
     if (branchid) {
       where.branchid = Number(branchid);
+    } else {
+      where.branchid = { not: null };
     }
 
     const membership = await prisma.userorganizations.findFirst({
@@ -716,10 +724,10 @@ class AuthService {
 
   async getUserContexts(userid) {
     const memberships = await prisma.userorganizations.findMany({
-      where: {
+      where: activeMembershipWhere({
         userid: Number(userid),
-        isblocked: false
-      },
+        branchid: { not: null }
+      }),
       include: {
         organizations: true,
         branches: true
@@ -732,6 +740,7 @@ class AuthService {
     });
 
     const organizationsById = new Map();
+    const branchIdsByTenant = new Map();
 
     memberships.forEach((membership) => {
       if (!membership.tenantid) {
@@ -744,12 +753,21 @@ class AuthService {
           tenantid: membership.tenantid,
           branches: []
         });
+        branchIdsByTenant.set(membership.tenantid, new Set());
       }
 
       if (membership.branchid) {
-        organizationsById.get(membership.tenantid).branches.push(membership.branches || {
-          branchid: membership.branchid
-        });
+        const tenantKey = membership.tenantid;
+        const bid = Number(membership.branchid);
+        const seen = branchIdsByTenant.get(tenantKey);
+        if (!seen.has(bid)) {
+          seen.add(bid);
+          organizationsById.get(tenantKey).branches.push(
+            membership.branches || {
+              branchid: membership.branchid
+            }
+          );
+        }
       }
     });
 
@@ -801,7 +819,10 @@ class AuthService {
   }
 
   async buildSessionProfileResponse(user, tenantid, branchid) {
+    await syncMissingBranchMembershipsFromPolicies(user.userid);
     const contexts = await this.getUserContexts(user.userid);
+    const { contexts: orgContexts, branchids } =
+      await enrichOrganizationsWithAccessibleBranches(contexts, tenantid, user.userid);
     const rights = await screenRightsService.getScreenRights({
       userid: user.userid,
       tenantid,
@@ -809,7 +830,7 @@ class AuthService {
     });
     const { user: enrichedUser, organizations } = await enrichSessionProfileGeo(
       this.toUserDto(user),
-      contexts
+      orgContexts
     );
 
     return {
@@ -819,6 +840,7 @@ class AuthService {
       user: enrichedUser,
       tenantid,
       branchid,
+      branchids,
       organizations,
       isAdmin: rights.isAdmin,
       screenRights: rights.screenRights

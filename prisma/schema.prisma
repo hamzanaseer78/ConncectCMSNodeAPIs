@@ -163,6 +163,7 @@ model branches {
   faceapprovalrequests                faceapprovalrequests[]
   jobquotationsettings                jobquotationsettings[]
   jobformsettings                     jobformsettings[]
+  jobcodesettings                     jobcodesettings[]
   jobcashsettings                     jobcashsettings[]
   jobcollections                      jobcollections[]
   jobexpenses                         jobexpenses[]
@@ -411,6 +412,7 @@ model organizations {
   faceapprovalrequests                     faceapprovalrequests[]
   jobquotationsettings                     jobquotationsettings[]
   jobformsettings                          jobformsettings[]
+  jobcodesettings                          jobcodesettings[]
   jobcashsettings                          jobcashsettings[]
   jobcollections                           jobcollections[]
   jobexpenses                              jobexpenses[]
@@ -861,6 +863,27 @@ model jobcashsettings {
 
   @@unique([tenantid, branchid], map: "uq_jobcashsettings_tenant_branch")
   @@index([tenantid, branchid], map: "idx_jobcashsettings_tenant_branch")
+}
+
+/// Per-branch job code format: prefix + separator + padded sequence + postfix.
+model jobcodesettings {
+  recno              Int           @id @default(autoincrement())
+  tenantid           Int
+  branchid           Int
+  prefix             String        @db.VarChar(50)
+  postfix            String        @default("") @db.VarChar(50)
+  separator          String        @default("-") @db.VarChar(5)
+  nextsequencenumber Int           @default(1)
+  sequencepadwidth   Int           @default(5)
+  createdby          Int?
+  createdat          DateTime?     @db.Timestamp(6)
+  lastupdatedby      Int?
+  lastupdatedat      DateTime?     @db.Timestamp(6)
+  branches           branches      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jobcodesettings_branch")
+  organizations      organizations @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jobcodesettings_tenant")
+
+  @@unique([tenantid, branchid], map: "uq_jobcodesettings_tenant_branch")
+  @@index([tenantid, branchid], map: "idx_jobcodesettings_tenant_branch")
 }
 
 /// Per-branch complaint form field visibility and mandatory rules (admin vs distributor forms).

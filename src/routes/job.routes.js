@@ -2,12 +2,16 @@ const express = require("express");
 const authenticateJwt = require("../middlewares/auth.middleware");
 const { uploadJobActionFiles } = require("../middlewares/upload.middleware");
 const jobController = require("../controllers/job.controller");
+const settingsController = require("../controllers/settings.controller");
 
 const router = express.Router();
 
 router.use(authenticateJwt);
 
 router.get("/next-code", jobController.getNextJobCode);
+/** @deprecated Prefer GET/PUT /api/settings/code */
+router.get("/code/settings", settingsController.getJobCodeSettings);
+router.put("/code/settings", settingsController.saveJobCodeSettings);
 router.get("/quotation-statuses", jobController.listQuotationStatusOptions);
 router.get("/quotation/settings", jobController.getQuotationSettings);
 router.put("/quotation/settings", jobController.saveQuotationSettings);
@@ -97,6 +101,11 @@ router.post("/:id/customer-remarks", jobController.createCustomerRemark);
 
 router.get("/:id/customer-feedback", jobController.getCustomerFeedback);
 router.put("/:id/customer-feedback", jobController.saveCustomerFeedback);
+router.put(
+  "/:id/technician-customer-feedback",
+  uploadJobActionFiles,
+  jobController.saveTechnicianCustomerFeedback
+);
 router.put("/:id/customer-remarks/:remarkId", jobController.updateCustomerRemark);
 router.delete("/:id/customer-remarks/:remarkId", jobController.deleteCustomerRemark);
 

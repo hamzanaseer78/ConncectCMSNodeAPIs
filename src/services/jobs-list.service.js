@@ -47,6 +47,9 @@ function buildAssignedUserSelect() {
   if (modelHasScalarField(prisma, "users", "companyname")) {
     select.companyname = true;
   }
+  if (modelHasScalarField(prisma, "users", "contactno")) {
+    select.contactno = true;
+  }
 
   return select;
 }
@@ -279,6 +282,12 @@ function getAvailableJobFilters() {
     { field: "customerPhone", type: "String", operators: ["contains"], description: "Partial match on customer contactno" },
     { field: "customerEmail", type: "String", operators: ["contains"], description: "Partial match on customer email" },
     { field: "assignedToName", type: "String", operators: ["contains"] },
+    {
+      field: "technicianPhone",
+      type: "String",
+      operators: ["contains"],
+      description: "Partial match on assigned technician phone (users.contactno). Aliases: assignedToPhone, phoneNo"
+    },
     { field: "followUpById", type: "Int", operators: ["equals"], description: "Follow-up user id (job.followupby)" },
     { field: "followUpByName", type: "String", operators: ["contains"] },
     { field: "faultName", type: "String", operators: ["contains"], description: "Partial match on fault/subcategory name" },
@@ -454,11 +463,30 @@ class JobsListService {
       where.customers = customerFilter;
     }
 
+    const assignedUserFilter = {};
     const assignedToName = query.assignedToName ?? query.assignedtoname;
     if (assignedToName != null && String(assignedToName).trim() !== "") {
-      where.users = {
-        name: { contains: String(assignedToName).trim(), mode: "insensitive" }
+      assignedUserFilter.name = {
+        contains: String(assignedToName).trim(),
+        mode: "insensitive"
       };
+    }
+    const technicianPhone =
+      query.technicianPhone ??
+      query.technicianphone ??
+      query.assignedToPhone ??
+      query.assignedtophone ??
+      query.technicianPhoneNo ??
+      query.phoneNo ??
+      query.phoneno;
+    if (technicianPhone != null && String(technicianPhone).trim() !== "") {
+      assignedUserFilter.contactno = {
+        contains: String(technicianPhone).trim(),
+        mode: "insensitive"
+      };
+    }
+    if (Object.keys(assignedUserFilter).length) {
+      where.users = assignedUserFilter;
     }
 
     const followUpByName = query.followUpByName ?? query.followupbyname;

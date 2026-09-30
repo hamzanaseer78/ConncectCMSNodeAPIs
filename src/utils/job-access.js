@@ -73,7 +73,6 @@ async function buildManagerJobScope(auth) {
   const subcategories = await prisma.jobsubcategories.findMany({
     where: {
       tenantid,
-      branchid,
       defaultuser: managerId
     },
     select: { subcategoryid: true }

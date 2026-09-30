@@ -619,6 +619,12 @@ function jobListQueryParameters() {
     { in: "query", name: "followupby", schema: { type: "integer" }, description: "Follow-up user id (alias: followUpById)" },
     { in: "query", name: "followUpById", schema: { type: "integer" }, description: "Follow-up user id (job.followupby)" },
     { in: "query", name: "assignedToName", schema: { type: "string" }, description: "Partial assignee name" },
+    {
+      in: "query",
+      name: "technicianPhone",
+      schema: { type: "string" },
+      description: "Partial assigned technician phone (users.contactno). Aliases: assignedToPhone, phoneNo"
+    },
     { in: "query", name: "followUpByName", schema: { type: "string" }, description: "Partial follow-up user name" },
     { in: "query", name: "city", schema: { type: "integer" } },
     { in: "query", name: "area", schema: { type: "integer" } },
@@ -991,12 +997,16 @@ module.exports = swaggerJsdoc({
     },
     servers: [
       {
+        url: "https://cmsapis.complaintpro.app",
+        description: "Production (Complaint Pro API)"
+      },
+      {
         url: "https://cmsapis.lightclouderp.com",
-        description: "Production server"
+        description: "Production (LightCloud ERP API)"
       },
       {
         url: "https://betaapis.complaintpro.app",
-        description: "Development server"
+        description: "Beta / staging"
       },
       {
         url: "http://localhost:3000",
@@ -1023,6 +1033,7 @@ module.exports = swaggerJsdoc({
       { name: MY_JOBS_TAG, description: "Jobs assigned to the authenticated user, dashboards and reports" },
       { name: TEAM_JOBS_TAG, description: "Jobs assigned to technicians managed by the authenticated user" },
       { name: DASHBOARD_TAG, description: "Dashboard overview metrics for the authenticated tenant and branch" },
+      { name: "Settings", description: "Tenant/branch configuration (job code format and related settings)" },
       { name: "Dropdowns", description: "Dropdown data for frontend selectors" },
       { name: "GraphQL", description: "GraphQL reporting and dashboard endpoint" }
     ],
@@ -2995,7 +3006,7 @@ module.exports = swaggerJsdoc({
         post: {
           summary: "Create user — random password emailed",
           description:
-            "Requires Users add permission on the caller's assigned policy for the current JWT tenant+branch. User type is not checked. Creates user (or updates existing), assigns org membership and policy, sends login credentials by email. Alias: POST /api/auth/users/create and POST /api/user/admin/create",
+            "Requires Users add permission. Creates user (or updates existing), assigns org membership and policy per **branchids**, emails credentials. Omit branchids to use JWT branch only. Aliases: POST /api/auth/users/create, POST /api/user/admin/create",
           tags: ["Auth"],
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -3032,14 +3043,29 @@ module.exports = swaggerJsdoc({
       "/api/user/admin/create": {
         post: {
           summary: "Create user (alias of /api/auth/invite)",
-          description: "Requires Users add permission on the caller's assigned policy.",
+          description:
+            "Requires Users add permission. Set **branchids** so the user can only access those branches. Same body as InviteUserRequest.",
           tags: ["User Profile"],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/InviteUserRequest" }
+                schema: { $ref: "#/components/schemas/InviteUserRequest" },
+                example: {
+                  name: "string",
+                  email: "user@example.com",
+                  usertype: "admin",
+                  technicianAffiliation: "in_house",
+                  companyName: "string",
+                  managerId: 0,
+                  contactno: "string",
+                  branchids: [1, 2],
+                  policyid: 0,
+                  isactive: true,
+                  resetPassword: true,
+                  sendEmail: true
+                }
               }
             }
           },
@@ -3050,14 +3076,21 @@ module.exports = swaggerJsdoc({
         post: {
           summary: "Update organization user",
           description:
-            "Requires Users update permission on the caller's assigned policy for the current JWT tenant+branch. Update profile fields, active/blocked flags, branch membership, policy assignment, face approval flags, and optional password reset/email. User type is not checked on the caller.",
+            "Requires Users update permission. Send **branchids** to replace which branches the user may access. Other fields: profile, isactive, policyid (with branchids), password reset, etc.",
           tags: ["User Profile"],
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
               "application/json": {
-                schema: { $ref: "#/components/schemas/AdminUpdateUserRequest" }
+                schema: { $ref: "#/components/schemas/AdminUpdateUserRequest" },
+                example: {
+                  userid: 75,
+                  name: "Jane Technician",
+                  branchids: [1, 2],
+                  policyid: 5,
+                  isactive: true
+                }
               }
             }
           },
@@ -3374,6 +3407,166 @@ module.exports = swaggerJsdoc({
               }
             },
             403: { description: "Admin required" }
+          }
+        }
+      },
+      "/api/settings/code": {
+        get: {
+          summary: "Get job code format settings",
+          description:
+            "Prefix + separator + padded sequence + postfix for auto job codes (per branch). Example: HO-00100.",
+          tags: ["Settings"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Job code settings",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                }
+              }
+            },
+            503: { description: "jobcodesettings table not migrated yet" }
+          }
+        },
+        put: {
+          summary: "Save job code format settings (admin)",
+          description:
+            "Example: prefix HO, nextSequence 00100 → HO-00100 (bumps if taken). Requires jobcodesettings migration.",
+          tags: ["Settings"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobCodeSettingsSaveRequest" }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "Settings saved",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      message: { type: "string" },
+                      settings: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                    }
+                  }
+                }
+              }
+            },
+            403: { description: "Admin required" },
+            503: { description: "jobcodesettings table not migrated yet" }
+          }
+        }
+      },
+      "/api/jobs/code/settings": {
+        get: {
+          summary: "Get job code format settings (legacy path)",
+          description:
+            "Deprecated — use GET /api/settings/code. Prefix + separator + padded sequence + postfix for auto job codes.",
+          tags: ["Settings"],
+          deprecated: true,
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Job code settings",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                }
+              }
+            },
+            404: { description: "Route not deployed yet — use /api/jobs/form/code-settings" }
+          }
+        },
+        put: {
+          summary: "Save job code format settings (legacy path, admin)",
+          description:
+            "Deprecated — use PUT /api/settings/code.",
+          tags: ["Settings"],
+          deprecated: true,
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobCodeSettingsSaveRequest" }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "Settings saved",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      message: { type: "string" },
+                      settings: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                    }
+                  }
+                }
+              }
+            },
+            403: { description: "Admin required" },
+            503: { description: "jobcodesettings table not migrated yet" },
+            404: { description: "Route not deployed yet — use /api/jobs/form/code-settings" }
+          }
+        }
+      },
+      "/api/jobs/form/code-settings": {
+        get: {
+          summary: "Get job code format settings (legacy alias)",
+          description: "Deprecated — use GET /api/settings/code.",
+          tags: ["Settings"],
+          deprecated: true,
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "Job code settings",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                }
+              }
+            }
+          }
+        },
+        put: {
+          summary: "Save job code format settings (legacy alias, admin)",
+          tags: ["Settings"],
+          deprecated: true,
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/JobCodeSettingsSaveRequest" }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "Settings saved",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      message: { type: "string" },
+                      settings: { $ref: "#/components/schemas/JobCodeSettingsResponse" }
+                    }
+                  }
+                }
+              }
+            },
+            403: { description: "Admin required" },
+            503: { description: "jobcodesettings table not migrated yet" }
           }
         }
       },
@@ -3939,14 +4132,14 @@ module.exports = swaggerJsdoc({
       },
       "/api/jobs/next-code": {
         get: {
-          summary: "Next auto-generated job code (max + next) for the JWT organization",
+          summary: "Next auto-generated job code for the JWT branch",
           description:
-            "Uses the same advisory lock + MAX(code) logic as job create. Job codes are unique per organization (tenant), shared across all branches. For production creates, omit `code` on POST /api/jobs so the code is allocated atomically with insert.",
+            "Uses per-branch job code settings (prefix + separator + padded sequence + postfix). Skips codes already used in the organization. Same logic as POST /api/jobs when code is omitted. Configure via GET/PUT /api/settings/code.",
           tags: [JOBS_TAG],
           security: [{ bearerAuth: [] }],
           responses: {
             200: {
-              description: "maxCode, maxNum, nextCode, nextNum",
+              description: "nextCode preview (and sequence metadata)",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/JobNextCodeResponse" }
@@ -5297,6 +5490,38 @@ module.exports = swaggerJsdoc({
           responses: { 200: { description: "Feedback saved" } }
         }
       },
+      "/api/jobs/{id}/technician-customer-feedback": {
+        put: {
+          summary: "Technician customer feedback (feedback + attachments)",
+          description:
+            "Assigned technician or admin. Combines PUT `/customer-feedback` and POST `/attachments`: upserts customer feedback (rating required) and optionally adds one or more attachments via `attachments` array, top-level `url`/`attachmentname`, or multipart `files`/`file`.",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TechnicianCustomerFeedbackBody" }
+              },
+              "multipart/form-data": {
+                schema: { $ref: "#/components/schemas/TechnicianCustomerFeedbackMultipartBody" }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "Feedback saved; attachments created when provided",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/TechnicianCustomerFeedbackResponse" }
+                }
+              }
+            },
+            403: { description: "Not assigned to this job" }
+          }
+        }
+      },
       "/api/jobs/{id}/cash/collection": {
         get: {
           summary: "Get cash collection recorded for a job",
@@ -6354,8 +6579,18 @@ module.exports = swaggerJsdoc({
                 "Required for technicians when assigning a manager. Must reference an active admin or manager user in the same organization. Aliases: managerid, manager."
             },
             contactno: { type: "string", nullable: true },
-            branchid: { type: "integer", description: "Defaults to JWT branchid" },
-            policyid: { type: "integer", description: "Defaults to first non-admin policy for tenant" },
+            branchids: {
+              type: "array",
+              items: { type: "integer", minimum: 1 },
+              minItems: 1,
+              description:
+                "Branch IDs in this organization the user may access (membership + policy on each). Omit to use the caller JWT branch only. Alias: branchIds."
+            },
+            policyid: {
+              type: "integer",
+              minimum: 1,
+              description: "Policy applied on each branch in branchids (defaults by usertype when omitted)"
+            },
             isactive: { type: "boolean", default: true },
             resetPassword: {
               type: "boolean",
@@ -6364,7 +6599,21 @@ module.exports = swaggerJsdoc({
             },
             sendEmail: { type: "boolean", default: true, description: "Send credentials / invitation email" }
           },
-          required: ["name", "email"]
+          required: ["name", "email"],
+          example: {
+            name: "string",
+            email: "user@example.com",
+            usertype: "admin",
+            technicianAffiliation: "in_house",
+            companyName: "string",
+            managerId: 0,
+            contactno: "string",
+            branchids: [1, 2],
+            policyid: 0,
+            isactive: true,
+            resetPassword: true,
+            sendEmail: true
+          }
         },
         AdminUpdateUserRequest: {
           type: "object",
@@ -6389,13 +6638,17 @@ module.exports = swaggerJsdoc({
             },
             allowFaceApprovalRequest: { type: "boolean" },
             faceAttendanceEnabled: { type: "boolean" },
-            branchid: {
-              type: "integer",
-              description: "Branch context for policy/membership updates (default JWT branchid)"
+            branchids: {
+              type: "array",
+              items: { type: "integer", minimum: 1 },
+              minItems: 1,
+              description:
+                "Replace the user's allowed branches in this tenant. User sees data only for branches listed here (switch JWT branch among them). Alias: branchIds."
             },
             policyid: {
               type: "integer",
-              description: "Replace the user's policy for the target branch"
+              minimum: 1,
+              description: "When sent with branchids, applied on each listed branch"
             },
             password: {
               type: "string",
@@ -6411,6 +6664,13 @@ module.exports = swaggerJsdoc({
               default: true,
               description: "When password is reset, email the new credentials"
             }
+          },
+          example: {
+            userid: 75,
+            name: "string",
+            branchids: [1, 2],
+            policyid: 0,
+            isactive: true
           }
         },
         JobCreateCustomer: {
@@ -7498,6 +7758,11 @@ module.exports = swaggerJsdoc({
           properties: {
             technicianId: { type: "integer" },
             technicianName: { type: "string", nullable: true },
+            phoneNo: {
+              type: "string",
+              nullable: true,
+              description: "Technician phone (users.contactno)"
+            },
             technicianAffiliation: { $ref: "#/components/schemas/TechnicianAffiliation", nullable: true },
             companyName: { type: "string", nullable: true },
             status: {
@@ -7871,16 +8136,52 @@ module.exports = swaggerJsdoc({
         JobNextCodeResponse: {
           type: "object",
           description:
-            "Numeric sequence for job.code in this organization (tenant). maxNum uses only purely digit codes; nextCode is zero-padded to 6. Codes are unique per tenant, not per branch.",
+            "Next job.code for the branch using prefix + separator + sequence + postfix. Codes remain unique per organization (tenant).",
           properties: {
-            maxCode: {
+            maxCode: { type: "string", nullable: true },
+            maxNum: { type: "integer" },
+            nextCode: { type: "string", example: "HO-00100" },
+            nextNum: { type: "integer", example: 100 },
+            nextSequenceNumber: { type: "integer", example: 100 },
+            prefix: { type: "string", example: "HO" },
+            postfix: { type: "string", example: "" },
+            separator: { type: "string", example: "-" },
+            sequencePadWidth: { type: "integer", example: 5 },
+            usingLegacyNumericCodes: {
+              type: "boolean",
+              description: "True only when jobcodesettings table is not migrated yet (6-digit numeric fallback)"
+            }
+          }
+        },
+        JobCodeSettingsResponse: {
+          type: "object",
+          properties: {
+            tenantid: { type: "integer" },
+            branchid: { type: "integer" },
+            prefix: { type: "string", example: "HO" },
+            postfix: { type: "string", example: "" },
+            separator: { type: "string", example: "-" },
+            nextSequenceNumber: { type: "integer", example: 100 },
+            sequencePadWidth: { type: "integer", example: 5 },
+            nextSequence: { type: "string", example: "00100", description: "Padded display of next sequence counter" },
+            defaultPrefixFromBranch: { type: "string", example: "HO" },
+            nextCode: { type: "string", example: "HO-00100" },
+            lastUpdatedAt: { type: "string", format: "date-time", nullable: true },
+            usingLegacyNumericCodes: { type: "boolean" }
+          }
+        },
+        JobCodeSettingsSaveRequest: {
+          type: "object",
+          properties: {
+            prefix: { type: "string", example: "HO" },
+            postfix: { type: "string", example: "" },
+            separator: { type: "string", example: "-" },
+            nextSequence: {
               type: "string",
-              nullable: true,
-              description: "Raw MAX(code) from database for this organization (may be null or non-numeric)"
+              example: "00100",
+              description: "Next sequence to use (pad width inferred from length unless sequencePadWidth set)"
             },
-            maxNum: { type: "integer", description: "Numeric max when maxCode is all digits, otherwise 0" },
-            nextCode: { type: "string", example: "000042", description: "Suggested next code (pad 6)" },
-            nextNum: { type: "integer", example: 42, description: "maxNum + 1" }
+            sequencePadWidth: { type: "integer", minimum: 1, maximum: 12, example: 5 }
           }
         },
         JobSaveRequest: {
@@ -7891,7 +8192,7 @@ module.exports = swaggerJsdoc({
             code: {
               type: "string",
               description:
-                "Optional. Omit or send empty to auto-assign the next 6-digit code in the same transaction as create (recommended). Must be unique within the organization (tenant). GET /api/jobs/next-code previews max/next."
+                "Optional. Omit or send empty to auto-assign the next formatted code (branch settings: prefix + sequence + postfix) in the same transaction as create. Must be unique within the organization (tenant). GET /api/jobs/next-code previews the next code."
             },
             date: { type: "string", format: "date-time" },
             assignedto: { type: "integer" },
@@ -8691,6 +8992,11 @@ module.exports = swaggerJsdoc({
                 recno: { type: "integer", description: "Job primary key" },
                 assignedToId: { type: "integer", nullable: true },
                 assignedToName: { type: "string", nullable: true, description: "Assigned technician display name" },
+                assignedToPhone: {
+                  type: "string",
+                  nullable: true,
+                  description: "Assigned technician phone (users.contactno)"
+                },
                 assignedToAffiliation: { $ref: "#/components/schemas/TechnicianAffiliation", nullable: true },
                 assignedToCompanyName: {
                   type: "string",
@@ -8997,6 +9303,55 @@ module.exports = swaggerJsdoc({
               description: "Alternate top-level rating (same as customerFeedback.rating)"
             },
             comments: { type: "string", description: "Alternate top-level comments" }
+          }
+        },
+        TechnicianCustomerFeedbackBody: {
+          allOf: [
+            { $ref: "#/components/schemas/JobCustomerFeedbackBody" },
+            {
+              type: "object",
+              properties: {
+                attachments: {
+                  type: "array",
+                  items: { $ref: "#/components/schemas/JobAttachmentInput" },
+                  description: "Optional files to attach with the feedback (same as job actions)"
+                },
+                attachmentname: {
+                  type: "string",
+                  description: "Single attachment (POST /attachments shape); use with url"
+                },
+                url: { type: "string", description: "Single attachment URL" },
+                remarks: { type: "string", description: "Remarks for single attachment" }
+              }
+            }
+          ]
+        },
+        TechnicianCustomerFeedbackMultipartBody: {
+          allOf: [
+            { $ref: "#/components/schemas/JobActionMultipartBody" },
+            {
+              type: "object",
+              required: ["customerFeedback"],
+              properties: {
+                customerFeedback: {
+                  type: "string",
+                  description: "JSON string: { rating, comments }"
+                }
+              }
+            }
+          ]
+        },
+        TechnicianCustomerFeedbackResponse: {
+          type: "object",
+          properties: {
+            message: { type: "string", example: "Customer feedback saved" },
+            jobid: { type: "integer" },
+            customerFeedback: { $ref: "#/components/schemas/JobCustomerFeedback" },
+            attachments: {
+              type: "array",
+              items: { $ref: "#/components/schemas/JobAttachmentItem" }
+            },
+            attachmentsTotal: { type: "integer" }
           }
         },
         JobCompleteBody: {
@@ -9695,9 +10050,17 @@ module.exports = swaggerJsdoc({
                   }
                 },
             tenantid: { type: "integer" },
-            branchid: { type: "integer" },
+            branchid: { type: "integer", description: "Active JWT branch" },
+            branchids: {
+              type: "array",
+              items: { type: "integer" },
+              description:
+                "Branch IDs the user may access in the JWT tenant (same IDs as organizations[].branches for that tenant)"
+            },
             organizations: {
               type: "array",
+              description:
+                "Organizations the user belongs to; branches lists only branches the user may access (with branchid, branchname, name)",
               items: { type: "object" }
             }
           }
@@ -9715,6 +10078,11 @@ module.exports = swaggerJsdoc({
                 expiresIn: { type: "string", example: "7d" },
                 tenantid: { type: "integer" },
                 branchid: { type: "integer" },
+                branchids: {
+                  type: "array",
+                  items: { type: "integer" },
+                  description: "Accessible branch IDs for the JWT tenant"
+                },
                 organizations: {
                   type: "array",
                   items: { type: "object" }

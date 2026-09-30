@@ -13,6 +13,11 @@ const { buildNameContainsFilter } = require("../../utils/list-filter");
 const screenRightsService = require("./screenrights.service");
 const userAttendanceService = require("../../services/user-attendance.service");
 const userActivityLogService = require("../../services/user-activity-log.service");
+const {
+  parseBranchIdsFromInput,
+  assertBranchesBelongToTenant,
+  syncUserBranchAccess
+} = require("../../utils/user-branch-access");
 
 function safeUser(user) {
   if (!user) {
@@ -69,52 +74,56 @@ function pickInputValue(input, ...keys) {
   return undefined;
 }
 
+async function assertNotLastActiveAdminForBranch(userid, tenantid, branchid) {
+  const isTargetAdmin = await screenRightsService.isDefaultAdmin(
+    userid,
+    tenantid,
+    branchid
+  );
+  if (!isTargetAdmin) {
+    return;
+  }
+
+  const adminPolicy = await prisma.policies.findFirst({
+    where: { tenantid: Number(tenantid), isdefaultpolicy: true },
+    select: { recno: true }
+  });
+  if (!adminPolicy) {
+    return;
+  }
+
+  const adminAssignments = await prisma.userpolicies.findMany({
+    where: {
+      tenantid: Number(tenantid),
+      branchid: Number(branchid),
+      policyid: adminPolicy.recno
+    },
+    select: { userid: true }
+  });
+  const adminUserIds = [...new Set(adminAssignments.map((row) => row.userid).filter(Boolean))];
+  const activeAdminCount =
+    adminUserIds.length === 0
+      ? 0
+      : await prisma.users.count({
+          where: {
+            userid: { in: adminUserIds },
+            isactive: { not: false },
+            isdeleted: { not: true }
+          }
+        });
+
+  if (activeAdminCount <= 1) {
+    throw clientError("Cannot remove or deactivate the last active admin for this branch");
+  }
+}
+
 class AdminUsersService {
   constructor(authService) {
     this.authService = authService;
   }
 
   async assertNotLastActiveAdmin(userid, tenantid, branchid) {
-    const isTargetAdmin = await screenRightsService.isDefaultAdmin(
-      userid,
-      tenantid,
-      branchid
-    );
-    if (!isTargetAdmin) {
-      return;
-    }
-
-    const adminPolicy = await prisma.policies.findFirst({
-      where: { tenantid: Number(tenantid), isdefaultpolicy: true },
-      select: { recno: true }
-    });
-    if (!adminPolicy) {
-      return;
-    }
-
-    const adminAssignments = await prisma.userpolicies.findMany({
-      where: {
-        tenantid: Number(tenantid),
-        branchid: Number(branchid),
-        policyid: adminPolicy.recno
-      },
-      select: { userid: true }
-    });
-    const adminUserIds = [...new Set(adminAssignments.map((row) => row.userid).filter(Boolean))];
-    const activeAdminCount =
-      adminUserIds.length === 0
-        ? 0
-        : await prisma.users.count({
-            where: {
-              userid: { in: adminUserIds },
-              isactive: { not: false },
-              isdeleted: { not: true }
-            }
-          });
-
-    if (activeAdminCount <= 1) {
-      throw clientError("Cannot remove or deactivate the last active admin for this branch");
-    }
+    return assertNotLastActiveAdminForBranch(userid, tenantid, branchid);
   }
 
   async ensureUserIsNotAdmin(userid, tenantid, branchid) {
@@ -743,9 +752,36 @@ class AdminUsersService {
       shouldSyncPolicy = true;
     }
 
-    if (!hasUserUpdate && !shouldSyncPolicy && !hasMembershipUpdate) {
+    const branchIdsProvided =
+      hasOwn(input, "branchids") ||
+      hasOwn(input, "branchIds") ||
+      hasOwn(input, "branches");
+    let syncedBranchIds = null;
+    if (branchIdsProvided) {
+      syncedBranchIds = parseBranchIdsFromInput(input, targetBranchId);
+      await assertBranchesBelongToTenant(tenantid, syncedBranchIds);
+    }
+
+    if (
+      !hasUserUpdate &&
+      !shouldSyncPolicy &&
+      !hasMembershipUpdate &&
+      !branchIdsProvided
+    ) {
       throw clientError("Provide at least one field to update");
     }
+
+    const resolvePolicyIdForBranch = async (branchid) => {
+      if (shouldSyncPolicy && targetPolicyId != null) {
+        return targetPolicyId;
+      }
+      return this.authService.resolveInvitePolicyId(
+        tenantid,
+        input.policyid ?? input.policyId,
+        effectiveType,
+        { branchid, createdBy: actorId }
+      );
+    };
 
     await prisma.$transaction(async (tx) => {
       if (hasUserUpdate) {
@@ -762,7 +798,18 @@ class AdminUsersService {
         });
       }
 
-      if (shouldSyncPolicy) {
+      if (branchIdsProvided) {
+        syncedBranchIds = await syncUserBranchAccess(tx, {
+          userid: uid,
+          tenantid,
+          branchIds: syncedBranchIds,
+          createdby: actorId,
+          now,
+          resolvePolicyIdForBranch,
+          beforeRemoveBranch: (branchid) =>
+            assertNotLastActiveAdminForBranch(uid, tenantid, branchid)
+        });
+      } else if (shouldSyncPolicy) {
         await tx.userpolicies.deleteMany({
           where: { userid: uid, tenantid, branchid: targetBranchId }
         });
@@ -809,7 +856,11 @@ class AdminUsersService {
       passwordEmailSent = true;
     }
 
-    const detail = await this.getById(auth, uid, { branchid: targetBranchId });
+    const detailBranchId =
+      branchIdsProvided && syncedBranchIds?.length
+        ? syncedBranchIds[0]
+        : targetBranchId;
+    const detail = await this.getById(auth, uid, { branchid: detailBranchId });
 
     let action = "update";
     if (hasOwn(input, "isblocked")) {
@@ -843,9 +894,11 @@ class AdminUsersService {
       message: "User updated successfully",
       passwordEmailSent,
       generatedPasswordSent: Boolean(generatedPassword && passwordEmailSent),
+      ...(branchIdsProvided ? { branchIds: syncedBranchIds } : {}),
       ...detail
     };
   }
 }
 
 module.exports = AdminUsersService;
+module.exports.assertNotLastActiveAdminForBranch = assertNotLastActiveAdminForBranch;

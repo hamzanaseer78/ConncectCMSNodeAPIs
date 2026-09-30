@@ -42,12 +42,19 @@ function buildPagination(query = {}) {
   return { page, pageSize, skip: (page - 1) * pageSize };
 }
 
+function applyTenantCpairScope(auth, query = {}) {
+  const q = normalizeQuery(query);
+  const where = { tenantid: Number(auth.tenantid) };
+  const branchId = parseIntFilter(q.branchId ?? q.branchid);
+  if (branchId !== undefined) {
+    where.branchid = branchId;
+  }
+  return where;
+}
+
 function buildSummaryListWhere(auth, query = {}, options = {}) {
   const q = normalizeQuery(query);
-  const where = {
-    tenantid: Number(auth.tenantid),
-    branchid: Number(auth.branchid)
-  };
+  const where = applyTenantCpairScope(auth, q);
 
   if (options.restrictToAssignee) {
     where.technicianid = Number(auth.userid);
@@ -143,8 +150,7 @@ function buildSummaryOrderBy(query = {}) {
 function buildPartListWhere(auth, query = {}, options = {}) {
   const q = normalizeQuery(query);
   const partWhere = {
-    tenantid: Number(auth.tenantid),
-    branchid: Number(auth.branchid),
+    ...applyTenantCpairScope(auth, q),
     summary: buildSummaryListWhere(auth, query, options)
   };
 
@@ -256,6 +262,7 @@ function buildReceivablePartWhere(auth, query = {}, options = {}) {
 
 function getAvailableSummaryFilters() {
   return [
+    { field: "branchId", type: "Int", description: "Optional branch filter (defaults to all branches in tenant)" },
     { field: "summaryId", type: "Int", description: "C-pair summary id (jobcpairsummary.recno)" },
     { field: "jobId", type: "Int" },
     { field: "technicianId", type: "Int" },

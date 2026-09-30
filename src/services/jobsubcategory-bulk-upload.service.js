@@ -33,14 +33,14 @@ function sliceColor(value) {
   return text.length <= 15 ? text : text.slice(0, 15);
 }
 
-async function loadLookupMaps(tenantid, branchid) {
+async function loadLookupMaps(tenantid) {
   const [groups, categories] = await Promise.all([
     prisma.jobgroups.findMany({
-      where: { tenantid: Number(tenantid), branchid: Number(branchid) },
+      where: { tenantid: Number(tenantid) },
       select: { groupid: true, name: true }
     }),
     prisma.jobcategories.findMany({
-      where: { tenantid: Number(tenantid), branchid: Number(branchid) },
+      where: { tenantid: Number(tenantid) },
       select: { categoryid: true, name: true, groupid: true }
     })
   ]);
@@ -140,8 +140,8 @@ function validateMappedRow(mapped, { dateFormat, lookupMaps }) {
   return { valid: true, issues: [], payload };
 }
 
-async function ensureLookupEntities(readyRows, tenantid, branchid, userid) {
-  const maps = await loadLookupMaps(tenantid, branchid);
+async function ensureLookupEntities(readyRows, tenantid, userid) {
+  const maps = await loadLookupMaps(tenantid);
   const now = utcNow();
   const createdGroups = [];
   const createdCategories = [];
@@ -158,7 +158,6 @@ async function ensureLookupEntities(readyRows, tenantid, branchid, userid) {
     const row = await prisma.jobgroups.create({
       data: {
         tenantid: Number(tenantid),
-        branchid: Number(branchid),
         name,
         isactive: true,
         createdby: userid,
@@ -187,7 +186,6 @@ async function ensureLookupEntities(readyRows, tenantid, branchid, userid) {
     const row = await prisma.jobcategories.create({
       data: {
         tenantid: Number(tenantid),
-        branchid: Number(branchid),
         groupid,
         name: String(payload._categoryName).trim(),
         isactive: true,
@@ -297,7 +295,7 @@ class JobSubcategoryBulkUploadService {
     const filePath = session.getSourceFilePath(meta, auth, uploadId);
     const parsed = parseUploadedFile(filePath, meta.originalName);
     const mappedRows = mapRows(parsed.headers, parsed.rows, columnMapping);
-    const lookupMaps = await loadLookupMaps(auth.tenantid, auth.branchid);
+    const lookupMaps = await loadLookupMaps(auth.tenantid);
     const analysis = analyzeValidatedRows(
       mappedRows,
       (mapped) => validateMappedRow(mapped, { dateFormat, lookupMaps }),
@@ -352,7 +350,7 @@ class JobSubcategoryBulkUploadService {
     const filePath = session.getSourceFilePath(meta, auth, uploadId);
     const parsed = parseUploadedFile(filePath, meta.originalName);
     const mappedRows = mapRows(parsed.headers, parsed.rows, columnMapping);
-    const lookupMaps = await loadLookupMaps(auth.tenantid, auth.branchid);
+    const lookupMaps = await loadLookupMaps(auth.tenantid);
     const analysis = analyzeValidatedRows(mappedRows, (mapped) =>
       validateMappedRow(mapped, { dateFormat, lookupMaps })
     );
@@ -363,12 +361,10 @@ class JobSubcategoryBulkUploadService {
 
     const now = utcNow();
     const tenantid = Number(auth.tenantid);
-    const branchid = Number(auth.branchid);
     const userid = Number(auth.userid);
     const { maps, createdGroups, createdCategories } = await ensureLookupEntities(
       analysis.readyRows,
       tenantid,
-      branchid,
       userid
     );
 
@@ -382,7 +378,6 @@ class JobSubcategoryBulkUploadService {
           data: {
             ...resolved,
             tenantid,
-            branchid,
             createdby: userid,
             lastupdatedby: userid,
             createdat: resolved.createdat || now,

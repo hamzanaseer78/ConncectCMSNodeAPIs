@@ -25,6 +25,7 @@ const { modelHasRelation } = require("../utils/prisma-model-support");
 const jobApprovalService = require("./job-approval.service");
 const jobQuotationSettingsService = require("./job-quotation-settings.service");
 const jobFormSettingsService = require("./job-form-settings.service");
+const jobCodeSettingsService = require("./job-code-settings.service");
 const { validateJobAgainstFormSettings } = require("../utils/job-form-validation");
 const { normalizeFormType } = require("../config/job-form-fields.registry");
 const { parseOptionalText } = require("../utils/job-quotation-text");
@@ -1232,30 +1233,6 @@ function stripJobRelationScalarFields(data = {}) {
   return next;
 }
 
-/**
- * Next numeric job `code` for tenant (6-digit zero-padded), after `pg_advisory_xact_lock`.
- * Unique per organization (tenantid), shared across all branches in that org.
- * Caller must run inside a transaction; lock is released at transaction end.
- */
-async function computeNextJobCodeAfterLock(tx, tenantid) {
-  const rows = await tx.$queryRaw`
-    SELECT MAX(code) AS max_code
-    FROM job
-    WHERE tenantid = ${tenantid} AND code IS NOT NULL
-  `;
-  const maxCode = rows?.[0]?.max_code != null ? String(rows[0].max_code) : null;
-  const maxNum = maxCode && /^\d+$/.test(maxCode) ? Number(maxCode) : 0;
-  const nextNum = maxNum + 1;
-  const nextCode = String(nextNum).padStart(6, "0");
-  return { maxCode, maxNum, nextCode, nextNum };
-}
-
-async function acquireJobCodeLock(tx, tenantid) {
-  const lockKey = BigInt(900000000) + BigInt(tenantid);
-  // pg_advisory_xact_lock returns void — must use $executeRaw, not $queryRaw.
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey})`;
-}
-
 async function assertJobCodeUniqueInTenant(tx, tenantid, code, excludeJobId = null) {
   const trimmed = code == null ? "" : String(code).trim();
   if (!trimmed) return;
@@ -1276,27 +1253,17 @@ async function assertJobCodeUniqueInTenant(tx, tenantid, code, excludeJobId = nu
   }
 }
 
-async function nextJobCodeInTransaction(tx, tenantid) {
-  await acquireJobCodeLock(tx, tenantid);
-  const { nextCode } = await computeNextJobCodeAfterLock(tx, tenantid);
-  return nextCode;
-}
-
 class JobsWorkflowService {
   buildScope(auth) {
     return { tenantid: Number(auth.tenantid), branchid: Number(auth.branchid) };
   }
 
   /**
-   * Preview max numeric job code and the next code for this organization (tenant).
-   * Omit `code` on job create to allocate the next code in the same transaction as insert (recommended).
+   * Preview next job code for the JWT branch (prefix + sequence + postfix settings).
+   * Omit `code` on job create to allocate atomically with insert.
    */
   async getNextJobCode(auth) {
-    const tenantid = Number(auth.tenantid);
-    return prisma.$transaction(async (tx) => {
-      await acquireJobCodeLock(tx, tenantid);
-      return computeNextJobCodeAfterLock(tx, tenantid);
-    });
+    return jobCodeSettingsService.previewNextCode(auth);
   }
 
   async jobAccessWhere(auth, extra = {}) {
@@ -1499,7 +1466,11 @@ class JobsWorkflowService {
       const jobFields = { ...payloadWithQuotationDefaults };
       delete jobFields.customerid;
       if (jobFields.code == null || String(jobFields.code).trim() === "") {
-        jobFields.code = await nextJobCodeInTransaction(tx, scope.tenantid);
+        jobFields.code = await jobCodeSettingsService.allocateNextJobCodeInTransaction(
+          tx,
+          scope,
+          auth
+        );
       } else {
         await assertJobCodeUniqueInTenant(tx, scope.tenantid, jobFields.code);
       }
@@ -3280,6 +3251,52 @@ class JobsWorkflowService {
       ...JOB_CUSTOMER_FEEDBACK_INCLUDE
     });
     return formatCustomerFeedbackRow(row);
+  }
+
+  /**
+   * Assigned technician (or admin): save customer feedback and optional attachments in one request.
+   */
+  async saveTechnicianCustomerFeedback(auth, id, payload) {
+    const scope = this.buildScope(auth);
+    const job = await this.getScopedJob(auth, id);
+    await this.ensureAssignedUser(auth, job);
+    if (!parseCustomerFeedbackInput(payload || {})) {
+      const err = new Error("customerFeedback with rating (0-5) is required");
+      err.status = 400;
+      throw err;
+    }
+
+    let attachmentRows = [];
+    await prisma.$transaction(async (tx) => {
+      await upsertJobCustomerFeedback(tx, auth, scope, job.recno, payload || {});
+      attachmentRows = await this.createAttachmentsFromAction(
+        tx,
+        auth,
+        scope,
+        job.recno,
+        payload,
+        "technician customer feedback"
+      );
+    });
+
+    const row = await prisma.jobcustomerfeedback.findFirst({
+      where: { jobid: job.recno },
+      ...JOB_CUSTOMER_FEEDBACK_INCLUDE
+    });
+    const customerFeedback = formatCustomerFeedbackRow(row);
+    const attachments = attachmentRows.map(formatJobAttachmentRow).filter(Boolean);
+
+    attachmentRows.forEach((att) =>
+      pushDispatch.onJobAttachment(job, auth, att.attachmentname)
+    );
+
+    return {
+      message: "Customer feedback saved",
+      jobid: job.recno,
+      customerFeedback,
+      attachments,
+      attachmentsTotal: attachments.length
+    };
   }
 
   async updateFirstResponse(auth, id, payload) {
