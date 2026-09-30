@@ -5985,9 +5985,27 @@ module.exports = swaggerJsdoc({
       "/api/jobs/{id}/attachments": {
         get: {
           summary: "List attachments for a specific job",
+          description:
+            "Optional query `name` (aliases: `attachmentname`, `attachmentName`) — case-insensitive partial match on attachment file name.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
-          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          parameters: [
+            { in: "path", name: "id", required: true, schema: { type: "integer" } },
+            {
+              in: "query",
+              name: "name",
+              required: false,
+              schema: { type: "string" },
+              description: "Filter by attachmentname (contains, case-insensitive)"
+            },
+            {
+              in: "query",
+              name: "attachmentname",
+              required: false,
+              schema: { type: "string" },
+              description: "Alias of name"
+            }
+          ],
           responses: { 200: { description: "Job attachments returned" } }
         },
         post: {

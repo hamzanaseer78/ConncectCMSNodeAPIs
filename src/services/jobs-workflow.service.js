@@ -73,6 +73,7 @@ const {
   formatCustomerFeedbackRow
 } = require("../utils/job-customer-feedback");
 const { formatJobAttachmentRow, JOB_ATTACHMENT_INCLUDE } = require("../utils/job-attachments-payload");
+const { buildNameContainsFilter } = require("../utils/list-filter");
 const { formatJobStatusLogRow, JOB_STATUS_LOG_INCLUDE } = require("../utils/job-status-log");
 const { buildTechnicianJobDetail } = require("../utils/job-technician-detail");
 const {
@@ -2683,14 +2684,21 @@ class JobsWorkflowService {
     return { message: "Job closed", jobid: job.recno, cpairAutoReceive };
   }
 
-  async listAttachments(auth, id) {
+  async listAttachments(auth, id, query = {}) {
     const scope = this.buildScope(auth);
     const job = await this.getScopedJob(auth, id);
+    const nameFilter = buildNameContainsFilter(
+      query.name ?? query.attachmentname ?? query.attachmentName
+    );
+    const where = {
+      ...scope,
+      jobid: Number(job.recno)
+    };
+    if (nameFilter) {
+      where.attachmentname = nameFilter;
+    }
     const data = await prisma.jobattachments.findMany({
-      where: {
-        ...scope,
-        jobid: Number(job.recno)
-      },
+      where,
       ...JOB_ATTACHMENT_INCLUDE
     });
     const formatted = data.map(formatJobAttachmentRow).filter(Boolean);
