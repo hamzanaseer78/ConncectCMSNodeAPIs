@@ -1130,6 +1130,7 @@ model jobstatuses {
   isfirststatus                                     Boolean?
   iscompletedstatus                                 Boolean?
   isresolvedstatus                                  Boolean?
+  iscancelledstatus                                 Boolean?
   color                                             String?        @db.VarChar(10)
   sort                                              Int?
   job                                               job[]

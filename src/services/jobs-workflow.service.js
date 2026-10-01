@@ -47,7 +47,9 @@ const {
 const {
   resolveInitialJobStatusId,
   syncJobStatusWithAssignment,
-  applyCompletedJobStatus
+  applyCompletedJobStatus,
+  applyCancelledJobStatus,
+  findCancelledJobStatus
 } = require("../utils/job-assignment-status");
 const {
   enrichJobApiRow,
@@ -108,6 +110,19 @@ const {
   normalizeCustomerPhone,
   assertCustomerPhoneAvailable
 } = require("../utils/customer-phone");
+
+function pickCancellationReason(payload = {}) {
+  const reason =
+    (payload.reason != null && String(payload.reason).trim()) ||
+    (payload.remarks != null && String(payload.remarks).trim()) ||
+    "";
+  if (!reason) {
+    const err = new Error("reason is required");
+    err.status = 400;
+    throw err;
+  }
+  return reason;
+}
 
 function logJobWorkflow(auth, action, job, extra = {}) {
   return userActivityLogService.logSafe(auth, {
@@ -2608,6 +2623,89 @@ class JobsWorkflowService {
       attachments,
       attachmentsTotal: attachments.length,
       cpairAutoReceive
+    };
+  }
+
+  async cancelJob(auth, id, payload) {
+    const now = utcNow();
+    const job = await this.getScopedJob(auth, id);
+    await this.ensureAssignedUser(auth, job);
+    const scope = this.buildScope(auth);
+    const stopLoc = pickStopLocation(payload || {});
+    const cancelReason = pickCancellationReason(payload || {});
+    let attachmentRows = [];
+    let statusChange = null;
+
+    const adminActor = await this.isAdmin(auth);
+    const existingCancelled = await findCancelledJobStatus(prisma, scope.tenantid);
+    if (existingCancelled && Number(job.statusid) === Number(existingCancelled.recno)) {
+      const err = new Error("Job is already cancelled");
+      err.status = 409;
+      throw err;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const workWhere = { ...scope, jobid: job.recno, stopedat: null };
+      if (!adminActor) {
+        workWhere.workedby = Number(auth.userid);
+      }
+      const open = await tx.jobworklhistory.findFirst({
+        where: workWhere,
+        orderBy: { recno: "desc" }
+      });
+      if (open) {
+        await tx.jobworklhistory.update({
+          where: { recno: open.recno },
+          data: { stopedat: now, ...stopLoc, remarks: cancelReason }
+        });
+      }
+
+      statusChange = await applyCancelledJobStatus(tx, scope, job, auth, {
+        changedAt: now,
+        remarks: cancelReason
+      });
+
+      await this.patchJobDetail(tx, auth, scope, job.recno, {
+        notes: cancelReason
+      });
+
+      attachmentRows = await this.createAttachmentsFromAction(
+        tx,
+        auth,
+        scope,
+        job.recno,
+        payload,
+        "job cancel"
+      );
+    });
+
+    const attachments = attachmentRows.map(formatJobAttachmentRow);
+
+    if (statusChange) {
+      pushDispatch.onJobStatusChanged(
+        job,
+        auth,
+        statusChange.fromStatus,
+        statusChange.toStatus,
+        cancelReason
+      );
+    }
+    pushDispatch.onJobCancelled(job, auth, cancelReason);
+    attachmentRows.forEach((row) =>
+      pushDispatch.onJobAttachment(job, auth, row.attachmentname)
+    );
+
+    await logJobWorkflow(auth, "cancel", job, {
+      summary: `Cancelled job ${job.code || job.recno}`
+    });
+
+    return {
+      message: "Job cancelled",
+      jobid: job.recno,
+      reason: cancelReason,
+      ...locationFromPayload(payload || {}),
+      attachments,
+      attachmentsTotal: attachments.length
     };
   }
 

@@ -663,10 +663,17 @@ function jobListQueryParameters() {
       name: "kpi",
       schema: {
         type: "string",
-        enum: ["newJobs", "assignedJobs", "followUpJobs", "completedJobs", "cancelledJobs"]
+        enum: [
+          "newJobs",
+          "assignedJobs",
+          "resolvedJobs",
+          "completedJobs",
+          "cancelledJobs",
+          "followUpJobs"
+        ]
       },
       description:
-        "Filter the job list by a Job page KPI bucket. Aliases: statsKpi"
+        "Filter the job list by a Job page KPI bucket (new = unassigned; assigned = assigned and not resolved/completed/cancelled; resolved/completed/cancelled = job status flags; follow-up = has follow-up user until completed). Aliases: statsKpi"
     },
     ...createdByQueryParameters({ includeName: true })
   ];
@@ -4330,7 +4337,7 @@ module.exports = swaggerJsdoc({
         get: {
           summary: "Job page Stats KPIs (all jobs)",
           description:
-            "Returns counts for New Jobs (no technician assigned), Assigned Jobs (technician assigned, no follow-up user), Follow-up Jobs (follow-up user assigned), Completed Jobs, and Cancelled Jobs (status title Cancelled/Cancel/Canceled). Supports the same list filters as `/api/jobs-all` (except `kpi`). Use `kpi` on the job list endpoints to drill down when a card is clicked.",
+            "Returns job page KPI counts: **New** (not assigned to any user), **Assigned** (assigned and status is not resolved, completed, or cancelled), **Resolved** (`isresolvedstatus`), **Completed** (`iscompletedstatus`), **Cancelled** (`iscancelledstatus`), and **Follow-up** (has `followupby` until status is completed; not included in `totalJobs`). `totalJobs` is the sum of new + assigned + resolved + completed + cancelled. Supports the same list filters as `/api/jobs-all` (except `kpi`). Use `kpi` on the job list endpoints to drill down when a card is clicked.",
           tags: [ALL_JOBS_TAG],
           security: [{ bearerAuth: [] }],
           parameters: jobListQueryParameters().filter(
@@ -5465,6 +5472,28 @@ module.exports = swaggerJsdoc({
             }
           },
           responses: { 200: { description: "Job completed (includes customerFeedback and attachments when provided)" } }
+        }
+      },
+      "/api/jobs/{id}/actions/cancel-job": {
+        post: {
+          summary: "Mark job as cancelled",
+          description:
+            "Assigned technician or admin. Requires a cancellation `reason` (or `remarks`). Sets the job to the tenant status flagged `iscancelledstatus` (or title Cancelled/Cancel). Stops any open work session. Optional `attachments` or multipart files (`files` / `file`).",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/JobCancelBody" } },
+              "multipart/form-data": { schema: { $ref: "#/components/schemas/JobCancelMultipartBody" } }
+            }
+          },
+          responses: {
+            200: { description: "Job cancelled (status updated, reason recorded)" },
+            400: { description: "Missing reason or no cancelled status configured" },
+            409: { description: "Job is already cancelled" }
+          }
         }
       },
       "/api/jobs/{id}/customer-feedback": {
@@ -6871,7 +6900,14 @@ module.exports = swaggerJsdoc({
           properties: {
             key: {
               type: "string",
-              enum: ["newJobs", "assignedJobs", "followUpJobs", "completedJobs", "cancelledJobs"]
+              enum: [
+                "newJobs",
+                "assignedJobs",
+                "resolvedJobs",
+                "completedJobs",
+                "cancelledJobs",
+                "followUpJobs"
+              ]
             },
             label: { type: "string", example: "New Jobs" },
             count: { type: "integer" }
@@ -6884,7 +6920,8 @@ module.exports = swaggerJsdoc({
             asOf: { type: "string", format: "date-time" },
             totalJobs: {
               type: "integer",
-              description: "Total jobs in scope after optional list filters (date range, search, etc.)"
+              description:
+                "Sum of newJobs + assignedJobs + resolvedJobs + completedJobs + cancelledJobs (after optional list filters). Follow-up jobs are not included."
             },
             statsKpis: {
               type: "array",
@@ -9382,6 +9419,38 @@ module.exports = swaggerJsdoc({
             },
             attachmentsTotal: { type: "integer" }
           }
+        },
+        JobCancelBody: {
+          allOf: [
+            { $ref: "#/components/schemas/JobActionWithAttachmentsBody" },
+            {
+              type: "object",
+              required: ["reason"],
+              properties: {
+                reason: {
+                  type: "string",
+                  description: "Why the job is being cancelled (also accepted as `remarks` for multipart)"
+                },
+                remarks: {
+                  type: "string",
+                  description: "Alias for `reason` when sending JSON or multipart"
+                }
+              }
+            }
+          ]
+        },
+        JobCancelMultipartBody: {
+          allOf: [
+            { $ref: "#/components/schemas/JobActionMultipartBody" },
+            {
+              type: "object",
+              required: ["reason"],
+              properties: {
+                reason: { type: "string", description: "Cancellation reason (required)" },
+                remarks: { type: "string", description: "Alias for reason" }
+              }
+            }
+          ]
         },
         JobCompleteBody: {
           allOf: [
