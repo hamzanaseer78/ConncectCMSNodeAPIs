@@ -230,6 +230,64 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function parseOptionalStatusId(payload = {}) {
+  if (payload.statusid === undefined && payload.statusId === undefined) {
+    return undefined;
+  }
+  const id = toNumber(payload.statusid ?? payload.statusId);
+  if (!id || id <= 0) {
+    return undefined;
+  }
+  return id;
+}
+
+async function applyExplicitJobStatusChange(
+  tx,
+  scope,
+  job,
+  auth,
+  statusId,
+  { remarks, changedAt } = {}
+) {
+  const tostatus = Number(statusId);
+  if (!Number.isFinite(tostatus) || tostatus <= 0) {
+    return null;
+  }
+
+  const statusRow = await tx.jobstatuses.findFirst({
+    where: { recno: tostatus, tenantid: scope.tenantid }
+  });
+  if (!statusRow) {
+    const err = new Error(`statusid ${tostatus} is not valid for this organization`);
+    err.status = 400;
+    throw err;
+  }
+
+  const fromStatus = job.statusid ?? null;
+  if (Number(fromStatus) === tostatus) {
+    return null;
+  }
+
+  const when = changedAt || utcNow();
+  await tx.jobstatuslog.create({
+    data: {
+      jobid: Number(job.recno),
+      ...scope,
+      fromstatus: fromStatus,
+      tostatus,
+      remarks: remarks || null,
+      changedby: Number(auth.userid),
+      changedat: when
+    }
+  });
+  await tx.job.update({
+    where: { recno: Number(job.recno) },
+    data: { statusid: tostatus }
+  });
+
+  return { fromStatus, toStatus: tostatus };
+}
+
 /** Map camelCase API fields to DB column names on create/update bodies. */
 function applyJobFieldAliases(data = {}) {
   const next = { ...data };
@@ -2229,6 +2287,9 @@ class JobsWorkflowService {
     const scope = this.buildScope(auth);
     const assignedTo = toNumber(payload.assignedto ?? payload.assignedToId);
     if (!assignedTo) throw new Error("assignedto is required");
+    const explicitStatusId = parseOptionalStatusId(payload);
+    const assignmentRemarks = payload.remarks || "Technician assigned";
+    let statusChange = null;
 
     await prisma.$transaction(async (tx) => {
       await tx.job.update({ where: { recno: job.recno }, data: { assignedto: assignedTo } });
@@ -2239,24 +2300,44 @@ class JobsWorkflowService {
           userid: assignedTo,
           assignedby: Number(auth.userid),
           assignedat: now,
-          remarks: payload.remarks || "Technician assigned"
+          remarks: assignmentRemarks
         }
       });
       await this.patchJobDetail(tx, auth, scope, job.recno, {
         assignedat: now,
         assignedby: Number(auth.userid),
-        assignedremarks: payload.remarks || "Technician assigned"
+        assignedremarks: assignmentRemarks
       });
+      if (explicitStatusId) {
+        statusChange = await applyExplicitJobStatusChange(tx, scope, job, auth, explicitStatusId, {
+          remarks: assignmentRemarks,
+          changedAt: now
+        });
+      }
     });
 
     pushDispatch.onJobAssigned({ ...job, assignedto: assignedTo }, assignedTo, auth);
+    if (statusChange) {
+      pushDispatch.onJobStatusChanged(
+        job,
+        auth,
+        statusChange.fromStatus,
+        statusChange.toStatus,
+        assignmentRemarks
+      );
+    }
 
     await logJobWorkflow(auth, "assign", job, {
       summary: `Assigned technician to job ${job.code || job.recno}`,
-      metadata: { assignedTo }
+      metadata: { assignedTo, statusId: explicitStatusId ?? null }
     });
 
-    return { message: "Technician assigned successfully", jobid: job.recno, assignedto: assignedTo };
+    return {
+      message: "Technician assigned successfully",
+      jobid: job.recno,
+      assignedto: assignedTo,
+      statusid: statusChange ? statusChange.toStatus : job.statusid ?? null
+    };
   }
 
   async assignFollowUpBy(auth, id, payload = {}) {
@@ -2294,21 +2375,44 @@ class JobsWorkflowService {
       }
     }
 
+    const now = utcNow();
+    const explicitStatusId = parseOptionalStatusId(payload);
+    const followUpRemarks =
+      payload.remarks ||
+      (followUpPayload.followupby != null ? "Follow-up user assigned" : "Follow-up user cleared");
+    let statusChange = null;
+
     await prisma.$transaction(async (tx) => {
       await resolveJobForeignKeys(tx, scope, payload, followUpPayload);
       await tx.job.update({
         where: { recno: job.recno },
         data: { followupby: followUpPayload.followupby ?? null }
       });
+      if (explicitStatusId) {
+        statusChange = await applyExplicitJobStatusChange(tx, scope, job, auth, explicitStatusId, {
+          remarks: followUpRemarks,
+          changedAt: now
+        });
+      }
     });
 
     const followUpBy = followUpPayload.followupby ?? null;
+
+    if (statusChange) {
+      pushDispatch.onJobStatusChanged(
+        job,
+        auth,
+        statusChange.fromStatus,
+        statusChange.toStatus,
+        followUpRemarks
+      );
+    }
 
     await logJobWorkflow(auth, followUpBy ? "assign" : "unassign", job, {
       summary: followUpBy
         ? `Assigned follow-up user to job ${job.code || job.recno}`
         : `Cleared follow-up user on job ${job.code || job.recno}`,
-      metadata: { followUpBy }
+      metadata: { followUpBy, statusId: explicitStatusId ?? null }
     });
 
     return {
@@ -2316,7 +2420,8 @@ class JobsWorkflowService {
         ? "Follow-up user assigned successfully"
         : "Follow-up user cleared successfully",
       jobid: job.recno,
-      followUpById: followUpBy
+      followUpById: followUpBy,
+      statusid: statusChange ? statusChange.toStatus : job.statusid ?? null
     };
   }
 

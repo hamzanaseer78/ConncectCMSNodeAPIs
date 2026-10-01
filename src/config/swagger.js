@@ -5337,6 +5337,8 @@ module.exports = swaggerJsdoc({
       "/api/jobs/{id}/actions/assign": {
         post: {
           summary: "Assign or reassign technician",
+          description:
+            "Optionally set `statusid` (or `statusId`) in the same request to move the job to that tenant job status; writes a status log entry using `remarks` when provided.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
@@ -5347,22 +5349,32 @@ module.exports = swaggerJsdoc({
                 schema: {
                   type: "object",
                   properties: {
-                    assignedto: { type: "integer" },
-                    remarks: { type: "string" }
+                    assignedto: { type: "integer", description: "Technician user id" },
+                    remarks: { type: "string" },
+                    statusid: {
+                      type: "integer",
+                      description: "Optional job status (jobstatuses.recno) to apply when assigning"
+                    },
+                    statusId: { type: "integer", description: "Alias of statusid" }
                   },
                   required: ["assignedto"]
+                },
+                example: {
+                  assignedto: 0,
+                  remarks: "string",
+                  statusid: 0
                 }
               }
             }
           },
-          responses: { 200: { description: "Technician assigned" } }
+          responses: { 200: { description: "Technician assigned (includes statusid when changed)" } }
         }
       },
       "/api/jobs/{id}/actions/assign-follow-up": {
         post: {
           summary: "Assign or clear follow-up user",
           description:
-            "Admin/manager only. Sets `followUpById` on the job to the selected branch user, or clears it when `followUpById` is null.",
+            "Admin/manager only. Sets `followUpById` on the job to the selected branch user, or clears it when `followUpById` is null. Optionally set `statusid` to change job status in the same request.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
@@ -5383,13 +5395,24 @@ module.exports = swaggerJsdoc({
                       nullable: true,
                       description: "Alias of followUpById"
                     },
-                    remarks: { type: "string" }
+                    remarks: { type: "string" },
+                    statusid: {
+                      type: "integer",
+                      description: "Optional job status (jobstatuses.recno) to apply with this action"
+                    },
+                    statusId: { type: "integer", description: "Alias of statusid" }
                   }
+                },
+                example: {
+                  followUpById: 0,
+                  followupby: 0,
+                  remarks: "string",
+                  statusid: 0
                 }
               }
             }
           },
-          responses: { 200: { description: "Follow-up user assigned or cleared" } }
+          responses: { 200: { description: "Follow-up user assigned or cleared (includes statusid when changed)" } }
         }
       },
       "/api/jobs/{id}/actions/start-travel": {
