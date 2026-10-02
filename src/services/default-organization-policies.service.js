@@ -9,7 +9,6 @@ function buildUserRightsRows({
   screens,
   policy,
   tenantid,
-  branchid,
   templateKey,
   createdBy
 }) {
@@ -20,7 +19,7 @@ function buildUserRightsRows({
     screenid: screen.screenid,
     policyid: policy.recno,
     tenantid,
-    branchid,
+    branchid: null,
     ...resolveDefaultPolicyRights(templateKey, screen),
     createdby,
     createdat: now
@@ -52,7 +51,6 @@ async function loadAccessibleScreens(tx) {
  */
 async function createDefaultOrganizationPolicies(tx, context) {
   const tenantid = Number(context.tenantid);
-  const branchid = Number(context.branchid);
   const createdBy = Number(context.createdBy);
   const now = utcNow();
 
@@ -77,7 +75,6 @@ async function createDefaultOrganizationPolicies(tx, context) {
       screens,
       policy: createdPolicies[template.key],
       tenantid,
-      branchid,
       templateKey: template.key,
       createdBy
     })
@@ -117,7 +114,6 @@ async function ensureOrganizationPolicyTemplate(client, context, templateKey) {
   }
 
   const tenantid = Number(context.tenantid);
-  const branchid = Number(context.branchid);
   const createdBy = Number(context.createdBy);
   const existing = await findOrganizationPolicyByDescription(client, tenantid, template.description);
   if (existing) {
@@ -140,7 +136,6 @@ async function ensureOrganizationPolicyTemplate(client, context, templateKey) {
     screens,
     policy,
     tenantid,
-    branchid,
     templateKey,
     createdBy
   });

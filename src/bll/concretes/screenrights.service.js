@@ -1,8 +1,8 @@
 const prisma = require("../../database/prisma");
 
 /**
- * Aggregates effective screen rights for the current tenant/branch context.
- * Aligns with authorization.middleware (policy union + branch OR null; default-admin grants all).
+ * Aggregates effective screen rights for the current tenant.
+ * Policy rights are organization-wide. Default-admin grants all.
  */
 class ScreenRightsService {
   async isDefaultAdmin(userid, tenantid, branchid) {
@@ -58,8 +58,7 @@ class ScreenRightsService {
       const rows = await prisma.userrights.findMany({
         where: {
           tenantid,
-          policyid: { in: policyIds },
-          OR: [{ branchid }, { branchid: null }]
+          policyid: { in: policyIds }
         },
         select: {
           screenid: true,

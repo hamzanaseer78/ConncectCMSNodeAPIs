@@ -2,9 +2,8 @@ const { utcNow } = require("../utils/date");
 const { syncPostgresSequence } = require("../utils/postgres-sequence");
 
 /**
- * For each default ("main") admin policy, grants full userrights on `screenid`
- * for every branch under that policy's tenant — mirrors org-wide admin coverage
- * when new screens are introduced after tenants already exist.
+ * For each default ("main") admin policy, grants one organization-level userrights
+ * row on `screenid`. Policies are tenant-scoped, so rights are not copied per branch.
  *
  * @param {import("@prisma/client").Prisma.TransactionClient} tx
  * @param {number} screenid
@@ -30,30 +29,19 @@ async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
       continue;
     }
 
-    const branches = await tx.branches.findMany({
-      where: { tenantid: policy.tenantid },
-      select: { branchid: true }
+    rowsToInsert.push({
+      screenid,
+      policyid: policy.recno,
+      tenantid: policy.tenantid,
+      branchid: null,
+      viewscreen: true,
+      addscreen: true,
+      updatescreen: true,
+      deletescreen: true,
+      others: true,
+      createdby,
+      createdat: now
     });
-
-    for (const b of branches) {
-      if (b.branchid == null) {
-        continue;
-      }
-
-      rowsToInsert.push({
-        screenid,
-        policyid: policy.recno,
-        tenantid: policy.tenantid,
-        branchid: b.branchid,
-        viewscreen: true,
-        addscreen: true,
-        updatescreen: true,
-        deletescreen: true,
-        others: true,
-        createdby,
-        createdat: now
-      });
-    }
   }
 
   if (!rowsToInsert.length) {
@@ -69,17 +57,16 @@ async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
     },
     select: {
       policyid: true,
-      tenantid: true,
-      branchid: true
+      tenantid: true
     }
   });
 
   const existingSet = new Set(
-    existing.map((r) => `${r.policyid}-${r.tenantid}-${r.branchid}`)
+    existing.map((r) => `${r.policyid}-${r.tenantid}`)
   );
 
   const deduped = rowsToInsert.filter(
-    (r) => !existingSet.has(`${r.policyid}-${r.tenantid}-${r.branchid}`)
+    (r) => !existingSet.has(`${r.policyid}-${r.tenantid}`)
   );
 
   if (deduped.length) {
@@ -89,8 +76,9 @@ async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
 }
 
 /**
- * When a new policy is created for a tenant, grant every accessible screen on each
- * branch under that tenant. Non-admin policies start with all actions disabled.
+ * When a new policy is created for a tenant, grant every accessible screen once.
+ * Rights belong to the organization, not to a branch. Non-admin policies start
+ * with all actions disabled.
  *
  * @param {import("@prisma/client").Prisma.TransactionClient} tx
  * @param {{ recno: number, tenantid: number|null, isdefaultpolicy?: boolean|null }} policy
@@ -99,14 +87,6 @@ async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
 async function assignAllScreensToNewPolicy(tx, policy, auth) {
   const tenantid = policy.tenantid;
   if (tenantid == null) {
-    return;
-  }
-
-  const branches = await tx.branches.findMany({
-    where: { tenantid },
-    select: { branchid: true }
-  });
-  if (!branches.length) {
     return;
   }
 
@@ -125,27 +105,19 @@ async function assignAllScreensToNewPolicy(tx, policy, auth) {
   const now = utcNow();
   const createdby = auth?.userid != null ? Number(auth.userid) : null;
 
-  const rowsToInsert = [];
-  for (const screen of screens) {
-    for (const branch of branches) {
-      if (branch.branchid == null) {
-        continue;
-      }
-      rowsToInsert.push({
-        screenid: screen.screenid,
-        policyid: policy.recno,
-        tenantid,
-        branchid: branch.branchid,
-        viewscreen: fullAccess,
-        addscreen: fullAccess,
-        updatescreen: fullAccess,
-        deletescreen: fullAccess,
-        others: fullAccess,
-        createdby,
-        createdat: now
-      });
-    }
-  }
+  const rowsToInsert = screens.map((screen) => ({
+    screenid: screen.screenid,
+    policyid: policy.recno,
+    tenantid,
+    branchid: null,
+    viewscreen: fullAccess,
+    addscreen: fullAccess,
+    updatescreen: fullAccess,
+    deletescreen: fullAccess,
+    others: fullAccess,
+    createdby,
+    createdat: now
+  }));
 
   if (!rowsToInsert.length) {
     return;
