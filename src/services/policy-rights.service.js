@@ -26,8 +26,105 @@ function extractRightsArray(body = {}) {
   return rights;
 }
 
+function rightIsOn(value) {
+  return value === true;
+}
+
 /**
- * Bulk-update userrights rows for a policy (by recno or screenid+branchid).
+ * One screen per policy. Older rows were copied once per branch; collapse those
+ * into a single organization-level entry. A flag stays on if any copy had it on.
+ */
+function collapsePolicyUserRights(rows) {
+  const byScreen = new Map();
+
+  for (const row of rows || []) {
+    if (row.screenid == null) {
+      continue;
+    }
+
+    const prev = byScreen.get(row.screenid);
+    if (!prev) {
+      byScreen.set(row.screenid, { ...row });
+      continue;
+    }
+
+    const preferIncoming = prev.branchid != null && row.branchid == null;
+    const base = preferIncoming ? row : prev;
+    const other = preferIncoming ? prev : row;
+
+    byScreen.set(row.screenid, {
+      ...base,
+      viewscreen: rightIsOn(base.viewscreen) || rightIsOn(other.viewscreen),
+      addscreen: rightIsOn(base.addscreen) || rightIsOn(other.addscreen),
+      updatescreen: rightIsOn(base.updatescreen) || rightIsOn(other.updatescreen),
+      deletescreen: rightIsOn(base.deletescreen) || rightIsOn(other.deletescreen),
+      others: rightIsOn(base.others) || rightIsOn(other.others)
+    });
+  }
+
+  return [...byScreen.values()]
+    .map((row) => ({ ...row, branchid: null, branches: null }))
+    .sort((a, b) => a.screenid - b.screenid);
+}
+
+async function saveOrganizationScreenRights(tx, {
+  policyRecno,
+  tenantid,
+  screenid,
+  flags,
+  userid,
+  now
+}) {
+  const existing = await tx.userrights.findMany({
+    where: {
+      policyid: policyRecno,
+      tenantid,
+      screenid
+    },
+    orderBy: { recno: "asc" }
+  });
+
+  if (!existing.length) {
+    await syncPostgresSequence(tx, "userrights", "recno");
+    await tx.userrights.create({
+      data: {
+        policyid: policyRecno,
+        tenantid,
+        branchid: null,
+        screenid,
+        ...flags,
+        createdby: userid,
+        createdat: now,
+        lastupdatedby: userid,
+        updatedat: now
+      }
+    });
+    return;
+  }
+
+  const keeper = existing.find((row) => row.branchid == null) || existing[0];
+  await tx.userrights.update({
+    where: { recno: keeper.recno },
+    data: {
+      ...flags,
+      branchid: null,
+      lastupdatedby: userid,
+      updatedat: now
+    }
+  });
+
+  const extraIds = existing
+    .filter((row) => row.recno !== keeper.recno)
+    .map((row) => row.recno);
+  if (extraIds.length) {
+    await tx.userrights.deleteMany({
+      where: { recno: { in: extraIds } }
+    });
+  }
+}
+
+/**
+ * Bulk-update organization-level userrights for a policy (by recno or screenid).
  */
 async function updatePolicyRights(policyId, auth, body) {
   const policyRecno = Number(policyId);
@@ -54,81 +151,41 @@ async function updatePolicyRights(policyId, auth, body) {
   const now = utcNow();
   const userid = Number(auth.userid);
 
+  const pending = new Map();
+
+  for (const item of rights) {
+    const flags = normalizeRightFlags(item);
+    const recno = item.recno != null ? Number(item.recno) : null;
+    let screenid = item.screenid != null ? Number(item.screenid) : null;
+
+    if (recno && Number.isFinite(recno)) {
+      const existing = await prisma.userrights.findFirst({
+        where: { recno, policyid: policyRecno, tenantid },
+        select: { screenid: true }
+      });
+      if (!existing?.screenid) {
+        throw clientError(`userRights row recno ${recno} not found for this policy`, 404);
+      }
+      screenid = existing.screenid;
+    }
+
+    if (!screenid || !Number.isFinite(screenid)) {
+      throw clientError("Each userRights item needs recno or screenid");
+    }
+
+    pending.set(screenid, flags);
+  }
+
   await prisma.$transaction(async (tx) => {
-    for (const item of rights) {
-      const flags = normalizeRightFlags(item);
-      const recno = item.recno != null ? Number(item.recno) : null;
-      const screenid = item.screenid != null ? Number(item.screenid) : null;
-      const branchid =
-        item.branchid != null ? Number(item.branchid) : Number(auth.branchid);
-
-      if (recno && Number.isFinite(recno)) {
-        const existing = await tx.userrights.findFirst({
-          where: { recno, policyid: policyRecno, tenantid }
-        });
-        if (!existing) {
-          throw clientError(`userRights row recno ${recno} not found for this policy`, 404);
-        }
-        await tx.userrights.update({
-          where: { recno },
-          data: {
-            ...flags,
-            lastupdatedby: userid,
-            updatedat: now
-          }
-        });
-        continue;
-      }
-
-      if (!screenid || !Number.isFinite(screenid)) {
-        throw clientError("Each userRights item needs recno or screenid");
-      }
-      if (!branchid || !Number.isFinite(branchid)) {
-        throw clientError("Each userRights item needs branchid when recno is omitted");
-      }
-
-      const branch = await tx.branches.findFirst({
-        where: { branchid, tenantid },
-        select: { branchid: true }
+    for (const [screenid, flags] of pending) {
+      await saveOrganizationScreenRights(tx, {
+        policyRecno,
+        tenantid,
+        screenid,
+        flags,
+        userid,
+        now
       });
-      if (!branch) {
-        throw clientError(`branchid ${branchid} is not valid for this organization`, 400);
-      }
-
-      const existing = await tx.userrights.findFirst({
-        where: {
-          policyid: policyRecno,
-          tenantid,
-          branchid,
-          screenid
-        }
-      });
-
-      if (existing) {
-        await tx.userrights.update({
-          where: { recno: existing.recno },
-          data: {
-            ...flags,
-            lastupdatedby: userid,
-            updatedat: now
-          }
-        });
-      } else {
-        await syncPostgresSequence(tx, "userrights", "recno");
-        await tx.userrights.create({
-          data: {
-            policyid: policyRecno,
-            tenantid,
-            branchid,
-            screenid,
-            ...flags,
-            createdby: userid,
-            createdat: now,
-            lastupdatedby: userid,
-            updatedat: now
-          }
-        });
-      }
     }
   });
 
@@ -138,5 +195,6 @@ async function updatePolicyRights(policyId, auth, body) {
 module.exports = {
   normalizeRightFlags,
   extractRightsArray,
+  collapsePolicyUserRights,
   updatePolicyRights
 };

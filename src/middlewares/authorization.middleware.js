@@ -144,11 +144,7 @@ async function hasRight(auth, resourceName, action) {
     where: {
       tenantid: Number(auth.tenantid),
       screenid: screen.screenid,
-      policyid: { in: policyIds },
-      OR: [
-        { branchid: Number(auth.branchid) },
-        { branchid: null }
-      ]
+      policyid: { in: policyIds }
     }
   });
 
@@ -159,7 +155,7 @@ async function hasRight(auth, resourceName, action) {
     if (!rights.length) {
       const insertData = policyIds.map((policyid) => ({
         tenantid: Number(auth.tenantid),
-        branchid: Number(auth.branchid),
+        branchid: null,
         policyid,
         screenid: screen.screenid,
         viewscreen: true,

@@ -76,16 +76,26 @@ class UserRightsService {
     }
 
     // 🔥 STEP 3: NORMAL USERS
-    const rights = await prisma.userrights.findFirst({
+    const rightsRows = await prisma.userrights.findMany({
       where: {
         screenid: screen.screenid,
         policyid: userPolicy.policyid,
-        tenantid: tenantId,
-        branchid: branchId
+        tenantid: tenantId
       }
     });
 
-    return rights || null;
+    if (!rightsRows.length) {
+      return null;
+    }
+
+    return {
+      screenid: screen.screenid,
+      viewscreen: rightsRows.some((row) => row.viewscreen === true),
+      addscreen: rightsRows.some((row) => row.addscreen === true),
+      updatescreen: rightsRows.some((row) => row.updatescreen === true),
+      deletescreen: rightsRows.some((row) => row.deletescreen === true),
+      others: rightsRows.some((row) => row.others === true)
+    };
 
   } catch (error) {
     console.error("[UserRights] error:", error);

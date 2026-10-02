@@ -961,7 +961,7 @@ const resourcePaths = Object.fromEntries(
               put: {
                 summary: "Update policy screen rights (bulk)",
                 description:
-                  "Updates view/add/update/delete/others flags per screen. Use recno from GET /api/policies/details/:id or screenid+branchid.",
+                  "Updates view/add/update/delete/others flags per screen for the organization. Use recno from GET /api/policies/details/:id or screenid. Rights are not stored per branch.",
                 tags: [config.tag || name],
                 security: [{ bearerAuth: [] }],
                 parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
@@ -8415,7 +8415,11 @@ module.exports = swaggerJsdoc({
           properties: {
             recno: { type: "integer", description: "userrights.recno (preferred for updates)" },
             screenid: { type: "integer", description: "Required if recno omitted" },
-            branchid: { type: "integer", description: "Branch scope; defaults to JWT branchid" },
+            branchid: {
+              type: "integer",
+              nullable: true,
+              description: "Ignored. Policy rights belong to the organization, not a branch."
+            },
             screenname: { type: "string", readOnly: true },
             controllername: { type: "string", readOnly: true },
             view: { type: "boolean" },
