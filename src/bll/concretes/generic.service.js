@@ -7,6 +7,7 @@ const {
   assignAllScreensToNewPolicy
 } = require("../../services/screen-admin-rights.service");
 const {
+  collapsePolicyUserRights,
   extractRightsArray,
   updatePolicyRights: applyPolicyRightsUpdate
 } = require("../../services/policy-rights.service");
@@ -312,7 +313,7 @@ class GenericService {
     }
 
     const { userrights, ...policyFields } = policy;
-    const userRights = (userrights || []).map((row) => this.toPolicyUserRightDto(row));
+    const userRights = collapsePolicyUserRights(userrights).map((row) => this.toPolicyUserRightDto(row));
 
     return {
       ...this.sanitizeRow(policyFields),

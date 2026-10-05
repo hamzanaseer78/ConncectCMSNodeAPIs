@@ -5,10 +5,10 @@ function isDefaultAdminPolicy(policy) {
   return policy?.isdefaultpolicy === true;
 }
 
-function buildScreenRightsRow({
+function buildOrganizationScreenRightsRow({
   screenid,
   policy,
-  branchid,
+  tenantid,
   fullAccess,
   createdby,
   createdat
@@ -16,8 +16,8 @@ function buildScreenRightsRow({
   return {
     screenid,
     policyid: policy.recno,
-    tenantid: policy.tenantid,
-    branchid,
+    tenantid,
+    branchid: null,
     viewscreen: fullAccess,
     addscreen: fullAccess,
     updatescreen: fullAccess,
@@ -30,6 +30,7 @@ function buildScreenRightsRow({
 
 /**
  * Attach a new screen to every policy (default admin, role templates, custom).
+ * One organization-level userrights row per policy (branchid null).
  * Default admin policies get full rights; all others get the screen with rights disabled.
  *
  * @param {import("@prisma/client").Prisma.TransactionClient} tx
@@ -55,27 +56,16 @@ async function assignNewScreenToAllPolicies(tx, screenid, auth) {
     }
 
     const fullAccess = isDefaultAdminPolicy(policy);
-    const branches = await tx.branches.findMany({
-      where: { tenantid: policy.tenantid },
-      select: { branchid: true }
-    });
-
-    for (const b of branches) {
-      if (b.branchid == null) {
-        continue;
-      }
-
-      rowsToInsert.push(
-        buildScreenRightsRow({
-          screenid,
-          policy,
-          branchid: b.branchid,
-          fullAccess,
-          createdby,
-          createdat: now
-        })
-      );
-    }
+    rowsToInsert.push(
+      buildOrganizationScreenRightsRow({
+        screenid,
+        policy,
+        tenantid: policy.tenantid,
+        fullAccess,
+        createdby,
+        createdat: now
+      })
+    );
   }
 
   if (!rowsToInsert.length) {
@@ -91,17 +81,14 @@ async function assignNewScreenToAllPolicies(tx, screenid, auth) {
     },
     select: {
       policyid: true,
-      tenantid: true,
-      branchid: true
+      tenantid: true
     }
   });
 
-  const existingSet = new Set(
-    existing.map((r) => `${r.policyid}-${r.tenantid}-${r.branchid}`)
-  );
+  const existingSet = new Set(existing.map((r) => `${r.policyid}-${r.tenantid}`));
 
   const deduped = rowsToInsert.filter(
-    (r) => !existingSet.has(`${r.policyid}-${r.tenantid}-${r.branchid}`)
+    (r) => !existingSet.has(`${r.policyid}-${r.tenantid}`)
   );
 
   if (deduped.length) {
@@ -116,8 +103,9 @@ async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
 }
 
 /**
- * When a new policy is created for a tenant, grant every accessible screen on each
- * branch under that tenant. Non-admin policies start with all actions disabled.
+ * When a new policy is created for a tenant, grant every accessible screen once.
+ * Rights belong to the organization, not to a branch. Non-admin policies start
+ * with all actions disabled.
  *
  * @param {import("@prisma/client").Prisma.TransactionClient} tx
  * @param {{ recno: number, tenantid: number|null, isdefaultpolicy?: boolean|null }} policy
@@ -126,14 +114,6 @@ async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
 async function assignAllScreensToNewPolicy(tx, policy, auth) {
   const tenantid = policy.tenantid;
   if (tenantid == null) {
-    return;
-  }
-
-  const branches = await tx.branches.findMany({
-    where: { tenantid },
-    select: { branchid: true }
-  });
-  if (!branches.length) {
     return;
   }
 
@@ -152,24 +132,16 @@ async function assignAllScreensToNewPolicy(tx, policy, auth) {
   const now = utcNow();
   const createdby = auth?.userid != null ? Number(auth.userid) : null;
 
-  const rowsToInsert = [];
-  for (const screen of screens) {
-    for (const branch of branches) {
-      if (branch.branchid == null) {
-        continue;
-      }
-      rowsToInsert.push(
-        buildScreenRightsRow({
-          screenid: screen.screenid,
-          policy,
-          branchid: branch.branchid,
-          fullAccess,
-          createdby,
-          createdat: now
-        })
-      );
-    }
-  }
+  const rowsToInsert = screens.map((screen) =>
+    buildOrganizationScreenRightsRow({
+      screenid: screen.screenid,
+      policy,
+      tenantid,
+      fullAccess,
+      createdby,
+      createdat: now
+    })
+  );
 
   if (!rowsToInsert.length) {
     return;
