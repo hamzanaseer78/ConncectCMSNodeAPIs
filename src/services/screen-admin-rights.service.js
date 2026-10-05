@@ -1,35 +1,60 @@
 const { utcNow } = require("../utils/date");
 const { syncPostgresSequence } = require("../utils/postgres-sequence");
 
+function isDefaultAdminPolicy(policy) {
+  return policy?.isdefaultpolicy === true;
+}
+
+function buildScreenRightsRow({
+  screenid,
+  policy,
+  branchid,
+  fullAccess,
+  createdby,
+  createdat
+}) {
+  return {
+    screenid,
+    policyid: policy.recno,
+    tenantid: policy.tenantid,
+    branchid,
+    viewscreen: fullAccess,
+    addscreen: fullAccess,
+    updatescreen: fullAccess,
+    deletescreen: fullAccess,
+    others: fullAccess,
+    createdby,
+    createdat
+  };
+}
+
 /**
- * For each default ("main") admin policy, grants full userrights on `screenid`
- * for every branch under that policy's tenant — mirrors org-wide admin coverage
- * when new screens are introduced after tenants already exist.
+ * Attach a new screen to every policy (default admin, role templates, custom).
+ * Default admin policies get full rights; all others get the screen with rights disabled.
  *
  * @param {import("@prisma/client").Prisma.TransactionClient} tx
  * @param {number} screenid
  * @param {{ userid?: number|string }} auth
  */
-async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
-  const adminPolicies = await tx.policies.findMany({
-    where: { isdefaultpolicy: true },
-    select: { recno: true, tenantid: true }
+async function assignNewScreenToAllPolicies(tx, screenid, auth) {
+  const policies = await tx.policies.findMany({
+    select: { recno: true, tenantid: true, isdefaultpolicy: true }
   });
 
-  if (!adminPolicies.length) {
+  if (!policies.length) {
     return;
   }
 
   const now = utcNow();
   const createdby = auth?.userid != null ? Number(auth.userid) : null;
-
   const rowsToInsert = [];
 
-  for (const policy of adminPolicies) {
+  for (const policy of policies) {
     if (policy.tenantid == null) {
       continue;
     }
 
+    const fullAccess = isDefaultAdminPolicy(policy);
     const branches = await tx.branches.findMany({
       where: { tenantid: policy.tenantid },
       select: { branchid: true }
@@ -40,19 +65,16 @@ async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
         continue;
       }
 
-      rowsToInsert.push({
-        screenid,
-        policyid: policy.recno,
-        tenantid: policy.tenantid,
-        branchid: b.branchid,
-        viewscreen: true,
-        addscreen: true,
-        updatescreen: true,
-        deletescreen: true,
-        others: true,
-        createdby,
-        createdat: now
-      });
+      rowsToInsert.push(
+        buildScreenRightsRow({
+          screenid,
+          policy,
+          branchid: b.branchid,
+          fullAccess,
+          createdby,
+          createdat: now
+        })
+      );
     }
   }
 
@@ -60,7 +82,7 @@ async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
     return;
   }
 
-  const policyIds = [...new Set(adminPolicies.map((p) => p.recno))];
+  const policyIds = [...new Set(policies.map((p) => p.recno))];
 
   const existing = await tx.userrights.findMany({
     where: {
@@ -86,6 +108,11 @@ async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
     await syncPostgresSequence(tx, "userrights", "recno");
     await tx.userrights.createMany({ data: deduped });
   }
+}
+
+/** @deprecated Use assignNewScreenToAllPolicies */
+async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
+  return assignNewScreenToAllPolicies(tx, screenid, auth);
 }
 
 /**
@@ -121,7 +148,7 @@ async function assignAllScreensToNewPolicy(tx, policy, auth) {
     return;
   }
 
-  const fullAccess = policy.isdefaultpolicy === true;
+  const fullAccess = isDefaultAdminPolicy(policy);
   const now = utcNow();
   const createdby = auth?.userid != null ? Number(auth.userid) : null;
 
@@ -131,19 +158,16 @@ async function assignAllScreensToNewPolicy(tx, policy, auth) {
       if (branch.branchid == null) {
         continue;
       }
-      rowsToInsert.push({
-        screenid: screen.screenid,
-        policyid: policy.recno,
-        tenantid,
-        branchid: branch.branchid,
-        viewscreen: fullAccess,
-        addscreen: fullAccess,
-        updatescreen: fullAccess,
-        deletescreen: fullAccess,
-        others: fullAccess,
-        createdby,
-        createdat: now
-      });
+      rowsToInsert.push(
+        buildScreenRightsRow({
+          screenid: screen.screenid,
+          policy,
+          branchid: branch.branchid,
+          fullAccess,
+          createdby,
+          createdat: now
+        })
+      );
     }
   }
 
@@ -156,6 +180,7 @@ async function assignAllScreensToNewPolicy(tx, policy, auth) {
 }
 
 module.exports = {
+  assignNewScreenToAllPolicies,
   assignNewScreenToDefaultAdminPolicies,
   assignAllScreensToNewPolicy
 };

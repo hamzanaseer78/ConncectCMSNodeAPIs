@@ -3,7 +3,7 @@ const GenericRepository = require("../../dataaccess/concretes/generic.repository
 const prisma = require("../../database/prisma");
 const { utcNow } = require("../../utils/date");
 const {
-  assignNewScreenToDefaultAdminPolicies,
+  assignNewScreenToAllPolicies,
   assignAllScreensToNewPolicy
 } = require("../../services/screen-admin-rights.service");
 const {
@@ -452,7 +452,7 @@ class GenericService {
       try {
         row = await prisma.$transaction(async (tx) => {
           const created = await tx.screens.create({ data: payload });
-          await assignNewScreenToDefaultAdminPolicies(tx, created.screenid, auth);
+          await assignNewScreenToAllPolicies(tx, created.screenid, auth);
           return created;
         });
       } catch (err) {
