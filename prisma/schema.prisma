@@ -422,6 +422,7 @@ model organizations {
   jobcpairissuelog                         jobcpairissuelog[]
   reportcolumnpreferences                  reportcolumnpreferences[]
   useractivitylogs                         useractivitylogs[]
+  organizationaisettings                   organizationaisettings?
 
   @@index([tenantid], map: "idx_jsl_organizations")
 }
@@ -1799,4 +1800,19 @@ model useractivitylogs {
   @@index([module, recordedat(sort: Desc)], map: "idx_useractivitylogs_module_time")
   @@index([jobid, recordedat(sort: Desc)], map: "idx_useractivitylogs_job_time")
   @@index([action, recordedat(sort: Desc)], map: "idx_useractivitylogs_action_time")
+}
+
+model organizationaisettings {
+  recno         Int            @id @default(autoincrement())
+  tenantid      Int            @unique(map: "uq_organizationaisettings_tenantid")
+  provider      String?        @db.VarChar(20)
+  apikeycipher  String?
+  questionsused Int            @default(0)
+  createdby     Int?
+  createdat     DateTime?      @db.Timestamp(6)
+  lastupdatedby Int?
+  lastupdatedat DateTime?      @db.Timestamp(6)
+  organizations organizations  @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_organizationaisettings_tenant")
+
+  @@index([tenantid], map: "idx_organizationaisettings_tenantid")
 }

@@ -1045,6 +1045,59 @@ module.exports = swaggerJsdoc({
       { name: "GraphQL", description: "GraphQL reporting and dashboard endpoint" }
     ],
     paths: {
+      "/api/ai/setup": {
+        get: {
+          summary: "Organization AI chat status",
+          description:
+            "Questions used toward the 3 free questions, and whether this organization has saved its own provider key. The key itself is never returned.",
+          tags: ["AI"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "AI setup status",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/OrganizationAiSetup" } }
+              }
+            }
+          }
+        },
+        put: {
+          summary: "Save organization AI provider and API key",
+          description:
+            "Organization admin only. Provider is openai (ChatGPT), gemini, or claude. After this is saved, chat uses this key instead of the free platform allowance.",
+          tags: ["AI"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/OrganizationAiSetupBody" } }
+            }
+          },
+          responses: {
+            200: { description: "AI provider saved" },
+            403: { description: "Not an organization admin" }
+          }
+        }
+      },
+      "/api/ai/chat": {
+        post: {
+          summary: "Ask the organization AI assistant",
+          description:
+            "The first 3 questions for an organization use the platform Gemini key. After that, the organization must save its own provider and API key. The model can read job lists and job KPI counts for the signed-in user.",
+          tags: ["AI"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/OrganizationAiChatBody" } }
+            }
+          },
+          responses: {
+            200: { description: "Assistant answer" },
+            402: { description: "Free questions used. Save a provider key." }
+          }
+        }
+      },
       "/api/auth/signup": {
         post: {
           summary: "Start signup",
@@ -6353,6 +6406,45 @@ module.exports = swaggerJsdoc({
         }
       },
       schemas: {
+        OrganizationAiSetupBody: {
+          type: "object",
+          required: ["provider", "apiKey"],
+          properties: {
+            provider: { type: "string", enum: ["openai", "gemini", "claude"], example: "gemini" },
+            apiKey: { type: "string", description: "Provider API key. Stored encrypted and not returned." }
+          }
+        },
+        OrganizationAiSetup: {
+          type: "object",
+          properties: {
+            questionLimit: { type: "integer", example: 3 },
+            questionsUsed: { type: "integer" },
+            questionsRemaining: { type: "integer", nullable: true },
+            provider: { type: "string", nullable: true },
+            keyConfigured: { type: "boolean" },
+            usingOrganizationKey: { type: "boolean" },
+            platformAvailable: { type: "boolean" },
+            requiresAiSetup: { type: "boolean" },
+            providers: { type: "array", items: { type: "string" } }
+          }
+        },
+        OrganizationAiChatBody: {
+          type: "object",
+          required: ["message"],
+          properties: {
+            message: { type: "string" },
+            history: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  role: { type: "string", enum: ["user", "assistant"] },
+                  content: { type: "string" }
+                }
+              }
+            }
+          }
+        },
         Pagination: {
           type: "object",
           properties: {
