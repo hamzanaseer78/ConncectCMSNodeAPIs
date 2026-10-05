@@ -25,11 +25,12 @@ async function askAi(req, res, next) {
     const data = await organizationAiService.ask(req.auth, req.body || {});
     res.status(200).json(data);
   } catch (err) {
-    if (err.details) {
-      res.status(err.status || 402).json({
+    if (err.clientSafe || err.details) {
+      const status = err.status && err.status < 500 ? err.status : 400;
+      res.status(status).json({
         error: err.message,
-        status: err.status || 402,
-        ...err.details
+        status,
+        ...(err.details || {})
       });
       return;
     }

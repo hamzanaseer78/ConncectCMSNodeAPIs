@@ -7,9 +7,16 @@ const SYSTEM_PROMPT =
   "Answer from tool results. Do not invent job counts or job records. " +
   "If a tool fails, say what failed. Keep answers short.";
 
-function providerError(message, status = 502) {
+function geminiModel() {
+  const configured = String(process.env.GEMINI_MODEL || "").trim();
+  return configured || "gemini-3.8-flash";
+}
+
+function providerError(message, status = 400) {
   const err = new Error(message);
-  err.status = status;
+  const code = Number(status);
+  err.status = Number.isFinite(code) && code >= 400 && code < 500 ? code : 400;
+  err.clientSafe = true;
   throw err;
 }
 
@@ -62,7 +69,7 @@ async function chatGemini({ apiKey, message, history, auth }) {
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

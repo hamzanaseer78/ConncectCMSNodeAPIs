@@ -137,13 +137,24 @@ async function ask(auth, body = {}) {
     ? decryptAiKey(row.apikeycipher)
     : String(process.env.GEMINI_API_KEY).trim();
 
-  const answer = await completeOrganizationChat({
-    provider,
-    apiKey,
-    message,
-    history: body.history,
-    auth
-  });
+  let answer;
+  try {
+    answer = await completeOrganizationChat({
+      provider,
+      apiKey,
+      message,
+      history: body.history,
+      auth
+    });
+  } catch (err) {
+    if (err.clientSafe || err.details) {
+      throw err;
+    }
+    const wrapped = new Error(err.message || "AI provider request failed");
+    wrapped.status = 400;
+    wrapped.clientSafe = true;
+    throw wrapped;
+  }
 
   const now = utcNow();
   const questionsUsed = (Number(row?.questionsused) || 0) + 1;
