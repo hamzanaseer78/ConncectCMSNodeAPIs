@@ -1,28 +1,27 @@
 const { utcNow } = require("../utils/date");
 const { syncPostgresSequence } = require("../utils/postgres-sequence");
+const { resolveAttachedScreenRights } = require("../config/default-organization-policies");
 
-function isDefaultAdminPolicy(policy) {
-  return policy?.isdefaultpolicy === true;
-}
+const SCREEN_RIGHTS_SELECT = {
+  screenid: true,
+  screenname: true,
+  controllername: true,
+  screengroup: true
+};
 
 function buildOrganizationScreenRightsRow({
-  screenid,
+  screen,
   policy,
   tenantid,
-  fullAccess,
   createdby,
   createdat
 }) {
   return {
-    screenid,
+    screenid: screen.screenid,
     policyid: policy.recno,
     tenantid,
     branchid: null,
-    viewscreen: fullAccess,
-    addscreen: fullAccess,
-    updatescreen: fullAccess,
-    deletescreen: fullAccess,
-    others: fullAccess,
+    ...resolveAttachedScreenRights(policy, screen),
     createdby,
     createdat
   };
@@ -31,15 +30,23 @@ function buildOrganizationScreenRightsRow({
 /**
  * Attach a new screen to every policy (default admin, role templates, custom).
  * One organization-level userrights row per policy (branchid null).
- * Default admin policies get full rights; all others get the screen with rights disabled.
+ * Rights follow that policy's relative screens. Custom policies stay attached with rights off.
  *
  * @param {import("@prisma/client").Prisma.TransactionClient} tx
  * @param {number} screenid
  * @param {{ userid?: number|string }} auth
  */
 async function assignNewScreenToAllPolicies(tx, screenid, auth) {
+  const screen = await tx.screens.findFirst({
+    where: { screenid: Number(screenid) },
+    select: SCREEN_RIGHTS_SELECT
+  });
+  if (!screen) {
+    return;
+  }
+
   const policies = await tx.policies.findMany({
-    select: { recno: true, tenantid: true, isdefaultpolicy: true }
+    select: { recno: true, tenantid: true, isdefaultpolicy: true, description: true }
   });
 
   if (!policies.length) {
@@ -55,13 +62,11 @@ async function assignNewScreenToAllPolicies(tx, screenid, auth) {
       continue;
     }
 
-    const fullAccess = isDefaultAdminPolicy(policy);
     rowsToInsert.push(
       buildOrganizationScreenRightsRow({
-        screenid,
+        screen,
         policy,
         tenantid: policy.tenantid,
-        fullAccess,
         createdby,
         createdat: now
       })
@@ -103,12 +108,12 @@ async function assignNewScreenToDefaultAdminPolicies(tx, screenid, auth) {
 }
 
 /**
- * When a new policy is created for a tenant, grant every accessible screen once.
- * Rights belong to the organization, not to a branch. Non-admin policies start
- * with all actions disabled.
+ * When a new policy is created for a tenant, attach every accessible screen once.
+ * Rights belong to the organization, not to a branch.
+ * Known roles enable only their relative screens. Custom policies attach every screen with rights off.
  *
  * @param {import("@prisma/client").Prisma.TransactionClient} tx
- * @param {{ recno: number, tenantid: number|null, isdefaultpolicy?: boolean|null }} policy
+ * @param {{ recno: number, tenantid: number|null, isdefaultpolicy?: boolean|null, description?: string|null }} policy
  * @param {{ userid?: number|string }} auth
  */
 async function assignAllScreensToNewPolicy(tx, policy, auth) {
@@ -121,23 +126,21 @@ async function assignAllScreensToNewPolicy(tx, policy, auth) {
     where: {
       OR: [{ accessible: true }, { accessible: null }]
     },
-    select: { screenid: true },
+    select: SCREEN_RIGHTS_SELECT,
     orderBy: { screenid: "asc" }
   });
   if (!screens.length) {
     return;
   }
 
-  const fullAccess = isDefaultAdminPolicy(policy);
   const now = utcNow();
   const createdby = auth?.userid != null ? Number(auth.userid) : null;
 
   const rowsToInsert = screens.map((screen) =>
     buildOrganizationScreenRightsRow({
-      screenid: screen.screenid,
+      screen,
       policy,
       tenantid,
-      fullAccess,
       createdby,
       createdat: now
     })
