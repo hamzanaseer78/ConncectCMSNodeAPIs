@@ -32,6 +32,23 @@ async function readJson(response) {
   }
 }
 
+function providerFailureMessage(body, fallback) {
+  const nested = body && body.error;
+  if (nested && typeof nested === "object" && String(nested.message || "").trim()) {
+    return String(nested.message).trim();
+  }
+  if (body && String(body.message || "").trim()) {
+    return String(body.message).trim();
+  }
+  if (typeof nested === "string" && nested.trim()) {
+    return nested.trim();
+  }
+  if (body && String(body.raw || "").trim()) {
+    return String(body.raw).trim().slice(0, 500);
+  }
+  return fallback;
+}
+
 function trimHistory(history) {
   if (!Array.isArray(history)) return [];
   return history
@@ -85,7 +102,7 @@ async function chatGemini({ apiKey, message, history, auth }) {
     );
     const body = await readJson(response);
     if (!response.ok) {
-      providerError(body?.error?.message || "Gemini request failed");
+      providerError(providerFailureMessage(body, "Gemini request failed"), response.status);
     }
 
     const parts = body?.candidates?.[0]?.content?.parts || [];
@@ -161,7 +178,7 @@ async function chatOpenAiCompatible({
     });
     const body = await readJson(response);
     if (!response.ok) {
-      providerError(body?.error?.message || `${failureLabel} request failed`);
+      providerError(providerFailureMessage(body, `${failureLabel} request failed`), response.status);
     }
 
     const choice = body?.choices?.[0]?.message;
@@ -208,14 +225,165 @@ function chatOpenAi(options) {
   });
 }
 
-function chatCursor(options) {
-  const base = String(process.env.CURSOR_API_BASE || "https://api.cursor.com/v1").replace(/\/$/, "");
-  return chatOpenAiCompatible({
-    ...options,
-    url: `${base}/chat/completions`,
-    model: cursorModel(),
-    failureLabel: "Cursor"
+const CURSOR_RUN_TIMEOUT_MS = 120000;
+const CURSOR_POLL_MS = 2000;
+
+function cursorApiOrigin() {
+  return String(process.env.CURSOR_API_BASE || "https://api.cursor.com")
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/v1$/, "");
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseCursorToolCalls(text) {
+  let candidate = String(text || "").trim();
+  const fenced = candidate.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
+  if (fenced) candidate = fenced[1].trim();
+  if (!candidate.startsWith("{") || !candidate.endsWith("}")) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    return null;
+  }
+
+  const calls = parsed.tool_calls || parsed.toolCalls;
+  if (!Array.isArray(calls) || !calls.length) return null;
+  const allowed = new Set(AI_TOOLS.map((tool) => tool.name));
+  const normalized = calls
+    .filter((call) => call && allowed.has(call.name))
+    .map((call, index) => ({
+      id: String(call.id || `${call.name}-${index}`),
+      name: call.name,
+      args: call.args && typeof call.args === "object" ? call.args : {}
+    }));
+  return normalized.length ? normalized : null;
+}
+
+function buildCursorPrompt(message, history) {
+  const historyText = trimHistory(history)
+    .map((item) => `${item.role}: ${item.content}`)
+    .join("\n");
+  const toolLines = AI_TOOLS.map(
+    (tool) => `- ${tool.name}: ${tool.description} Arguments: ${JSON.stringify(tool.parameters)}`
+  ).join("\n");
+
+  return [
+    SYSTEM_PROMPT,
+    "Answer as a no-repo assistant. Do not edit files, run commands, or browse a repository.",
+    "If you need organization data, your entire reply must be only a JSON object, for example:",
+    '{"tool_calls":[{"name":"job_stats_kpis","args":{"mode":"all"}}]}',
+    "Allowed tools:",
+    toolLines,
+    "When you can answer, reply in plain text only.",
+    historyText ? `Conversation so far:\n${historyText}` : "",
+    `User: ${message}`
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+async function cursorFetch(apiKey, path, { method = "GET", body } = {}) {
+  return fetch(`${cursorApiOrigin()}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: body === undefined ? undefined : JSON.stringify(body)
   });
+}
+
+async function cursorJson(apiKey, path, options) {
+  const response = await cursorFetch(apiKey, path, options);
+  const body = await readJson(response);
+  if (!response.ok) {
+    providerError(providerFailureMessage(body, "Cursor request failed"), response.status);
+  }
+  return body;
+}
+
+async function deleteCursorAgent(apiKey, agentId) {
+  try {
+    await cursorFetch(apiKey, `/v1/agents/${encodeURIComponent(agentId)}`, { method: "DELETE" });
+  } catch {
+    // The reply is already available. A leftover agent can be removed from the Cursor dashboard.
+  }
+}
+
+async function waitForCursorRun(apiKey, agentId, runId) {
+  const deadline = Date.now() + CURSOR_RUN_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const body = await cursorJson(
+      apiKey,
+      `/v1/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}`
+    );
+    const status = String(body.status || "").toUpperCase();
+    if (status === "FINISHED") {
+      return String(body.result || "").trim();
+    }
+    if (status === "ERROR" || status === "FAILED" || status === "CANCELLED" || status === "EXPIRED") {
+      providerError(String(body.result || "").trim() || `Cursor run ${status.toLowerCase()}`);
+    }
+    await delay(CURSOR_POLL_MS);
+  }
+  providerError("Cursor did not finish in time");
+}
+
+async function chatCursor({ apiKey, message, history, auth }) {
+  let agentId;
+  try {
+    const created = await cursorJson(apiKey, "/v1/agents", {
+      method: "POST",
+      body: {
+        name: "ConnectCMS assistant",
+        model: { id: cursorModel() },
+        prompt: { text: buildCursorPrompt(message, history) }
+      }
+    });
+    agentId = created?.agent?.id;
+    let runId = created?.run?.id;
+    if (!agentId || !runId) {
+      providerError("Cursor did not start a run");
+    }
+
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+      const text = await waitForCursorRun(apiKey, agentId, runId);
+      const calls = parseCursorToolCalls(text);
+      if (!calls) {
+        return text || "No answer returned.";
+      }
+
+      const results = await runToolRound(auth, calls);
+      const followUp = await cursorJson(apiKey, `/v1/agents/${encodeURIComponent(agentId)}/runs`, {
+        method: "POST",
+        body: {
+          prompt: {
+            text: [
+              "Tool results:",
+              ...results.map((result) => `${result.name}: ${JSON.stringify(result.data)}`),
+              "Answer the user in plain text. If you still need a tool, reply with only the JSON tool_calls object."
+            ].join("\n")
+          }
+        }
+      });
+      runId = followUp?.run?.id;
+      if (!runId) {
+        providerError("Cursor did not start a follow-up run");
+      }
+    }
+
+    providerError("Cursor did not finish within the tool limit");
+  } finally {
+    if (agentId) {
+      await deleteCursorAgent(apiKey, agentId);
+    }
+  }
 }
 
 async function chatClaude({ apiKey, message, history, auth }) {
@@ -250,7 +418,7 @@ async function chatClaude({ apiKey, message, history, auth }) {
     });
     const body = await readJson(response);
     if (!response.ok) {
-      providerError(body?.error?.message || "Claude request failed");
+      providerError(providerFailureMessage(body, "Claude request failed"), response.status);
     }
 
     const blocks = body?.content || [];
@@ -303,5 +471,8 @@ async function completeOrganizationChat({ provider, apiKey, message, history, au
 }
 
 module.exports = {
-  completeOrganizationChat
+  completeOrganizationChat,
+  providerFailureMessage,
+  parseCursorToolCalls,
+  cursorApiOrigin
 };
