@@ -4,7 +4,10 @@ const MAX_TOOL_ROUNDS = 4;
 
 const SYSTEM_PROMPT =
   "You are the ConnectCMS assistant for the signed-in organization. " +
-  "Answer from tool results. Do not invent job counts or job records. " +
+  "For any how-many or pending question, call job_stats_kpis and quote those numbers only. " +
+  "pendingJobs is new jobs plus assigned jobs, the same cards as the Jobs List. " +
+  "Do not count rows returned by list_jobs. " +
+  "Use mode all unless the user asks only for jobs assigned to themselves. " +
   "If a tool fails, say what failed. Keep answers short.";
 
 function geminiModel() {
@@ -115,7 +118,20 @@ async function chatGemini({ apiKey, message, history, auth }) {
   providerError("Gemini did not finish within the tool limit");
 }
 
-async function chatOpenAi({ apiKey, message, history, auth }) {
+function cursorModel() {
+  const configured = String(process.env.CURSOR_MODEL || "").trim();
+  return configured || "composer-2.5";
+}
+
+async function chatOpenAiCompatible({
+  apiKey,
+  message,
+  history,
+  auth,
+  url,
+  model,
+  failureLabel
+}) {
   const messages = [
     { role: "system", content: SYSTEM_PROMPT },
     ...trimHistory(history),
@@ -131,21 +147,21 @@ async function chatOpenAi({ apiKey, message, history, auth }) {
   }));
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model,
         messages,
         tools
       })
     });
     const body = await readJson(response);
     if (!response.ok) {
-      providerError(body?.error?.message || "OpenAI request failed");
+      providerError(body?.error?.message || `${failureLabel} request failed`);
     }
 
     const choice = body?.choices?.[0]?.message;
@@ -180,7 +196,26 @@ async function chatOpenAi({ apiKey, message, history, auth }) {
     });
   }
 
-  providerError("OpenAI did not finish within the tool limit");
+  providerError(`${failureLabel} did not finish within the tool limit`);
+}
+
+function chatOpenAi(options) {
+  return chatOpenAiCompatible({
+    ...options,
+    url: "https://api.openai.com/v1/chat/completions",
+    model: "gpt-4o-mini",
+    failureLabel: "OpenAI"
+  });
+}
+
+function chatCursor(options) {
+  const base = String(process.env.CURSOR_API_BASE || "https://api.cursor.com/v1").replace(/\/$/, "");
+  return chatOpenAiCompatible({
+    ...options,
+    url: `${base}/chat/completions`,
+    model: cursorModel(),
+    failureLabel: "Cursor"
+  });
 }
 
 async function chatClaude({ apiKey, message, history, auth }) {
@@ -260,6 +295,9 @@ async function completeOrganizationChat({ provider, apiKey, message, history, au
   }
   if (provider === "claude") {
     return chatClaude({ apiKey, message, history, auth });
+  }
+  if (provider === "cursor") {
+    return chatCursor({ apiKey, message, history, auth });
   }
   providerError(`Unsupported provider ${provider}`, 400);
 }

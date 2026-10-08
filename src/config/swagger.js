@@ -1064,7 +1064,7 @@ module.exports = swaggerJsdoc({
         put: {
           summary: "Save organization AI provider and API key",
           description:
-            "Organization admin only. Provider is openai (ChatGPT), gemini, or claude. After this is saved, chat uses this key instead of the free platform allowance.",
+            "Organization admin only. Provider is openai (ChatGPT), gemini, claude, or cursor. After this is saved, chat uses this key instead of the free platform allowance.",
           tags: ["AI"],
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -2066,7 +2066,7 @@ module.exports = swaggerJsdoc({
         post: {
           summary: "Record user location pings (batch)",
           description:
-            "Stores one row per ping for the JWT user in the current tenant/branch. Send a JSON array of ping objects, or `{ \"pings\": [...] }`. Max 100 per request. Omit `jobid` to record general technician location when not travelling to or working on a job.",
+            "Stores one row per ping for the JWT user in the current tenant/branch. Send a JSON array of ping objects, or `{ \"pings\": [...] }`. Max 150 per request. Omit `jobid` to record general technician location when not travelling to or working on a job.",
           tags: ["Tracking"],
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -6410,7 +6410,7 @@ module.exports = swaggerJsdoc({
           type: "object",
           required: ["provider", "apiKey"],
           properties: {
-            provider: { type: "string", enum: ["openai", "gemini", "claude"], example: "gemini" },
+            provider: { type: "string", enum: ["openai", "gemini", "claude", "cursor"], example: "gemini" },
             apiKey: { type: "string", description: "Provider API key. Stored encrypted and not returned." }
           }
         },
@@ -10052,7 +10052,7 @@ module.exports = swaggerJsdoc({
             {
               type: "array",
               minItems: 1,
-              maxItems: 100,
+              maxItems: 150,
               items: { $ref: "#/components/schemas/TrackingPingItem" }
             },
             {
@@ -10062,7 +10062,7 @@ module.exports = swaggerJsdoc({
                 pings: {
                   type: "array",
                   minItems: 1,
-                  maxItems: 100,
+                  maxItems: 150,
                   items: { $ref: "#/components/schemas/TrackingPingItem" }
                 }
               }

@@ -1,10 +1,11 @@
 const { getJobsListService } = require("../../mcp/helpers/jobs-service");
+const { canManageBranchJobs } = require("../utils/job-access");
 
 const AI_TOOLS = Object.freeze([
   {
     name: "list_jobs",
     description:
-      "List jobs visible to the signed-in user. mode my = assigned to the user, all = branch jobs for admins/managers, team = a manager's technicians.",
+      "List individual jobs. Do not use this to answer how many jobs. mode all = the Jobs List for the branch, my = only jobs assigned to the signed-in user, team = a manager's technicians.",
     parameters: {
       type: "object",
       properties: {
@@ -17,7 +18,7 @@ const AI_TOOLS = Object.freeze([
   {
     name: "job_stats_kpis",
     description:
-      "Job KPI counts: new, assigned, resolved, completed, cancelled, follow-up, and total.",
+      "Job counts that match the Jobs List cards. Use this for how many / pending / total. pendingJobs = newJobs + assignedJobs. mode all matches the branch Jobs List. mode my is only jobs assigned to the signed-in user.",
     parameters: {
       type: "object",
       properties: {
@@ -37,8 +38,23 @@ function slimJob(row) {
   };
 }
 
+async function resolveMode(auth, requested) {
+  if (requested === "my" || requested === "all" || requested === "team") {
+    return requested;
+  }
+  if (await canManageBranchJobs(auth)) {
+    return "all";
+  }
+  return "my";
+}
+
+function countByKey(stats, key) {
+  const item = (stats.statsKpis || []).find((row) => row.key === key);
+  return Number(item?.count) || 0;
+}
+
 async function executeAiTool(auth, name, args = {}) {
-  const mode = ["my", "all", "team"].includes(args.mode) ? args.mode : "my";
+  const mode = await resolveMode(auth, args.mode);
   const service = getJobsListService(mode);
 
   if (name === "list_jobs") {
@@ -51,12 +67,27 @@ async function executeAiTool(auth, name, args = {}) {
     return {
       mode: result.mode,
       pagination: result.pagination,
-      jobs: (result.data || []).map(slimJob)
+      jobs: (result.data || []).map(slimJob),
+      note: "pagination.total is the full count. jobs is only the first page."
     };
   }
 
   if (name === "job_stats_kpis") {
-    return service.statsKpis(auth, {});
+    const stats = await service.statsKpis(auth, {});
+    const newJobs = countByKey(stats, "newJobs");
+    const assignedJobs = countByKey(stats, "assignedJobs");
+    return {
+      mode: stats.mode,
+      totalJobs: stats.totalJobs,
+      pendingJobs: newJobs + assignedJobs,
+      newJobs,
+      assignedJobs,
+      resolvedJobs: countByKey(stats, "resolvedJobs"),
+      completedJobs: countByKey(stats, "completedJobs"),
+      cancelledJobs: countByKey(stats, "cancelledJobs"),
+      followUpJobs: countByKey(stats, "followUpJobs"),
+      note: "These match the Jobs List cards. pendingJobs = newJobs + assignedJobs."
+    };
   }
 
   const err = new Error(`Unknown tool ${name}`);

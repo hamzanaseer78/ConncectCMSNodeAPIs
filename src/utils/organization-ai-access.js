@@ -1,4 +1,4 @@
-const AI_PROVIDERS = Object.freeze(["openai", "gemini", "claude"]);
+const AI_PROVIDERS = Object.freeze(["openai", "gemini", "claude", "cursor"]);
 const FREE_QUESTION_LIMIT = 3;
 
 const PROVIDER_ALIASES = Object.freeze({
@@ -9,7 +9,8 @@ const PROVIDER_ALIASES = Object.freeze({
   gemini: "gemini",
   google: "gemini",
   claude: "claude",
-  anthropic: "claude"
+  anthropic: "claude",
+  cursor: "cursor"
 });
 
 function normalizeAiProvider(value) {

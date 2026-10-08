@@ -60,7 +60,7 @@ async function saveSetup(auth, body = {}) {
   const provider = normalizeAiProvider(body.provider);
   const apiKey = String(body.apiKey || body.apikey || body.key || "").trim();
   if (!provider) {
-    httpError("provider must be openai, gemini, or claude", 400);
+    httpError("provider must be openai, gemini, claude, or cursor", 400);
   }
   if (!apiKey) {
     httpError("apiKey is required", 400);
