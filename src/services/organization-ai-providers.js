@@ -8,6 +8,9 @@ const SYSTEM_PROMPT =
   "pendingJobs is new jobs plus assigned jobs, the same cards as the Jobs List. " +
   "Do not count rows returned by list_jobs. " +
   "Use mode all unless the user asks only for jobs assigned to themselves. " +
+  "For revenue, expenses, collections, C-Pair, attendance, charts, or reports, call management_snapshot and quote those figures only. " +
+  "Amount to collect is job.totalcost. Collected cash is separate. Do not call amount to collect minus expenses net profit. " +
+  "C-Pair figures are quantities. " +
   "If a tool fails, say what failed. Keep answers short.";
 
 function geminiModel() {
@@ -61,11 +64,28 @@ function trimHistory(history) {
     .slice(-10);
 }
 
-async function runToolRound(auth, calls) {
+function chatPayload(text, artifacts) {
+  return {
+    text: text || "No answer returned.",
+    charts: artifacts.charts,
+    tables: artifacts.tables
+  };
+}
+
+function keepArtifacts(artifacts, data) {
+  if (!data || typeof data !== "object") return;
+  if (Array.isArray(data.charts)) artifacts.charts.push(...data.charts);
+  else if (data.chart) artifacts.charts.push(data.chart);
+  if (Array.isArray(data.tables)) artifacts.tables.push(...data.tables);
+  else if (data.table) artifacts.tables.push(data.table);
+}
+
+async function runToolRound(auth, calls, artifacts) {
   const results = [];
   for (const call of calls) {
     try {
       const data = await executeAiTool(auth, call.name, call.args || {});
+      keepArtifacts(artifacts, data);
       results.push({ id: call.id, name: call.name, data });
     } catch (err) {
       results.push({
@@ -79,6 +99,7 @@ async function runToolRound(auth, calls) {
 }
 
 async function chatGemini({ apiKey, message, history, auth }) {
+  const artifacts = { charts: [], tables: [] };
   const contents = [
     ...trimHistory(history).map((item) => ({
       role: item.role === "assistant" ? "model" : "user",
@@ -116,11 +137,11 @@ async function chatGemini({ apiKey, message, history, auth }) {
 
     if (!calls.length) {
       const text = parts.map((part) => part.text || "").join("").trim();
-      return text || "No answer returned.";
+      return chatPayload(text, artifacts);
     }
 
     contents.push({ role: "model", parts });
-    const results = await runToolRound(auth, calls);
+    const results = await runToolRound(auth, calls, artifacts);
     contents.push({
       role: "user",
       parts: results.map((result) => ({
@@ -149,6 +170,7 @@ async function chatOpenAiCompatible({
   model,
   failureLabel
 }) {
+  const artifacts = { charts: [], tables: [] };
   const messages = [
     { role: "system", content: SYSTEM_PROMPT },
     ...trimHistory(history),
@@ -184,7 +206,7 @@ async function chatOpenAiCompatible({
     const choice = body?.choices?.[0]?.message;
     const calls = choice?.tool_calls || [];
     if (!calls.length) {
-      return String(choice?.content || "").trim() || "No answer returned.";
+      return chatPayload(String(choice?.content || "").trim(), artifacts);
     }
 
     messages.push(choice);
@@ -202,7 +224,8 @@ async function chatOpenAiCompatible({
           name: call.function?.name,
           args
         };
-      })
+      }),
+      artifacts
     );
     results.forEach((result) => {
       messages.push({
@@ -336,6 +359,7 @@ async function waitForCursorRun(apiKey, agentId, runId) {
 }
 
 async function chatCursor({ apiKey, message, history, auth }) {
+  const artifacts = { charts: [], tables: [] };
   let agentId;
   try {
     const created = await cursorJson(apiKey, "/v1/agents", {
@@ -356,10 +380,10 @@ async function chatCursor({ apiKey, message, history, auth }) {
       const text = await waitForCursorRun(apiKey, agentId, runId);
       const calls = parseCursorToolCalls(text);
       if (!calls) {
-        return text || "No answer returned.";
+        return chatPayload(text, artifacts);
       }
 
-      const results = await runToolRound(auth, calls);
+      const results = await runToolRound(auth, calls, artifacts);
       const followUp = await cursorJson(apiKey, `/v1/agents/${encodeURIComponent(agentId)}/runs`, {
         method: "POST",
         body: {
@@ -387,6 +411,7 @@ async function chatCursor({ apiKey, message, history, auth }) {
 }
 
 async function chatClaude({ apiKey, message, history, auth }) {
+  const artifacts = { charts: [], tables: [] };
   const messages = [
     ...trimHistory(history).map((item) => ({
       role: item.role,
@@ -429,7 +454,7 @@ async function chatClaude({ apiKey, message, history, auth }) {
         .map((block) => block.text || "")
         .join("")
         .trim();
-      return text || "No answer returned.";
+      return chatPayload(text, artifacts);
     }
 
     messages.push({ role: "assistant", content: blocks });
@@ -439,7 +464,8 @@ async function chatClaude({ apiKey, message, history, auth }) {
         id: call.id,
         name: call.name,
         args: call.input || {}
-      }))
+      })),
+      artifacts
     );
     messages.push({
       role: "user",

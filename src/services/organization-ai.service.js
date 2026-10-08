@@ -10,6 +10,8 @@ const {
   resolveChatAccess
 } = require("../utils/organization-ai-access");
 const { completeOrganizationChat } = require("./organization-ai-providers");
+const { classifyQuestion } = require("./management-intelligence.intent");
+const { answerQuestion } = require("./management-intelligence.service");
 
 function httpError(message, status) {
   const err = new Error(message);
@@ -137,15 +139,27 @@ async function ask(auth, body = {}) {
     ? decryptAiKey(row.apikeycipher)
     : String(process.env.GEMINI_API_KEY).trim();
 
-  let answer;
+  let answerText;
+  let charts = [];
+  let tables = [];
   try {
-    answer = await completeOrganizationChat({
-      provider,
-      apiKey,
-      message,
-      history: body.history,
-      auth
-    });
+    if (classifyQuestion(message).kind !== "clarify") {
+      const local = await answerQuestion(auth, message);
+      answerText = local.answer;
+      charts = local.charts || [];
+      tables = local.tables || [];
+    } else {
+      const model = await completeOrganizationChat({
+        provider,
+        apiKey,
+        message,
+        history: body.history,
+        auth
+      });
+      answerText = typeof model === "string" ? model : model.text;
+      charts = model?.charts || [];
+      tables = model?.tables || [];
+    }
   } catch (err) {
     if (err.clientSafe || err.details) {
       throw err;
@@ -187,7 +201,9 @@ async function ask(auth, body = {}) {
   });
 
   return {
-    answer,
+    answer: answerText,
+    charts,
+    tables,
     provider,
     usedOrganizationKey: access.useOrganizationKey,
     questionLimit: FREE_QUESTION_LIMIT,

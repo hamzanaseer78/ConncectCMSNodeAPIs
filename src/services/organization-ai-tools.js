@@ -1,5 +1,6 @@
 const { getJobsListService } = require("../../mcp/helpers/jobs-service");
 const { canManageBranchJobs } = require("../utils/job-access");
+const intelligence = require("./management-intelligence.service");
 
 const AI_TOOLS = Object.freeze([
   {
@@ -23,6 +24,21 @@ const AI_TOOLS = Object.freeze([
       type: "object",
       properties: {
         mode: { type: "string", enum: ["my", "all", "team"] }
+      }
+    }
+  },
+  {
+    name: "management_snapshot",
+    description:
+      "Amounts, expenses, collections, C-Pair quantities, attendance, and charts from ConnectCMS data. Use this for revenue, expenses, collections, graphs, and reports. Amount to collect is job.totalcost. Collected cash is jobcollections. Do not call the difference net profit. C-Pair values are quantities.",
+    parameters: {
+      type: "object",
+      properties: {
+        range: {
+          type: "string",
+          enum: ["today", "yesterday", "this_week", "this_month", "previous_month", "this_quarter", "this_year", "previous_year"]
+        },
+        report: { type: "string" }
       }
     }
   }
@@ -69,6 +85,32 @@ async function executeAiTool(auth, name, args = {}) {
       pagination: result.pagination,
       jobs: (result.data || []).map(slimJob),
       note: "pagination.total is the full count. jobs is only the first page."
+    };
+  }
+
+  if (name === "management_snapshot") {
+    const overview = await intelligence.getOverview(auth, { range: args.range || "this_month" });
+    let table = null;
+    if (args.report) {
+      const report = await intelligence.getReport(auth, args.report, {
+        range: args.range || "this_month",
+        page: 1,
+        pageSize: 10
+      });
+      table = report.table;
+    }
+    return {
+      range: overview.range,
+      scope: overview.scope,
+      jobs: overview.jobs,
+      financial: overview.financial,
+      cpair: overview.cpair,
+      attendance: overview.attendance,
+      work: overview.work,
+      definitions: overview.definitions,
+      charts: overview.charts,
+      chart: overview.charts[0],
+      table
     };
   }
 
