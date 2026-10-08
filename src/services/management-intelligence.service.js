@@ -795,6 +795,204 @@ async function exportReport(auth, reportKey, query = {}) {
   };
 }
 
+const STATUS_REPORT_TITLES = {
+  completed_jobs: "Completed jobs",
+  cancelled_jobs: "Cancelled jobs",
+  pending_jobs: "Pending jobs",
+  new_jobs: "New jobs",
+  assigned_jobs: "Assigned jobs"
+};
+
+const CHART_SERIES_LABELS = {
+  collected: "Collected cash",
+  expenses: "Recorded expenses",
+  amountToCollect: "Amount to collect"
+};
+
+function toApexChart(chart) {
+  const type = chart.type === "donut" ? "donut" : "line";
+  const options = {
+    chart: { type, toolbar: { show: false }, zoom: { enabled: false } },
+    title: { text: chart.title || "" },
+    stroke: { curve: "smooth", width: 2 },
+    dataLabels: { enabled: false },
+    legend: { position: "top" },
+    tooltip: { shared: true, intersect: false }
+  };
+  if (type === "donut") {
+    options.labels = chart.categories;
+    return { options, series: chart.series[0]?.data || [] };
+  }
+  options.xaxis = { categories: chart.categories };
+  return { options, series: chart.series };
+}
+
+function statusFilterSql(statusKey, context) {
+  const terminalIds = [
+    ...context.cancelledStatusIds,
+    ...context.completedStatusIds,
+    ...context.resolvedStatusIds
+  ];
+  if (statusKey === "completed_jobs") return idMatch(Prisma.sql`j.statusid`, context.completedStatusIds);
+  if (statusKey === "cancelled_jobs") return idMatch(Prisma.sql`j.statusid`, context.cancelledStatusIds);
+  if (statusKey === "new_jobs") return Prisma.sql`j.assignedto IS NULL AND ${notInIds(terminalIds)}`;
+  if (statusKey === "assigned_jobs") return Prisma.sql`j.assignedto IS NOT NULL AND ${notInIds(terminalIds)}`;
+  if (statusKey === "pending_jobs") return notInIds(terminalIds);
+  return Prisma.sql`TRUE`;
+}
+
+function technicianNameSql(technicianName) {
+  if (!technicianName) return Prisma.sql`TRUE`;
+  return Prisma.sql`tu.name ILIKE ${`%${technicianName}%`}`;
+}
+
+async function findTechnicianNames(scope, technicianName) {
+  const rows = await prisma.$queryRaw`
+    SELECT DISTINCT tu.name AS name
+    FROM users tu
+    INNER JOIN job j ON j.assignedto = tu.userid
+    WHERE j.tenantid = ${scope.tenantid}
+      AND j.branchid = ${scope.branchid}
+      AND tu.name ILIKE ${`%${technicianName}%`}
+    ORDER BY tu.name
+    LIMIT 5
+  `;
+  return rows.map((row) => row.name).filter(Boolean);
+}
+
+async function statusJobsReport(scope, range, context, statusKey, technicianName) {
+  const rows = await prisma.$queryRaw`
+    SELECT
+      j.recno AS id,
+      j.code AS job_code,
+      j.date AS job_date,
+      cu.name AS customer_name,
+      tu.name AS technician_name,
+      st.title AS status_name,
+      COALESCE(j.totalcost, 0) AS amount_to_collect,
+      COALESCE(c.amount, 0) AS collected,
+      COALESCE(ex.amount, 0) AS expenses
+    FROM job j
+    LEFT JOIN users tu ON tu.userid = j.assignedto
+    LEFT JOIN customers cu ON cu.customerid = j.customerid
+    LEFT JOIN jobstatuses st ON st.recno = j.statusid
+    LEFT JOIN jobcollections c ON c.jobid = j.recno
+    LEFT JOIN (
+      SELECT jobid, SUM(amount) AS amount
+      FROM jobexpenses
+      WHERE tenantid = ${scope.tenantid} AND branchid = ${scope.branchid}
+      GROUP BY jobid
+    ) ex ON ex.jobid = j.recno
+    WHERE ${jobScope(scope, range)}
+      AND ${statusFilterSql(statusKey, context)}
+      AND ${technicianNameSql(technicianName)}
+    ORDER BY j.date DESC, j.recno DESC
+    LIMIT 50
+  `;
+  const totalRows = await prisma.$queryRaw`
+    SELECT COUNT(*)::int AS total
+    FROM job j
+    LEFT JOIN users tu ON tu.userid = j.assignedto
+    WHERE ${jobScope(scope, range)}
+      AND ${statusFilterSql(statusKey, context)}
+      AND ${technicianNameSql(technicianName)}
+  `;
+  return {
+    title: STATUS_REPORT_TITLES[statusKey] || "Jobs",
+    columns: [
+      { key: "jobCode", label: "Job" },
+      { key: "jobDate", label: "Job date" },
+      { key: "customerName", label: "Customer" },
+      { key: "technicianName", label: "Technician" },
+      { key: "status", label: "Status" },
+      { key: "amountToCollect", label: "Amount to collect", align: "right" },
+      { key: "collected", label: "Collected", align: "right" },
+      { key: "expenses", label: "Expenses", align: "right" }
+    ],
+    rows: rows.map((row) => ({
+      id: row.id,
+      jobId: row.id,
+      jobCode: row.job_code,
+      jobDate: row.job_date ? new Date(row.job_date).toISOString().slice(0, 10) : null,
+      customerName: row.customer_name,
+      technicianName: row.technician_name,
+      status: row.status_name,
+      amountToCollect: money(row.amount_to_collect),
+      collected: money(row.collected),
+      expenses: money(row.expenses)
+    })),
+    total: whole(totalRows[0]?.total)
+  };
+}
+
+async function metricTrend(scope, range, technicianName, metric) {
+  const grain = chartGrain(range);
+  const bucket = bucketExpr(
+    metric === "amountToCollect" ? Prisma.sql`j.date` : metric === "collected" ? Prisma.sql`c.collectedat` : Prisma.sql`e.createdat`,
+    grain
+  );
+  const assigned = scope.manageBranch ? Prisma.sql`TRUE` : Prisma.sql`j.assignedto = ${scope.userid}`;
+  const technician = technicianNameSql(technicianName);
+  if (metric === "amountToCollect") {
+    return prisma.$queryRaw`
+      SELECT ${bucket} AS bucket, COALESCE(SUM(j.totalcost), 0) AS amount
+      FROM job j
+      LEFT JOIN users tu ON tu.userid = j.assignedto
+      WHERE ${jobScope(scope, range)} AND ${technician}
+      GROUP BY 1
+    `;
+  }
+  if (metric === "collected") {
+    return prisma.$queryRaw`
+      SELECT ${bucket} AS bucket, COALESCE(SUM(c.amount), 0) AS amount
+      FROM jobcollections c
+      INNER JOIN job j ON j.recno = c.jobid
+      LEFT JOIN users tu ON tu.userid = j.assignedto
+      WHERE j.tenantid = ${scope.tenantid}
+        AND j.branchid = ${scope.branchid}
+        AND ${assigned}
+        AND ${technician}
+        AND c.collectedat >= ${range.from}
+        AND c.collectedat < ${range.to}
+      GROUP BY 1
+    `;
+  }
+  return prisma.$queryRaw`
+    SELECT ${bucket} AS bucket, COALESCE(SUM(e.amount), 0) AS amount
+    FROM jobexpenses e
+    INNER JOIN job j ON j.recno = e.jobid
+    LEFT JOIN users tu ON tu.userid = j.assignedto
+    WHERE j.tenantid = ${scope.tenantid}
+      AND j.branchid = ${scope.branchid}
+      AND ${assigned}
+      AND ${technician}
+      AND e.createdat >= ${range.from}
+      AND e.createdat < ${range.to}
+    GROUP BY 1
+  `;
+}
+
+async function buildMoneyChart(scope, range, classified) {
+  const metrics = classified.chart?.metrics || ["collected", "expenses"];
+  const grain = chartGrain(range);
+  const categories = listBuckets(range, grain);
+  const series = [];
+  for (const metric of metrics) {
+    const rows = await metricTrend(scope, range, classified.technician, metric);
+    series.push({
+      name: CHART_SERIES_LABELS[metric] || metric,
+      data: fillSeries(categories, rows)
+    });
+  }
+  const who = classified.technician ? ` for ${classified.technician}` : "";
+  return toApexChart({
+    type: "line",
+    title: `${series.map((item) => item.name).join(" vs ")}${who}`,
+    categories,
+    series
+  });
+}
+
 function moneySentence(label, pair) {
   const change = pair.percentChange == null
     ? "the previous period was 0, so the percentage change is not shown"
@@ -853,10 +1051,59 @@ async function answerQuestion(auth, message) {
     };
   }
 
+  const scope = await resolveScope(auth);
+  const range = resolveIntelligenceRange({ range: classified.range });
+
+  if (classified.technician) {
+    const names = await findTechnicianNames(scope, classified.technician);
+    if (!names.length) {
+      return {
+        kind: classified.kind,
+        answer: `No technician matching ${classified.technician} has jobs in this branch.`,
+        charts: [],
+        tables: []
+      };
+    }
+  }
+
+  if (classified.kind === "chart") {
+    const chart = await buildMoneyChart(scope, range, classified);
+    const who = classified.technician ? ` for technician ${classified.technician}` : "";
+    return {
+      kind: "chart",
+      answer: `${chart.options.title.text}. ${range.label}${who}. Collected cash uses the collection date. Expenses use the date the expense was created.`,
+      charts: [chart],
+      tables: []
+    };
+  }
+
+  if (classified.kind === "job_report") {
+    const context = await loadStatusContext(scope.tenantid);
+    if (classified.statusReport === "completed_jobs" && !context.completedStatusIds.length) {
+      return {
+        kind: "job_report",
+        answer: "No job status is marked completed for this organization.",
+        charts: [],
+        tables: []
+      };
+    }
+    const table = await statusJobsReport(scope, range, context, classified.statusReport, classified.technician);
+    const title = STATUS_REPORT_TITLES[classified.statusReport] || "Jobs";
+    const extra = table.total > table.rows.length ? ` Showing the first ${table.rows.length} of ${table.total}.` : "";
+    return {
+      kind: "job_report",
+      answer: table.total
+        ? `${title} for ${range.label}: ${table.total}.${extra}`
+        : `No ${title.toLowerCase()} for ${range.label}.`,
+      charts: [],
+      tables: table.total ? [{ id: classified.statusReport, title: `${title} — ${range.label}`, ...table }] : []
+    };
+  }
+
   const overview = await getOverview(auth, { range: classified.range });
   const charts = [];
   if (classified.kind === "financial" || classified.kind === "jobs") {
-    charts.push(classified.kind === "financial" ? overview.charts[0] : overview.charts[1]);
+    charts.push(toApexChart(classified.kind === "financial" ? overview.charts[0] : overview.charts[1]));
   }
   let table = null;
   if (classified.report) {
