@@ -16,6 +16,7 @@ const {
 } = require("./management-intelligence.catalog");
 const { resolveQuestion } = require("./management-intelligence.intent");
 const chatSession = require("./ai-chat-session");
+const { activeMembershipWhere } = require("../utils/user-branch-access");
 
 const DIMENSIONS = {
   status: {
@@ -1062,8 +1063,66 @@ function focusedMoneyMetrics(classified) {
   return null;
 }
 
+async function answerProfile(auth, classified) {
+  const user = await prisma.users.findUnique({
+    where: { userid: Number(auth.userid) },
+    select: { name: true, email: true }
+  });
+  if (classified.profileField === "email") {
+    const email = user?.email || auth.email || "";
+    return {
+      kind: "profile",
+      answer: email ? `Your email is ${email}.` : "No email is stored on your user.",
+      charts: [],
+      tables: []
+    };
+  }
+  const name = user?.name || auth.name || "";
+  return {
+    kind: "profile",
+    answer: name ? `Your name is ${name}.` : "No name is stored on your user.",
+    charts: [],
+    tables: []
+  };
+}
+
+async function answerBranches(auth) {
+  const rows = await prisma.userorganizations.findMany({
+    where: activeMembershipWhere({
+      userid: Number(auth.userid),
+      tenantid: Number(auth.tenantid),
+      branchid: { not: null }
+    }),
+    include: {
+      branches: { select: { branchid: true, name: true } }
+    }
+  });
+  const names = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const branchId = Number(row.branchid);
+    if (!branchId || seen.has(branchId)) continue;
+    seen.add(branchId);
+    names.push(row.branches?.name || `Branch ${branchId}`);
+  }
+  const countLabel = names.length === 1 ? "1 branch" : `${names.length} branches`;
+  const list = names.length ? `: ${names.join(", ")}` : "";
+  return {
+    kind: "branches",
+    answer: `You have ${countLabel}${list}.`,
+    charts: [],
+    tables: []
+  };
+}
+
 async function answerQuestion(auth, message, history) {
   const classified = resolveQuestion(message, chatSession.historyFor(auth, history));
+  if (classified.kind === "profile") {
+    return finishAnswer(auth, message, await answerProfile(auth, classified));
+  }
+  if (classified.kind === "branches") {
+    return finishAnswer(auth, message, await answerBranches(auth));
+  }
   if (classified.kind === "clarify") {
     return finishAnswer(auth, message, {
       kind: "clarify",

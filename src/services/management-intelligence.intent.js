@@ -112,6 +112,31 @@ function detectChart(message) {
   };
 }
 
+function detectProfile(message) {
+  const text = String(message || "").toLowerCase();
+  if (/\bmy name\b|\bwho am i\b|\bwhat am i called\b/.test(text)) return "name";
+  if (/\bmy email\b/.test(text)) return "email";
+  return null;
+}
+
+function detectBranchQuestion(message) {
+  const text = String(message || "").toLowerCase();
+  return /\bbranches?\b/.test(text) && /how many|count|do i have|i have|list|which|show/.test(text);
+}
+
+function isContinuation(message, current) {
+  const text = String(message || "").toLowerCase().trim();
+  if (current.kind === "profile" || current.kind === "branches") return false;
+  if (/\b(what|how) about\b|\bsame\b|\binstead\b/.test(text)) return true;
+  if (/^(and|also|now|that|those)\b/.test(text)) return true;
+  if (/chart|graph/.test(text) && !detectFocus(message)) return true;
+  const words = text.replace(/[.?!,]/g, "").split(/\s+/).filter(Boolean);
+  if (current.kind === "clarify" && explicitRange(message) && words.length <= 4) return true;
+  if (bareStatus(text) && words.length <= 3) return true;
+  if (/\b(by|per) technician\b|\bwhich technicians?\b/.test(text)) return true;
+  return false;
+}
+
 function classifyQuestion(message) {
   const text = String(message || "").toLowerCase();
   const range = detectRange(text);
@@ -122,10 +147,15 @@ function classifyQuestion(message) {
   const financial = /revenue|expense|collect|outstanding|amount to collect|receivable|financial|margin/.test(text);
   const cpair = /c-?pair/.test(text);
   const attendance = /attendance|checked in|on break|on the way|on location|available right now|technician status/.test(text);
-  const jobs = /how many|pending|completed|cancelled|assigned|jobs?\b/.test(text);
+  const profileField = detectProfile(message);
+  const branchQuestion = detectBranchQuestion(message);
+  const aboutJobs = /pending|completed|cancelled|assigned|\bjobs?\b/.test(text);
+  const jobs = aboutJobs || (/how many/.test(text) && !branchQuestion && !profileField);
 
   let kind = "clarify";
-  if (chart) kind = "chart";
+  if (profileField) kind = "profile";
+  else if (branchQuestion) kind = "branches";
+  else if (chart) kind = "chart";
   else if (statusReport) kind = "job_report";
   else if (cpair) kind = "cpair";
   else if (attendance && !financial) kind = "attendance";
@@ -138,7 +168,8 @@ function classifyQuestion(message) {
     rangeExplicit: Boolean(explicitRange(message)),
     technician,
     focus: detectFocus(message),
-    chart,
+    profileField,
+    chart: kind === "profile" || kind === "branches" ? null : chart,
     statusReport,
     report: report && REPORTS.some((item) => item.key === report) ? report : null
   };
@@ -161,7 +192,9 @@ function latestUserClassification(history) {
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     if (turns[index].role !== "user") continue;
     const classified = classifyQuestion(turns[index].content);
-    if (classified.kind !== "clarify") return classified;
+    if (classified.kind !== "clarify" && classified.kind !== "profile" && classified.kind !== "branches") {
+      return classified;
+    }
   }
   return null;
 }
@@ -169,7 +202,7 @@ function latestUserClassification(history) {
 function resolveQuestion(message, history) {
   const current = classifyQuestion(message);
   const prior = latestUserClassification(history);
-  if (!prior) return current;
+  if (!prior || !isContinuation(message, current)) return current;
 
   const text = String(message || "").toLowerCase();
   const range = explicitRange(message);
