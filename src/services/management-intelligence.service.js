@@ -17,10 +17,18 @@ const {
 const { resolveQuestion, detectEntityRef, detectEntityName, pinEntity, buildSuggestions } = require("./management-intelligence.intent");
 const {
   resolveConversation,
+  toClassified,
   responseTypeFor,
   publicFilters,
   toolName
 } = require("./conversation-context");
+const {
+  decideResolution,
+  executionPlan,
+  searchJobEntities,
+  subjectInScope
+} = require("./entity-resolution");
+const logger = require("../utils/logger");
 const chatSession = require("./ai-chat-session");
 const { activeMembershipWhere } = require("../utils/user-branch-access");
 const container = require("../utils/service-container");
@@ -526,7 +534,10 @@ async function dimensionReport(scope, range, definition, query) {
             AND filter_tu.name ILIKE ${`%${query.technician}%`}
         )`
       : Prisma.sql`TRUE`;
-  const where = Prisma.sql`${jobScope(scope, range)} AND ${statusSql} AND ${technicianSql}`;
+  const subjectSql = query.subjectId
+    ? recordFilterSql({ type: query.subjectType, id: query.subjectId })
+    : Prisma.sql`TRUE`;
+  const where = Prisma.sql`${jobScope(scope, range)} AND ${statusSql} AND ${technicianSql} AND ${subjectSql}`;
   const rows = await prisma.$queryRaw`
     SELECT
       ${dimension.idExpr} AS id,
@@ -876,11 +887,30 @@ function technicianNameSql(technicianName, entity) {
 
 function recordFilterSql(entity) {
   if (!entity?.id) return Prisma.sql`TRUE`;
-  if (entity.type === "category") return Prisma.sql`j.serviceid = ${Number(entity.id)}`;
-  if (entity.type === "fault") return Prisma.sql`j.faultid = ${Number(entity.id)}`;
-  if (entity.type === "brand") return Prisma.sql`j.brandid = ${Number(entity.id)}`;
-  if (entity.type === "technician" || entity.type === "user") return Prisma.sql`j.assignedto = ${Number(entity.id)}`;
-  return Prisma.sql`TRUE`;
+  const id = Number(entity.id);
+  if (entity.type === "customer") return Prisma.sql`j.customerid = ${id}`;
+  if (entity.type === "category") return Prisma.sql`j.serviceid = ${id}`;
+  if (entity.type === "fault") return Prisma.sql`j.faultid = ${id}`;
+  if (entity.type === "brand") return Prisma.sql`j.brandid = ${id}`;
+  if (entity.type === "group") return Prisma.sql`j.groupid = ${id}`;
+  if (entity.type === "technician" || entity.type === "user") return Prisma.sql`j.assignedto = ${id}`;
+  return Prisma.sql`FALSE`;
+}
+
+function subjectPhrase(classified) {
+  if (classified.entity?.id && classified.entity.name) {
+    const label = {
+      customer: "customer",
+      technician: "technician",
+      user: "user",
+      brand: "brand",
+      category: "category",
+      fault: "subcategory",
+      group: "group"
+    }[classified.entity.type] || classified.entity.type;
+    return ` for ${label} ${classified.entity.name}`;
+  }
+  return classified.technician ? ` assigned to ${classified.technician}` : "";
 }
 
 async function findTechnicianNames(scope, technicianName) {
@@ -1547,7 +1577,7 @@ async function answerScoped(scope, range, classified) {
     priorRange = previousPeriod(range);
     prior = await sumFilteredJobs(scope, priorRange, context, statusKey, classified.technician, classified.entity);
   }
-  const who = classified.technician ? ` assigned to ${classified.technician}` : "";
+  const who = subjectPhrase(classified);
   const statusLabel = classified.statusFilter ? `${classified.statusFilter} ` : "";
   if (classified.kind === "financial") {
     const focus = classified.focus;
@@ -1598,18 +1628,32 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
     ? resolution.classified
     : resolveQuestion(message, chatSession.historyFor(auth, history));
   const deliver = (payload) => {
-    const skipTool = ["clarify", "confirm", "greeting", "profile", "branches", "explain"].includes(payload.kind);
-    const tool = payload.tool || (skipTool ? null : toolName(classified));
+    const plan = executionPlan(state);
+    let next = payload;
+    let skipTool = ["clarify", "confirm", "greeting", "profile", "branches", "explain"].includes(next.kind);
+    if (!plan.ok && !skipTool) {
+      next = {
+        kind: "clarify",
+        responseType: "clarification",
+        answer: `I couldn't apply ${state.filters.requestedName} to this request, so I did not retrieve jobs.`,
+        suggestions: [],
+        charts: [],
+        tables: []
+      };
+      skipTool = true;
+    }
+    const tool = next.tool || (skipTool ? null : toolName(classified));
     if (tool) state = { ...state, lastSuccessfulTool: tool };
-    const suggestions = payload.suggestions?.length
-      ? payload.suggestions
-      : (resolution.handled && !skipTool ? resolution.suggestions : payload.suggestions);
+    const suggestions = next.suggestions?.length
+      ? next.suggestions
+      : (resolution.handled && !skipTool ? resolution.suggestions : next.suggestions);
     return finishAnswer(auth, message, {
-      ...payload,
+      ...next,
       suggestions,
       conversationState: state,
-      responseType: payload.responseType || responseTypeFor(payload, classified),
+      responseType: next.responseType || responseTypeFor(next, classified),
       appliedFilters: publicFilters(state),
+      executionPlan: plan,
       entity: state.entity || null,
       source: { tool: tool || null, executed: Boolean(tool) }
     });
@@ -1694,6 +1738,90 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
   const scope = await resolveScope(auth);
   const range = resolveIntelligenceRange({ range: classified.range });
 
+  if (state?.filters?.requestedName) {
+    let candidates = [];
+    try {
+      candidates = await searchJobEntities(prisma, scope, state.filters.requestedName);
+    } catch (err) {
+      logger.error("Entity resolution failed", { tenantid: scope.tenantid, branchid: scope.branchid }, err);
+      return deliver({
+        kind: "clarify",
+        responseType: "clarification",
+        answer: `I couldn't look up ${state.filters.requestedName}, so I did not retrieve jobs.`,
+        charts: [],
+        tables: [],
+        suggestions: []
+      });
+    }
+    const decision = decideResolution({
+      requestedName: state.filters.requestedName,
+      hintedType: state.filters.hintedType,
+      preferredType: state.filters.preferredType,
+      candidates
+    }, scope);
+    logger.info("Entity resolution", {
+      outcome: decision.outcome,
+      requestedName: state.filters.requestedName,
+      hintedType: state.filters.hintedType || null,
+      candidateCount: candidates.length,
+      types: [...new Set(candidates.map((item) => item.entityType))],
+      tenantid: scope.tenantid,
+      branchid: scope.branchid
+    });
+    if (decision.outcome === "resolved") {
+      const person = decision.subject.type === "technician" || decision.subject.type === "user";
+      state = {
+        ...state,
+        filters: {
+          ...state.filters,
+          subject: decision.subject,
+          requestedName: null,
+          pendingCandidates: null,
+          hintedType: null,
+          technician: person ? decision.subject.name : null,
+          technicianId: person ? decision.subject.id : null
+        }
+      };
+      classified = toClassified(state);
+    } else {
+      state = {
+        ...state,
+        filters: {
+          ...state.filters,
+          subject: null,
+          technicianId: null,
+          pendingCandidates: decision.choices || null
+        }
+      };
+      return deliver({
+        kind: "clarify",
+        responseType: "clarification",
+        answer: decision.message,
+        suggestions: decision.suggestions,
+        charts: [],
+        tables: []
+      });
+    }
+  } else if (state?.filters?.subject?.id) {
+    const allowed = await subjectInScope(prisma, scope, state.filters.subject);
+    if (!allowed) {
+      const missingName = state.filters.subject.name;
+      state = {
+        ...state,
+        filters: { ...state.filters, subject: null, technician: null, technicianId: null }
+      };
+      return deliver({
+        kind: "clarify",
+        responseType: "clarification",
+        answer: `I couldn't find ${missingName} in this branch, so I did not retrieve jobs.`,
+        charts: [],
+        tables: [],
+        suggestions: []
+      });
+    }
+    classified = toClassified(state);
+  }
+
   if (classified.technician && !classified.entity?.id) {
     const names = await findTechnicianNames(scope, classified.technician);
     if (!names.length) {
@@ -1714,8 +1842,10 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
       sortBy: "jobs",
       sortOrder: "desc",
       statusKey: classified.statusReport,
-      technician: classified.technician,
-      technicianId: classified.entity?.id
+      technician: classified.entity?.type === "technician" || classified.entity?.type === "user" ? classified.technician : null,
+      technicianId: classified.entity?.type === "technician" || classified.entity?.type === "user" ? classified.entity.id : null,
+      subjectType: classified.entity?.type || null,
+      subjectId: classified.entity?.id || null
     });
     const rows = report.table?.rows || [];
     return deliver({
@@ -1739,7 +1869,7 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
   if (
     resolution.handled
     && (classified.kind === "jobs" || classified.kind === "financial")
-    && (classified.statusFilter || classified.technician || classified.comparison)
+    && (classified.statusFilter || classified.technician || classified.comparison || classified.entity?.id)
   ) {
     return deliver(await answerScoped(scope, range, classified));
   }
@@ -1752,8 +1882,10 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
       sortBy: "jobs",
       sortOrder: "desc",
       statusKey: classified.statusReport,
-      technician: classified.technician,
-      technicianId: classified.entity?.id
+      technician: classified.entity?.type === "technician" || classified.entity?.type === "user" ? classified.technician : null,
+      technicianId: classified.entity?.type === "technician" || classified.entity?.type === "user" ? classified.entity.id : null,
+      subjectType: classified.entity?.type || null,
+      subjectId: classified.entity?.id || null
     });
     const rows = report.table?.rows || [];
     const chart = toApexChart({
@@ -1811,7 +1943,7 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
       ? "Jobs by status"
       : (STATUS_REPORT_TITLES[classified.statusReport] || "Jobs");
     const extra = table.total > table.rows.length ? ` Showing the first ${table.rows.length} of ${table.total}.` : "";
-    const who = classified.technician ? ` assigned to ${classified.technician}` : "";
+    const who = subjectPhrase(classified);
     const statusWord = classified.statusFilter ? `${classified.statusFilter} ` : "";
     let answer;
     if (!table.total) {
@@ -1852,7 +1984,13 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
   }
   let table = null;
   if (classified.report) {
-    const report = await getReport(auth, classified.report, { range: classified.range, page: 1, pageSize: 10 });
+    const report = await getReport(auth, classified.report, {
+      range: classified.range,
+      page: 1,
+      pageSize: 10,
+      subjectType: classified.entity?.type || null,
+      subjectId: classified.entity?.id || null
+    });
     table = report.table;
   }
   let answer = answerFromOverview(overview, classified);

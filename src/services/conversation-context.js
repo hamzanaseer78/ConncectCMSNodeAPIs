@@ -1,4 +1,10 @@
 const { detectRange, detectEntityRef } = require("./management-intelligence.intent");
+const {
+  JOB_LINKS,
+  extractMention,
+  explicitRecord,
+  choiceTypeFromMessage
+} = require("./entity-resolution");
 
 const ENTITIES = new Set(["jobs", "technicians", "attendance", "expenses", "revenue", "collections", "cpair"]);
 const INTENTS = new Set([
@@ -45,7 +51,12 @@ function emptyState() {
       rangeExplicit: false,
       technician: null,
       technicianId: null,
-      groupBy: null
+      groupBy: null,
+      requestedName: null,
+      hintedType: null,
+      preferredType: null,
+      subject: null,
+      pendingCandidates: null
     },
     outputFormat: null,
     comparison: false,
@@ -64,6 +75,38 @@ function cleanName(value) {
   return name;
 }
 
+function positiveId(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function sanitizeSubject(subject) {
+  if (!subject || typeof subject !== "object") return null;
+  const type = JOB_LINKS[subject.type] ? subject.type : null;
+  const id = positiveId(subject.id);
+  const name = cleanName(subject.name) || (typeof subject.name === "string" ? subject.name.trim().slice(0, 60) : null);
+  if (!type || !id || !name) return null;
+  return { type, id, name };
+}
+
+function sanitizeCandidates(list) {
+  if (!Array.isArray(list)) return null;
+  const candidates = list.slice(0, 8).map((item) => {
+    const entityType = JOB_LINKS[item?.entityType] ? item.entityType : null;
+    const entityId = positiveId(item?.entityId);
+    const displayName = typeof item?.displayName === "string" ? item.displayName.trim().slice(0, 80) : "";
+    if (!entityType || !entityId || !displayName) return null;
+    return {
+      entityType,
+      entityId,
+      displayName,
+      detail: typeof item.detail === "string" ? item.detail.slice(0, 120) : null,
+      match: item.match === "partial" ? "partial" : "exact"
+    };
+  }).filter(Boolean);
+  return candidates.length ? candidates : null;
+}
+
 function sanitizeState(input) {
   const state = emptyState();
   if (!input || typeof input !== "object") return state;
@@ -74,10 +117,13 @@ function sanitizeState(input) {
   state.filters.range = allowed(filters.range, RANGES);
   state.filters.rangeExplicit = Boolean(filters.rangeExplicit);
   state.filters.technician = cleanName(filters.technician);
-  state.filters.technicianId = Number.isInteger(Number(filters.technicianId)) && Number(filters.technicianId) > 0
-    ? Number(filters.technicianId)
-    : null;
+  state.filters.technicianId = positiveId(filters.technicianId);
   state.filters.groupBy = allowed(filters.groupBy, GROUPS);
+  state.filters.requestedName = cleanName(filters.requestedName);
+  state.filters.hintedType = JOB_LINKS[filters.hintedType] ? filters.hintedType : null;
+  state.filters.preferredType = JOB_LINKS[filters.preferredType] ? filters.preferredType : null;
+  state.filters.subject = sanitizeSubject(filters.subject);
+  state.filters.pendingCandidates = sanitizeCandidates(filters.pendingCandidates);
   state.outputFormat = typeof input.outputFormat === "string" ? input.outputFormat : null;
   state.comparison = Boolean(input.comparison);
   state.lastSuccessfulTool = typeof input.lastSuccessfulTool === "string"
@@ -213,15 +259,20 @@ function toClassified(state) {
     comparison: Boolean(state.comparison),
     groupBy: state.filters.groupBy,
     range: state.filters.range || "year_to_date",
-    technician: state.filters.technician,
+    technician: state.filters.subject?.type === "technician" || state.filters.subject?.type === "user"
+      ? state.filters.subject.name
+      : state.filters.technician,
     focus: "jobs",
     statusReport,
     listByStatus: false,
     chart: null,
     report: null,
-    entity: state.filters.technicianId
-      ? { type: "technician", id: state.filters.technicianId, name: state.filters.technician }
-      : null,
+    entity: state.filters.subject
+      ? { type: state.filters.subject.type, id: state.filters.subject.id, name: state.filters.subject.name }
+      : state.filters.technicianId
+        ? { type: "technician", id: state.filters.technicianId, name: state.filters.technician }
+        : null,
+    requestedName: state.filters.requestedName,
     outputFormat: state.outputFormat
   };
 
@@ -286,10 +337,21 @@ function resolveConversation(message, previous) {
   const groupBy = detectGroup(text);
   const range = mentionedRange(message);
   const technician = ref ? undefined : captureTechnician(message);
+  const mention = extractMention(message);
+  const record = explicitRecord(message);
+  const choiceType = choiceTypeFromMessage(message, prior.filters.pendingCandidates);
   const compare = /\bcompare\b/.test(text);
   const clear = /\b(start (?:a )?new topic|start over|new topic|forget (?:that|this))\b/.test(text);
-  const linked = referencesPrevious(text) || Boolean(ref) || Boolean(range && !entity && !intent);
-  const meaningful = Boolean(entity || intent || status !== undefined || groupBy || range || technician || ref || compare || clear || linked);
+  const carriesName = Boolean(prior.filters.subject || prior.filters.requestedName);
+  const linked = referencesPrevious(text)
+    || Boolean(ref)
+    || Boolean(record)
+    || Boolean(choiceType)
+    || Boolean(range && !entity && !intent && !mention)
+    || (carriesName && !mention && /\b(list|report|status[\s-]?wise|not the summary|as a list)\b/.test(text));
+  const meaningful = Boolean(
+    entity || intent || status !== undefined || groupBy || range || technician || ref || record || mention || choiceType || compare || clear || linked
+  );
 
   if (!meaningful) {
     return { handled: false, state: prior, clarification: null, suggestions: [], classified: null };
@@ -303,18 +365,66 @@ function resolveConversation(message, previous) {
     state.filters.technician = null;
     state.filters.technicianId = null;
     state.filters.groupBy = null;
+    state.filters.subject = null;
+    state.filters.requestedName = null;
+    state.filters.pendingCandidates = null;
+    state.filters.hintedType = null;
     state.comparison = false;
   }
 
   if (nextEntity) state.entity = nextEntity;
   if (intent) state.intent = intent;
   if (status !== undefined) state.filters.status = status;
-  if (technician) {
+  if (technician && !mention) {
     state.filters.technician = technician;
     state.filters.technicianId = null;
+    state.filters.requestedName = technician;
+    state.filters.hintedType = "technician";
+    state.filters.subject = null;
   }
-  if (ref && (ref.type === "technician" || ref.type === "user")) {
-    state.filters.technicianId = Number(ref.id);
+  if (mention) {
+    state.entity = state.entity || "jobs";
+    const sameSubject = state.filters.subject
+      && state.filters.subject.name.toLowerCase() === mention.name.toLowerCase()
+      && (!mention.hintedType || mention.hintedType === state.filters.subject.type);
+    state.filters.requestedName = sameSubject ? null : mention.name;
+    state.filters.hintedType = mention.hintedType || (!sameSubject ? state.filters.preferredType : null);
+    if (!sameSubject) {
+      state.filters.subject = null;
+      if (mention.hintedType !== "technician" && mention.hintedType !== "user") {
+        state.filters.technician = null;
+        state.filters.technicianId = null;
+      }
+    }
+    if (mention.hintedType) state.filters.preferredType = mention.hintedType;
+  } else if (choiceType && state.filters.requestedName) {
+    state.filters.hintedType = choiceType;
+    state.entity = state.entity || "jobs";
+  } else if (!linked && !record && nextEntity === "jobs" && (intent || nextEntity) && !technician) {
+    state.filters.requestedName = null;
+    state.filters.pendingCandidates = null;
+    state.filters.subject = null;
+    state.filters.hintedType = null;
+    state.filters.technician = null;
+    state.filters.technicianId = null;
+  }
+  const pinned = record || (ref ? { type: ref.type, id: Number(ref.id) } : null);
+  if (pinned && JOB_LINKS[pinned.type]) {
+    state.filters.subject = {
+      type: pinned.type,
+      id: Number(pinned.id),
+      name: state.filters.requestedName || state.filters.subject?.name || state.filters.technician || pinned.type
+    };
+    state.filters.requestedName = null;
+    state.filters.pendingCandidates = null;
+    state.filters.hintedType = null;
+    if (pinned.type === "technician" || pinned.type === "user") {
+      state.filters.technicianId = Number(pinned.id);
+      state.filters.technician = state.filters.subject.name;
+    }
+  }
+  if (/\btechnicians?\b/.test(text) && !mention && !choiceType) {
+    state.filters.preferredType = "technician";
   }
   if (range) {
     state.filters.range = range;
@@ -349,7 +459,7 @@ function resolveConversation(message, previous) {
     if ((intent === "ENTITY_REPORT" || state.intent === "ENTITY_REPORT") && !state.filters.groupBy) {
       return clarify(REPORT_CLARIFICATION, emptyState());
     }
-    return { handled: false, state: prior, clarification: null, suggestions: [], classified: null };
+    return { handled: false, state, clarification: null, suggestions: [], classified: null };
   }
 
   state.outputFormat = formatFor(state.intent);
@@ -381,7 +491,11 @@ function publicFilters(state) {
     technician: filters.technician || null,
     technicianId: filters.technicianId || null,
     groupBy: filters.groupBy || null,
-    comparison: Boolean(state?.comparison)
+    comparison: Boolean(state?.comparison),
+    subjectType: filters.subject?.type || null,
+    subjectId: filters.subject?.id || null,
+    subjectName: filters.subject?.name || null,
+    requestedName: filters.requestedName || null
   };
 }
 
@@ -399,6 +513,7 @@ module.exports = {
   emptyState,
   sanitizeState,
   resolveConversation,
+  toClassified,
   responseTypeFor,
   publicFilters,
   toolName,
