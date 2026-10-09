@@ -4,8 +4,6 @@ package-lock.json
 yarn.lock
 
 # Environment
-.env
-.env.local
 .env.*.local
 
 # Firebase service account keys (never commit)
@@ -27,7 +25,6 @@ build/
 /generated/prisma
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -62,3 +59,4 @@ Thumbs.db
 # FEATURES_GUIDE.md
 # DEPLOYMENT_CHECKLIST.md
 
+config.bat

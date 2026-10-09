@@ -125,6 +125,20 @@ class PushDispatchService {
     });
   }
 
+  onJobCancelled(job, auth, reason) {
+    dispatch("job_cancelled", async () => {
+      const by = await actorName(auth.userid);
+      const reasonPart = reason ? ` Reason: ${reason}` : "";
+      await notifyAdminsForJob(
+        job,
+        auth,
+        "job_cancelled",
+        "Job cancelled",
+        `${by} cancelled ${jobLabel(job)}.${reasonPart}`
+      );
+    });
+  }
+
   /** 4 — Job completed → technician with customer review summary */
   onJobCompleted(job, auth, customerFeedback) {
     dispatch("job_completed", async () => {
