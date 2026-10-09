@@ -250,6 +250,24 @@ function detectModule(message) {
   return { resource: match[1], label: match[2] };
 }
 
+function wantsJobList(message) {
+  const text = String(message || "").toLowerCase();
+  if (/not summary|no summary|instead of summary/.test(text)) return true;
+  if (/\blist\b/.test(text) && /job|status|report/.test(text)) return true;
+  if (/\breport\b/.test(text) && /\bjobs?\b|\bstatus\b/.test(text)) return true;
+  if (/status[\s-]?wise|by status/.test(text) && /job|list|report/.test(text)) return true;
+  return false;
+}
+
+function wantsStatusWise(message) {
+  return /status[\s-]?wise|by status/.test(String(message || "").toLowerCase());
+}
+
+function refersToPrevious(message) {
+  const text = String(message || "").toLowerCase();
+  return /what is this|what'?s this|explain (this|that)|what does (this|that) mean/.test(text);
+}
+
 function isRangeOnly(message) {
   if (!explicitRange(message)) return false;
   const stripped = String(message || "")
@@ -268,6 +286,8 @@ function isContinuation(message, current) {
   if (/\b(what|how) about\b|\bsame\b|\binstead\b/.test(text)) return true;
   if (/^(and|also|now|that|those)\b/.test(text)) return true;
   if (/chart|graph/.test(text) && !detectFocus(message)) return true;
+  if (/\breport\b|\blist\b|not summary|status[\s-]?wise/.test(text)) return true;
+  if (refersToPrevious(message)) return true;
   if (current.kind === "clarify" && isRangeOnly(message)) return true;
   if (bareStatus(text) && text.replace(/[.?!,]/g, "").split(/\s+/).filter(Boolean).length <= 3) return true;
   if (/\b(by|per) technician\b|\bwhich technicians?\b/.test(text)) return true;
@@ -304,6 +324,7 @@ function classifyQuestion(message) {
   else if (chart && aboutJobs && !financial) kind = "jobs";
   else if (chart && chart.metricsExplicit) kind = "chart";
   else if (statusReport) kind = "job_report";
+  else if (wantsJobList(message)) kind = "job_report";
   else if (cpair) kind = "cpair";
   else if (financial) kind = "financial";
   else if (jobs || report) kind = "jobs";
@@ -322,7 +343,8 @@ function classifyQuestion(message) {
     chart: kind === "group_chart"
       ? { type: "bar", metrics: [], metricsExplicit: false }
       : plainAnswer ? null : chart,
-    statusReport,
+    statusReport: statusReport || (kind === "job_report" && wantsJobList(message) ? "all_jobs" : statusReport),
+    listByStatus: kind === "job_report" && wantsStatusWise(message),
     report: report && REPORTS.some((item) => item.key === report) ? report : null
   };
 }
@@ -422,6 +444,27 @@ function resolveQuestion(message, history) {
   }
 
   if (current.kind === "clarify" || !focus) {
+    if (refersToPrevious(message)) {
+      return { ...inherited, kind: "explain", chart: null, statusReport: null };
+    }
+    if (!wantsChart && /\breport\b|\blist\b|not summary|status[\s-]?wise/.test(text)) {
+      if (prior.kind === "financial" || ["expenses", "collected", "amountToCollect", "outstanding", "financial"].includes(prior.focus)) {
+        return {
+          ...inherited,
+          kind: "financial",
+          chart: null,
+          report: prior.report || (prior.focus === "expenses" ? "expenses_by_technician" : prior.focus === "collected" ? "collections_by_collector" : "job_balances")
+        };
+      }
+      return {
+        ...inherited,
+        kind: "job_report",
+        statusReport: current.statusReport || "all_jobs",
+        listByStatus: wantsStatusWise(message),
+        focus: "jobs",
+        chart: null
+      };
+    }
     if (wantsChart) {
       const grouped = dimensionReportKey(message) || (String(prior.report || "").startsWith("jobs_by_") ? prior.report : null);
       const metrics = current.chart?.metricsExplicit ? current.chart.metrics : metricsFor(prior);

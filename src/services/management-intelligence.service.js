@@ -15,6 +15,12 @@ const {
   listReportCatalog
 } = require("./management-intelligence.catalog");
 const { resolveQuestion, detectEntityRef, detectEntityName, pinEntity, buildSuggestions } = require("./management-intelligence.intent");
+const {
+  resolveConversation,
+  responseTypeFor,
+  publicFilters,
+  toolName
+} = require("./conversation-context");
 const chatSession = require("./ai-chat-session");
 const { activeMembershipWhere } = require("../utils/user-branch-access");
 const container = require("../utils/service-container");
@@ -506,7 +512,21 @@ async function dimensionReport(scope, range, definition, query) {
   if (!dimension) httpError("Report dimension is not available", 400);
   const { page, pageSize, offset } = pageQuery(query);
   const sort = sortSql(query, DIMENSION_SORTS, definition.defaultSort);
-  const where = jobScope(scope, range);
+  let statusSql = Prisma.sql`TRUE`;
+  if (query.statusKey && query.statusKey !== "all_jobs") {
+    const context = await loadStatusContext(scope.tenantid);
+    statusSql = statusFilterSql(query.statusKey, context);
+  }
+  const technicianSql = query.technicianId
+    ? Prisma.sql`j.assignedto = ${Number(query.technicianId)}`
+    : query.technician
+      ? Prisma.sql`EXISTS (
+          SELECT 1 FROM users filter_tu
+          WHERE filter_tu.userid = j.assignedto
+            AND filter_tu.name ILIKE ${`%${query.technician}%`}
+        )`
+      : Prisma.sql`TRUE`;
+  const where = Prisma.sql`${jobScope(scope, range)} AND ${statusSql} AND ${technicianSql}`;
   const rows = await prisma.$queryRaw`
     SELECT
       ${dimension.idExpr} AS id,
@@ -803,7 +823,8 @@ const STATUS_REPORT_TITLES = {
   cancelled_jobs: "Cancelled jobs",
   pending_jobs: "Pending jobs",
   new_jobs: "New jobs",
-  assigned_jobs: "Assigned jobs"
+  assigned_jobs: "Assigned jobs",
+  all_jobs: "Jobs"
 };
 
 const CHART_SERIES_LABELS = {
@@ -841,6 +862,7 @@ function statusFilterSql(statusKey, context) {
   if (statusKey === "new_jobs") return Prisma.sql`j.assignedto IS NULL AND ${notInIds(terminalIds)}`;
   if (statusKey === "assigned_jobs") return Prisma.sql`j.assignedto IS NOT NULL AND ${notInIds(terminalIds)}`;
   if (statusKey === "pending_jobs") return notInIds(terminalIds);
+  if (statusKey === "resolved_jobs") return idMatch(Prisma.sql`j.statusid`, context.resolvedStatusIds);
   return Prisma.sql`TRUE`;
 }
 
@@ -875,7 +897,7 @@ async function findTechnicianNames(scope, technicianName) {
   return rows.map((row) => row.name).filter(Boolean);
 }
 
-async function statusJobsReport(scope, range, context, statusKey, technicianName, entity) {
+async function statusJobsReport(scope, range, context, statusKey, technicianName, entity, listByStatus) {
   const rows = await prisma.$queryRaw`
     SELECT
       j.recno AS id,
@@ -902,7 +924,7 @@ async function statusJobsReport(scope, range, context, statusKey, technicianName
       AND ${statusFilterSql(statusKey, context)}
       AND ${technicianNameSql(technicianName, entity)}
       AND ${recordFilterSql(entity)}
-    ORDER BY j.date DESC, j.recno DESC
+    ORDER BY ${listByStatus ? Prisma.sql`st.title NULLS LAST, ` : Prisma.sql``}j.date DESC, j.recno DESC
     LIMIT 50
   `;
   const totalRows = await prisma.$queryRaw`
@@ -939,6 +961,36 @@ async function statusJobsReport(scope, range, context, statusKey, technicianName
       expenses: money(row.expenses)
     })),
     total: whole(totalRows[0]?.total)
+  };
+}
+
+async function sumFilteredJobs(scope, range, context, statusKey, technicianName, entity) {
+  const rows = await prisma.$queryRaw`
+    SELECT
+      COUNT(*)::int AS jobs,
+      COALESCE(SUM(j.totalcost), 0) AS amount_to_collect,
+      COALESCE(SUM(c.amount), 0) AS collected,
+      COALESCE(SUM(ex.amount), 0) AS expenses
+    FROM job j
+    LEFT JOIN users tu ON tu.userid = j.assignedto
+    LEFT JOIN jobcollections c ON c.jobid = j.recno
+    LEFT JOIN (
+      SELECT jobid, SUM(amount) AS amount
+      FROM jobexpenses
+      WHERE tenantid = ${scope.tenantid} AND branchid = ${scope.branchid}
+      GROUP BY jobid
+    ) ex ON ex.jobid = j.recno
+    WHERE ${jobScope(scope, range)}
+      AND ${statusFilterSql(statusKey || "all_jobs", context)}
+      AND ${technicianNameSql(technicianName, entity)}
+      AND ${recordFilterSql(entity)}
+  `;
+  const row = rows[0] || {};
+  return {
+    jobs: whole(row.jobs),
+    amountToCollect: money(row.amount_to_collect),
+    collected: money(row.collected),
+    expenses: money(row.expenses)
   };
 }
 
@@ -1070,6 +1122,9 @@ function answerFromOverview(overview, classified) {
 
 function finishAnswer(auth, message, payload) {
   chatSession.remember(auth, message, payload.answer);
+  if (payload && Object.prototype.hasOwnProperty.call(payload, "conversationState")) {
+    chatSession.rememberState(auth, payload.conversationState);
+  }
   return payload;
 }
 
@@ -1482,10 +1537,95 @@ async function disambiguate(auth, message) {
   };
 }
 
-async function answerQuestion(auth, message, history) {
-  let classified = resolveQuestion(message, chatSession.historyFor(auth, history));
-  if (classified.kind === "greeting") {
+async function answerScoped(scope, range, classified) {
+  const context = await loadStatusContext(scope.tenantid);
+  const statusKey = classified.statusReport || "all_jobs";
+  const current = await sumFilteredJobs(scope, range, context, statusKey, classified.technician, classified.entity);
+  let prior = null;
+  let priorRange = null;
+  if (classified.comparison) {
+    priorRange = previousPeriod(range);
+    prior = await sumFilteredJobs(scope, priorRange, context, statusKey, classified.technician, classified.entity);
+  }
+  const who = classified.technician ? ` assigned to ${classified.technician}` : "";
+  const statusLabel = classified.statusFilter ? `${classified.statusFilter} ` : "";
+  if (classified.kind === "financial") {
+    const focus = classified.focus;
+    const pick = (row) => focus === "expenses" ? row.expenses : focus === "collected" ? row.collected : row.amountToCollect;
+    const metric = focus === "expenses" ? "Expenses" : focus === "collected" ? "Collected cash" : "Amount to collect";
+    const note = focus === "expenses"
+      ? "Expenses are the sum of jobexpenses.amount stored on these jobs."
+      : focus === "collected"
+        ? "Collected cash is jobcollections.amount on these jobs."
+        : "Amount to collect is the sum of job.totalcost on these jobs. It is not cash collected and it is not profit.";
+    let answer = `${metric} for the ${statusLabel}jobs${who} is ${formatMoney(pick(current))} (${range.label}). ${note}`;
+    if (prior) {
+      answer += ` ${range.label} compared with ${priorRange.label}: ${formatMoney(pick(current))} versus ${formatMoney(pick(prior))}.`;
+    }
+    return {
+      kind: "financial",
+      responseType: classified.comparison ? "report" : "summary",
+      tool: focus === "amountToCollect" ? "cms_job_revenue_report" : "cms_jobs_stats_kpis",
+      answer,
+      charts: [],
+      tables: []
+    };
+  }
+  let answer = `You have ${current.jobs} ${statusLabel}jobs${who} for ${range.label}.`;
+  if (classified.statusFilter === "pending") {
+    answer += " Pending is new plus assigned, the same split as the Jobs List.";
+  }
+  if (prior) {
+    answer += ` ${range.label} compared with ${priorRange.label}: ${current.jobs} versus ${prior.jobs}.`;
+  }
+  return {
+    kind: "jobs",
+    responseType: classified.comparison ? "report" : "summary",
+    tool: "cms_jobs_stats_kpis",
+    answer,
+    charts: [],
+    tables: []
+  };
+}
+
+async function answerQuestion(auth, message, history, clientState, stateProvided) {
+  const resolution = resolveConversation(
+    message,
+    chatSession.stateFor(auth, clientState, Boolean(stateProvided))
+  );
+  let state = resolution.state;
+  let classified = resolution.handled
+    ? resolution.classified
+    : resolveQuestion(message, chatSession.historyFor(auth, history));
+  const deliver = (payload) => {
+    const skipTool = ["clarify", "confirm", "greeting", "profile", "branches", "explain"].includes(payload.kind);
+    const tool = payload.tool || (skipTool ? null : toolName(classified));
+    if (tool) state = { ...state, lastSuccessfulTool: tool };
+    const suggestions = payload.suggestions?.length
+      ? payload.suggestions
+      : (resolution.handled && !skipTool ? resolution.suggestions : payload.suggestions);
     return finishAnswer(auth, message, {
+      ...payload,
+      suggestions,
+      conversationState: state,
+      responseType: payload.responseType || responseTypeFor(payload, classified),
+      appliedFilters: publicFilters(state),
+      entity: state.entity || null,
+      source: { tool: tool || null, executed: Boolean(tool) }
+    });
+  };
+  if (resolution.clarification) {
+    return deliver({
+      kind: "clarify",
+      responseType: "clarification",
+      answer: resolution.clarification,
+      suggestions: resolution.suggestions,
+      charts: [],
+      tables: []
+    });
+  }
+  if (classified.kind === "greeting") {
+    return deliver( {
       kind: "greeting",
       answer: "Hello. I can answer with your name, technicians, jobs, attendance, customers, products, or a report.",
       charts: [],
@@ -1493,16 +1633,16 @@ async function answerQuestion(auth, message, history) {
     });
   }
   if (classified.kind === "profile") {
-    return finishAnswer(auth, message, await answerProfile(auth, classified));
+    return deliver( await answerProfile(auth, classified));
   }
   if (classified.kind === "branches") {
-    return finishAnswer(auth, message, await answerBranches(auth));
+    return deliver( await answerBranches(auth));
   }
   if (classified.kind === "attendance") {
-    return finishAnswer(auth, message, await answerAttendance(auth, classified));
+    return deliver( await answerAttendance(auth, classified));
   }
   if (classified.kind === "clarify") {
-    return finishAnswer(auth, message, {
+    return deliver( {
       kind: "clarify",
       answer: "That isn't something Connect CMS can answer. Try one of these:",
       suggestions: buildSuggestions(message),
@@ -1511,8 +1651,11 @@ async function answerQuestion(auth, message, history) {
     });
   }
 
-  const named = await disambiguate(auth, message);
-  if (named?.response) return finishAnswer(auth, message, named.response);
+  const lookupMessage = classified.technician && !detectEntityRef(message) && !detectEntityName(message)
+    ? `technician ${classified.technician}`
+    : message;
+  const named = await disambiguate(auth, lookupMessage);
+  if (named?.response) return deliver( named.response);
   if (named?.entity) {
     classified = {
       ...classified,
@@ -1521,13 +1664,23 @@ async function answerQuestion(auth, message, history) {
         ? named.entity.name
         : classified.technician
     };
+    if (named.entity.type === "technician" || named.entity.type === "user") {
+      state = {
+        ...state,
+        filters: {
+          ...state.filters,
+          technician: named.entity.name,
+          technicianId: named.entity.id
+        }
+      };
+    }
   }
 
   if (classified.kind === "technicians") {
-    return finishAnswer(auth, message, await answerTechnicians(auth, classified));
+    return deliver( await answerTechnicians(auth, classified));
   }
   if (classified.kind === "module" && classified.entity) {
-    return finishAnswer(auth, message, {
+    return deliver( {
       kind: "module",
       answer: `${classified.entity.word}: ${classified.entity.detail || classified.entity.name}.`,
       charts: [],
@@ -1535,7 +1688,7 @@ async function answerQuestion(auth, message, history) {
     });
   }
   if (classified.kind === "module") {
-    return finishAnswer(auth, message, await answerModule(auth, classified, message));
+    return deliver( await answerModule(auth, classified, message));
   }
 
   const scope = await resolveScope(auth);
@@ -1544,7 +1697,7 @@ async function answerQuestion(auth, message, history) {
   if (classified.technician && !classified.entity?.id) {
     const names = await findTechnicianNames(scope, classified.technician);
     if (!names.length) {
-      return finishAnswer(auth, message, {
+      return deliver( {
         kind: classified.kind,
         answer: `No technician matching ${classified.technician} has jobs in this branch.`,
         charts: [],
@@ -1553,13 +1706,54 @@ async function answerQuestion(auth, message, history) {
     }
   }
 
+  if (classified.kind === "dimension_report" && classified.report) {
+    const report = await getReport(auth, classified.report, {
+      range: classified.range,
+      page: 1,
+      pageSize: 20,
+      sortBy: "jobs",
+      sortOrder: "desc",
+      statusKey: classified.statusReport,
+      technician: classified.technician,
+      technicianId: classified.entity?.id
+    });
+    const rows = report.table?.rows || [];
+    return deliver({
+      kind: "dimension_report",
+      responseType: "report",
+      tool: "getReport",
+      answer: rows.length
+        ? `Here is ${report.title} for ${report.range.label}.`
+        : `No rows to break down for ${report.range.label}.`,
+      charts: [],
+      tables: rows.length ? [report.table] : [],
+      pagination: {
+        page: 1,
+        pageSize: rows.length,
+        total: report.table?.total ?? rows.length,
+        totalPages: report.table?.totalPages || 1
+      }
+    });
+  }
+
+  if (
+    resolution.handled
+    && (classified.kind === "jobs" || classified.kind === "financial")
+    && (classified.statusFilter || classified.technician || classified.comparison)
+  ) {
+    return deliver(await answerScoped(scope, range, classified));
+  }
+
   if (classified.kind === "group_chart" && classified.report) {
     const report = await getReport(auth, classified.report, {
       range: classified.range,
       page: 1,
       pageSize: 12,
       sortBy: "jobs",
-      sortOrder: "desc"
+      sortOrder: "desc",
+      statusKey: classified.statusReport,
+      technician: classified.technician,
+      technicianId: classified.entity?.id
     });
     const rows = report.table?.rows || [];
     const chart = toApexChart({
@@ -1568,7 +1762,7 @@ async function answerQuestion(auth, message, history) {
       categories: rows.map((row) => row.name || "None"),
       series: [{ name: "Jobs", data: rows.map((row) => Number(row.jobs) || 0) }]
     });
-    return finishAnswer(auth, message, {
+    return deliver( {
       kind: "group_chart",
       answer: rows.length
         ? `${report.title} for ${report.range.label}. The bars are the number of jobs.`
@@ -1578,10 +1772,23 @@ async function answerQuestion(auth, message, history) {
     });
   }
 
+  if (classified.kind === "explain") {
+    return deliver( {
+      kind: "explain",
+      answer: "The previous reply was a summary of job counts for that date range. Pending is new plus assigned, the same split as the Jobs List. It is not the job list. Ask for the job list to see each job.",
+      suggestions: [
+        { label: "Show the job list", message: "show the job list" },
+        { label: "Status wise job list", message: "give me status wise jobs list" }
+      ],
+      charts: [],
+      tables: []
+    });
+  }
+
   if (classified.kind === "chart") {
     const chart = await buildMoneyChart(scope, range, classified);
     const who = classified.technician ? ` for technician ${classified.technician}` : "";
-    return finishAnswer(auth, message, {
+    return deliver( {
       kind: "chart",
       answer: `${chart.options.title.text}. ${range.label}${who}. Collected cash uses the collection date. Expenses use the date the expense was created. Amount to collect uses the job date.`,
       charts: [chart],
@@ -1592,24 +1799,43 @@ async function answerQuestion(auth, message, history) {
   if (classified.kind === "job_report") {
     const context = await loadStatusContext(scope.tenantid);
     if (classified.statusReport === "completed_jobs" && !context.completedStatusIds.length) {
-      return finishAnswer(auth, message, {
+      return deliver( {
         kind: "job_report",
         answer: "No job status is marked completed for this organization.",
         charts: [],
         tables: []
       });
     }
-    const table = await statusJobsReport(scope, range, context, classified.statusReport, classified.technician, classified.entity);
-    const title = STATUS_REPORT_TITLES[classified.statusReport] || "Jobs";
+    const table = await statusJobsReport(scope, range, context, classified.statusReport, classified.technician, classified.entity, classified.listByStatus);
+    const title = classified.listByStatus
+      ? "Jobs by status"
+      : (STATUS_REPORT_TITLES[classified.statusReport] || "Jobs");
     const extra = table.total > table.rows.length ? ` Showing the first ${table.rows.length} of ${table.total}.` : "";
-    const who = classified.technician ? ` for technician ${classified.technician}` : "";
-    return finishAnswer(auth, message, {
+    const who = classified.technician ? ` assigned to ${classified.technician}` : "";
+    const statusWord = classified.statusFilter ? `${classified.statusFilter} ` : "";
+    let answer;
+    if (!table.total) {
+      answer = `No ${statusWord}jobs${who} for ${range.label}.`;
+    } else if (classified.listByStatus) {
+      answer = `Here is the status-wise job list for ${range.label}${who}: ${table.total} jobs.${extra}`;
+    } else if (classified.intent === "ENTITY_REPORT") {
+      answer = `Here is the jobs report for ${range.label}${who}: ${table.total} jobs.${extra}`;
+    } else {
+      answer = `Here are the ${table.total} ${statusWord}jobs${who} for ${range.label}.${extra}`;
+    }
+    return deliver({
       kind: "job_report",
-      answer: table.total
-        ? `${title} for ${range.label}${who}: ${table.total}.${extra}`
-        : `No ${title.toLowerCase()} for ${range.label}${who}.`,
+      responseType: classified.intent === "ENTITY_REPORT" ? "report" : "table",
+      tool: "statusJobsReport",
+      answer,
       charts: [],
-      tables: table.total ? [{ id: classified.statusReport, title: `${title} — ${range.label}`, ...table }] : []
+      tables: table.total ? [{ id: classified.statusReport, title: `${title} — ${range.label}`, ...table }] : [],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        total: table.total,
+        totalPages: Math.ceil(table.total / 50) || 0
+      }
     });
   }
 
@@ -1637,8 +1863,9 @@ async function answerQuestion(auth, message, history) {
     });
     answer = `${range.label} for technician ${classified.technician}. ${totals.join(". ")}. Collected cash uses the collection date. Expenses use the date the expense was created. Amount to collect uses the job date.`;
   }
-  return finishAnswer(auth, message, {
+  return deliver({
     kind: classified.kind,
+    tool: "getOverview",
     answer,
     charts,
     tables: table ? [table] : [],

@@ -29,7 +29,14 @@ async function askQuestion(req, res, next) {
       err.status = 400;
       throw err;
     }
-    res.status(200).json(await intelligence.answerQuestion(req.auth, message, req.body?.history));
+    const stateProvided = Boolean(req.body) && Object.prototype.hasOwnProperty.call(req.body, "conversationState");
+    res.status(200).json(await intelligence.answerQuestion(
+      req.auth,
+      message,
+      req.body?.history,
+      req.body?.conversationState,
+      stateProvided
+    ));
   } catch (err) {
     forward(err, next);
   }
