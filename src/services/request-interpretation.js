@@ -1,15 +1,27 @@
 const { isReservedName, JOB_LINKS } = require("./entity-resolution");
+const {
+  SUPPORTED_JOB_GROUPS,
+  MONEY_METRICS,
+  findChartMention,
+  isChartTypeOnly,
+  isChartModifierOnly,
+  getChart
+} = require("./chart-registry");
+const { planChart } = require("./chart-adapter");
 
 const DIMENSIONS = Object.freeze({
   category: "category",
   categories: "category",
   status: "status",
+  statuses: "status",
   technician: "technician",
   technicians: "technician",
   customer: "customer",
   customers: "customer",
   month: "month",
   months: "month",
+  day: "day",
+  days: "day",
   brand: "brand",
   brands: "brand",
   fault: "fault",
@@ -23,9 +35,14 @@ const DIMENSIONS = Object.freeze({
   city: "city"
 });
 
-const SUPPORTED_JOB_GROUPS = new Set([
-  "status", "technician", "customer", "category", "fault", "group", "brand", "source", "area", "city"
-]);
+const TOP_DIMENSIONS = Object.freeze({
+  customers: "customer",
+  technicians: "technician",
+  categories: "category",
+  brands: "brand",
+  groups: "group",
+  statuses: "status"
+});
 
 const TYPE_WORD = Object.freeze({
   customer: "customer",
@@ -48,15 +65,7 @@ function acceptName(value) {
 }
 
 function detectChartType(text) {
-  if (/\b(doughnut|donut)\b/.test(text)) return "donut";
-  if (/\bpie\b/.test(text)) return "pie";
-  if (/\b(?:bar|column)\s+charts?\b|\bbar\s+graphs?\b/.test(text)) return "bar";
-  if (/\bline\s+(?:charts?|graphs?)\b/.test(text)) return "line";
-  return null;
-}
-
-function isChartTypeOnly(text) {
-  return /^(?:please\s+)?(?:make\s+it\s+(?:a\s+|an\s+)?)?(?:a\s+|the\s+)?(?:pie|donut|doughnut|bar|line)(?:\s+charts?)?[.?!]?$/.test(String(text || "").trim());
+  return findChartMention(text)?.chart.id || null;
 }
 
 function detectGroupings(text) {
@@ -71,7 +80,44 @@ function detectGroupings(text) {
     if (match[2]) add(match[2]);
   }
   if (/status[\s-]?wise/.test(text)) add("status");
+  const ranked = String(text || "").match(/\btop\s+\d{1,2}\s+(customers|technicians|categories|brands|groups|statuses)\b/);
+  if (ranked) add(TOP_DIMENSIONS[ranked[1]]);
+  if (/\btechnician performance\b/.test(text)) add("technician");
   return dims;
+}
+
+function detectMetricList(text) {
+  const metrics = [];
+  if (/\b(revenue|amount to collect)\b/.test(text)) metrics.push("amountToCollect");
+  if (/\bexpenses?\b/.test(text)) metrics.push("expenses");
+  if (/\b(collected cash|collections?|cash collected)\b/.test(text)) metrics.push("collected");
+  if (/\b(job counts?|number of jobs|count of jobs)\b/.test(text)) metrics.push("jobs");
+  return metrics;
+}
+
+function detectStatusSeries(text) {
+  if (!/\b(versus|vs\.?|against)\b/.test(text)) return [];
+  return ["completed", "pending", "cancelled", "assigned", "resolved", "new"].filter((status) => (
+    new RegExp(`\\b${status}\\b`).test(text)
+  ));
+}
+
+function detectGrain(text) {
+  if (/\b(monthly|each month|by month)\b/.test(text)) return "month";
+  if (/\b(by day|each day|daily)\b/.test(text)) return "day";
+  if (/\bover time\b|\btrend\b/.test(text)) return "auto";
+  return null;
+}
+
+function detectTopN(text) {
+  const match = String(text || "").match(/\btop\s+(\d{1,2})\b/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return value >= 1 && value <= 50 ? value : null;
+}
+
+function wantsPeriodComparison(text) {
+  return /\bcompare\b/.test(text) && /\b(last year|previous year|previous period|last month|prior period|them|those|these)\b/.test(text);
 }
 
 function detectBusinessFilter(original) {
@@ -104,24 +150,29 @@ function detectBusinessFilter(original) {
   return null;
 }
 
-function detectBusinessEntity(text, chartTypeOnly) {
+function detectBusinessEntity(text, chartTypeOnly, metrics) {
   if (chartTypeOnly) return null;
   if (/\b(attendance|checked in|check-?in|absent|on the way|on location|on break)\b/.test(text)) return "attendance";
-  if (/\b(revenue|amount to collect)\b/.test(text)) return "revenue";
-  if (/\bexpenses?\b/.test(text)) return "expenses";
-  if (/\b(collected|collections?)\b/.test(text)) return "collections";
+  if (/\btechnician performance\b/.test(text)) return "jobs";
+  if (metrics.length >= 2) return "revenue";
+  if (metrics.includes("amountToCollect")) return "revenue";
+  if (metrics.includes("expenses")) return "expenses";
+  if (metrics.includes("collected")) return "collections";
   if (/\bc-?pair\b/.test(text)) return "cpair";
   if (/\bjobs?\b|\bjob performance\b/.test(text)) return "jobs";
   return null;
 }
 
-function detectStructuredIntent(text, chartType, chartTypeOnly, groupings) {
+function detectStructuredIntent(text, chartType, chartTypeOnly, groupings, statusSeries) {
   if (chartTypeOnly) return "chart";
-  if (/\b(not (?:the |a )?summary|as a list|the list|job list|list of)\b/.test(text)) return "list";
-  if (/\blist\b/.test(text) && /\b(job|jobs|status|report|them|those)\b/.test(text)) return "list";
+  if (/\b(not (?:the |a )?summary|as a list|the list|job list|list of|as a table|list behind|behind this (?:graph|chart))\b/.test(text)) return "list";
+  if (/\blist\b/.test(text) && /\b(job|jobs|status|report|them|those|graph|chart)\b/.test(text)) return "list";
   if (chartType || /\b(charts?|graphs?|visualize|plot)\b/.test(text)) return "chart";
-  if (/\bcompare\b/.test(text)) return "comparison";
-  if (/\breport\b/.test(text) || groupings.length) return "report";
+  if (statusSeries.length >= 2) return "chart";
+  if (wantsPeriodComparison(text)) return "comparison";
+  if (/\breport\b|\bbreakdown\b|\bbreak (?:it |them )?down\b/.test(text)) return "report";
+  if (groupings.length && /\b(show|give|plot|graph|chart)\b/.test(text)) return "chart";
+  if (groupings.length) return "report";
   return null;
 }
 
@@ -150,21 +201,45 @@ function interpretRequest(message) {
   const original = String(message || "").trim();
   const text = original.toLowerCase();
   const chartTypeOnly = isChartTypeOnly(text);
-  const chartType = detectChartType(text);
-  const groupingDimensions = chartTypeOnly ? [] : detectGroupings(text);
-  const businessFilterCandidate = chartTypeOnly ? null : detectBusinessFilter(original);
-  const businessEntity = detectBusinessEntity(text, chartTypeOnly);
-  const intent = detectStructuredIntent(text, chartType, chartTypeOnly, groupingDimensions);
+  const modifierOnly = isChartModifierOnly(text);
+  const mention = findChartMention(text);
+  const chartType = mention?.chart.id || null;
+  const groupingDimensions = chartTypeOnly || modifierOnly ? [] : detectGroupings(text);
+  const businessFilterCandidate = chartTypeOnly || modifierOnly ? null : detectBusinessFilter(original);
+  const metrics = chartTypeOnly || modifierOnly ? [] : detectMetricList(text);
+  const statusSeries = chartTypeOnly || modifierOnly ? [] : detectStatusSeries(text);
+  const businessEntity = detectBusinessEntity(text, chartTypeOnly || modifierOnly, metrics);
+  const intent = detectStructuredIntent(text, chartType, chartTypeOnly, groupingDimensions, statusSeries);
   const unresolvedEntities = businessFilterCandidate ? [businessFilterCandidate.name] : [];
+  const grain = chartTypeOnly || modifierOnly ? null : detectGrain(text);
+  const categoryDimensions = groupingDimensions.filter((dimension) => dimension !== "day" && dimension !== "month");
+  const metric = metrics[0] || (businessEntity === "jobs" || categoryDimensions.length ? "jobs" : null);
+  const stacking = mention?.chart.stacked || /\bstacked\b/.test(text) ? true : (mention ? false : null);
+  const horizontal = mention?.chart.horizontal || /\bhorizontal\b/.test(text) ? true : (mention ? false : null);
   return {
     businessEntity,
     intent,
+    metric,
+    aggregation: metric === "jobs" ? "count" : metric ? "sum" : null,
     groupingDimensions,
+    xAxis: categoryDimensions[0] || (grain ? "date" : null),
+    yAxis: metric,
+    series: statusSeries.length ? statusSeries : metrics,
     chartType,
     chartTypeOnly,
+    modifierOnly,
+    stacking,
+    horizontal,
+    sorting: detectTopN(text) ? "desc" : null,
+    topN: chartTypeOnly || modifierOnly ? null : detectTopN(text),
+    comparisonPeriod: wantsPeriodComparison(text),
     businessFilterCandidate,
     businessFilters: businessFilterCandidate ? [businessFilterCandidate] : [],
-    dateRange: chartTypeOnly ? null : detectExplicitRange(text),
+    dateRange: chartTypeOnly || modifierOnly ? null : detectExplicitRange(text),
+    grain,
+    statusSeries,
+    forecast: /\bforecast(?:ing)?\b/.test(text),
+    formatting: metrics.some((item) => MONEY_METRICS.has(item)) ? "money" : "number",
     outputFormat: outputFor(intent),
     unresolvedEntities,
     searchCandidates: unresolvedEntities.slice()
@@ -172,20 +247,10 @@ function interpretRequest(message) {
 }
 
 function chartToolArguments(state) {
-  const group = state?.filters?.groupBy || null;
-  const requestedChartType = state?.filters?.chartType || null;
-  const chartIntent = state?.intent === "ENTITY_CHART";
+  const plan = planChart(state);
   return {
-    tool: chartIntent && group && SUPPORTED_JOB_GROUPS.has(group) ? "getReport" : null,
-    report: group && SUPPORTED_JOB_GROUPS.has(group) ? `jobs_by_${group}` : null,
-    chartType: requestedChartType,
-    renderedChartType: requestedChartType || (chartIntent ? "bar" : null),
-    status: state?.filters?.status || null,
-    range: state?.filters?.range || null,
-    subjectType: state?.filters?.subject?.type || null,
-    subjectId: state?.filters?.subject?.id || null,
-    relationship: state?.filters?.subject?.type ? (JOB_LINKS[state.filters.subject.type] || null) : null,
-    searchCandidates: state?.filters?.requestedName ? [state.filters.requestedName] : []
+    ...plan,
+    relationship: state?.filters?.subject?.type ? (JOB_LINKS[state.filters.subject.type] || null) : null
   };
 }
 
@@ -200,7 +265,7 @@ function validateChartPlan(state) {
   if (state?.intent === "ENTITY_CHART" && state?.filters?.groupBy && !SUPPORTED_JOB_GROUPS.has(state.filters.groupBy)) {
     return { ok: false, reason: "unsupported_grouping", arguments: args };
   }
-  if (state?.filters?.chartType && !["pie", "donut", "bar", "line"].includes(state.filters.chartType)) {
+  if (state?.filters?.chartType && !getChart(state.filters.chartType)) {
     return { ok: false, reason: "unsupported_chart", arguments: args };
   }
   return { ok: true, reason: null, arguments: args };

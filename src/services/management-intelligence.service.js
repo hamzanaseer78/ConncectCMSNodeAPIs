@@ -32,6 +32,7 @@ const logger = require("../utils/logger");
 const chatSession = require("./ai-chat-session");
 const { activeMembershipWhere } = require("../utils/user-branch-access");
 const container = require("../utils/service-container");
+const { buildChart } = require("./chart-adapter");
 
 const DIMENSIONS = {
   status: {
@@ -569,6 +570,23 @@ async function dimensionReport(scope, range, definition, query) {
       GROUP BY ${dimension.idExpr}, ${dimension.nameExpr}
     ) grouped
   `;
+  const totalAmounts = await prisma.$queryRaw`
+    SELECT
+      COUNT(*)::int AS jobs,
+      COALESCE(SUM(j.totalcost), 0) AS amount_to_collect,
+      COALESCE(SUM(c.amount), 0) AS collected,
+      COALESCE(SUM(ex.amount), 0) AS expenses
+    FROM job j
+    LEFT JOIN jobcollections c ON c.jobid = j.recno
+    LEFT JOIN (
+      SELECT jobid, SUM(amount) AS amount
+      FROM jobexpenses
+      WHERE tenantid = ${scope.tenantid} AND branchid = ${scope.branchid}
+      GROUP BY jobid
+    ) ex ON ex.jobid = j.recno
+    WHERE ${where}
+  `;
+  const totalsRow = totalAmounts[0] || {};
   return {
     columns: dimensionColumns(dimension.label),
     rows: rows.map((row) => ({
@@ -583,6 +601,12 @@ async function dimensionReport(scope, range, definition, query) {
     page,
     pageSize,
     total: whole(totalRows[0]?.total),
+    totals: {
+      jobs: whole(totalsRow.jobs),
+      amountToCollect: money(totalsRow.amount_to_collect),
+      collected: money(totalsRow.collected),
+      expenses: money(totalsRow.expenses)
+    },
     sortBy: sort.sortBy,
     sortOrder: String(query.sortOrder || "desc").toLowerCase() === "asc" ? "asc" : "desc",
     definition:
@@ -1080,25 +1104,205 @@ async function metricTrend(scope, range, technicianName, metric, entity) {
   `;
 }
 
+function chartGrainFor(range, requested) {
+  if (requested === "month" || requested === "day") return requested;
+  return chartGrain(range);
+}
+
 async function buildMoneyChart(scope, range, classified) {
   const metrics = classified.chart?.metrics?.length ? classified.chart.metrics : ["collected", "expenses"];
-  const grain = chartGrain(range);
+  const grain = chartGrainFor(range, classified.chart?.grain);
   const categories = listBuckets(range, grain);
   const series = [];
   for (const metric of metrics) {
     const rows = await metricTrend(scope, range, classified.technician, metric, classified.entity);
     series.push({
       name: CHART_SERIES_LABELS[metric] || metric,
+      type: classified.chart?.type === "combo" && series.length === 0 ? "column" : "line",
+      unit: "money",
       data: fillSeries(categories, rows)
     });
   }
   const who = classified.technician ? ` for ${classified.technician}` : "";
-  return toApexChart({
-    type: "line",
-    title: `${series.map((item) => item.name).join(" vs ")}${who}`,
-    categories,
-    series
+  const title = `${series.map((item) => item.name).join(" vs ")}${who}`;
+  return buildChart({
+    requestedType: classified.chart?.type || "line",
+    title,
+    metric: metrics[0],
+    format: "money",
+    grain,
+    forecast: classified.chart?.forecast,
+    stacking: classified.chart?.stacking,
+    businessEntity: classified.focus || "revenue",
+    yLabel: series.length === 1 ? series[0].name : "Amount",
+    dateRange: range.label,
+    comparison: classified.comparison
+  }, { categories, series, complete: true });
+}
+
+function chartMetric(classified) {
+  const metric = classified.chart?.metric;
+  if (["jobs", "amountToCollect", "expenses", "collected"].includes(metric)) return metric;
+  return "jobs";
+}
+
+function pivotHeatmap(rows) {
+  const categories = [];
+  const byStatus = new Map();
+  rows.forEach((row) => {
+    const bucket = row.bucket || "None";
+    const status = row.status || "No status";
+    if (!categories.includes(bucket)) categories.push(bucket);
+    if (!byStatus.has(status)) byStatus.set(status, new Map());
+    byStatus.get(status).set(bucket, whole(row.jobs));
   });
+  return {
+    categories,
+    matrix: [...byStatus.entries()].map(([name, values]) => ({
+      name,
+      data: categories.map((bucket) => ({ x: bucket, y: values.get(bucket) || 0 }))
+    }))
+  };
+}
+
+async function jobsHeatmap(scope, range, classified) {
+  const askedDay = classified.chart?.grain === "day";
+  const grain = askedDay && chartGrain(range) === "month" ? "month" : chartGrainFor(range, classified.chart?.grain);
+  const rows = await prisma.$queryRaw`
+    SELECT ${bucketExpr(Prisma.sql`j.date`, grain)} AS bucket,
+           COALESCE(st.title, 'No status') AS status,
+           COUNT(*)::int AS jobs
+    FROM job j
+    LEFT JOIN jobstatuses st ON st.recno = j.statusid
+    LEFT JOIN users tu ON tu.userid = j.assignedto
+    WHERE ${jobScope(scope, range)}
+      AND ${statusFilterSql(classified.statusReport || "all_jobs", await loadStatusContext(scope.tenantid))}
+      AND ${technicianNameSql(classified.technician, classified.entity)}
+      AND ${recordFilterSql(classified.entity)}
+    GROUP BY 1, 2
+    ORDER BY 1, 2
+  `;
+  const pivoted = pivotHeatmap(rows);
+  const notice = askedDay && grain === "month"
+    ? "The date range is longer than 62 days, so the heatmap uses months instead of days."
+    : null;
+  const built = buildChart({
+    requestedType: "heatmap",
+    title: `Jobs by ${grain} and status`,
+    metric: "jobs",
+    aggregation: "count",
+    groupingDimensions: [grain === "month" ? "month" : "day", "status"],
+    format: "number",
+    businessEntity: "jobs",
+    dateRange: range.label,
+    yLabel: "Jobs"
+  }, { ...pivoted, complete: true });
+  if (notice) built.notice = [built.notice, notice].filter(Boolean).join(" ");
+  built.grainNote = notice;
+  return built;
+}
+
+async function statusTrend(scope, range, classified) {
+  const context = await loadStatusContext(scope.tenantid);
+  const grain = chartGrainFor(range, classified.chart?.grain);
+  const categories = listBuckets(range, grain);
+  const wanted = classified.chart?.statusSeries?.length ? classified.chart.statusSeries : ["completed", "pending"];
+  const series = [];
+  for (const status of wanted) {
+    const key = `${status}_jobs`;
+    const rows = await prisma.$queryRaw`
+      SELECT ${bucketExpr(Prisma.sql`j.date`, grain)} AS bucket,
+             COUNT(*)::int AS amount
+      FROM job j
+      LEFT JOIN users tu ON tu.userid = j.assignedto
+      WHERE ${jobScope(scope, range)}
+        AND ${statusFilterSql(key, context)}
+        AND ${technicianNameSql(classified.technician, classified.entity)}
+        AND ${recordFilterSql(classified.entity)}
+      GROUP BY 1
+    `;
+    series.push({
+      name: STATUS_REPORT_TITLES[key] || status,
+      unit: "count",
+      data: fillSeries(categories, rows.map((row) => ({ bucket: row.bucket, amount: row.amount })))
+    });
+  }
+  return buildChart({
+    requestedType: classified.chart?.type || "line",
+    title: wanted.map((status) => status).join(" vs ") + " jobs",
+    metric: "jobs",
+    aggregation: "count",
+    stacking: classified.chart?.stacking || classified.chart?.type === "stacked_bar",
+    businessEntity: "jobs",
+    format: "number",
+    dateRange: range.label,
+    yLabel: "Jobs"
+  }, { categories, series, complete: true });
+}
+
+async function jobCountTrend(scope, range, classified) {
+  const context = await loadStatusContext(scope.tenantid);
+  const grain = chartGrainFor(range, classified.chart?.grain);
+  const categories = listBuckets(range, grain);
+  const rows = await prisma.$queryRaw`
+    SELECT ${bucketExpr(Prisma.sql`j.date`, grain)} AS bucket,
+           COUNT(*)::int AS amount
+    FROM job j
+    LEFT JOIN users tu ON tu.userid = j.assignedto
+    WHERE ${jobScope(scope, range)}
+      AND ${statusFilterSql(classified.statusReport || "all_jobs", context)}
+      AND ${technicianNameSql(classified.technician, classified.entity)}
+      AND ${recordFilterSql(classified.entity)}
+    GROUP BY 1
+  `;
+  return buildChart({
+    requestedType: classified.chart?.type || "line",
+    title: "Jobs over time",
+    metric: "jobs",
+    aggregation: "count",
+    forecast: classified.chart?.forecast,
+    businessEntity: "jobs",
+    format: "number",
+    grain,
+    dateRange: range.label,
+    yLabel: "Jobs"
+  }, {
+    categories,
+    series: [{ name: "Jobs", unit: "count", data: fillSeries(categories, rows.map((row) => ({ bucket: row.bucket, amount: row.amount }))) }],
+    complete: true
+  });
+}
+
+function chartPayloadResponse(kind, built, range, tool) {
+  const title = built.chart?.options?.title?.text || "Chart";
+  const note = built.notice ? ` ${built.notice}` : "";
+  return {
+    kind,
+    tool,
+    responseType: "chart",
+    answer: built.chart
+      ? `${title} for ${range.label}.${note}`
+      : `No data to chart for ${range.label}.${note}`,
+    charts: built.chart ? [built.chart] : [],
+    tables: [],
+    chartSpecification: built.specification
+  };
+}
+
+function reportQuery(classified, extra = {}) {
+  return {
+    range: classified.range,
+    page: 1,
+    pageSize: Math.min(100, classified.chart?.topN || 50),
+    sortBy: chartMetric(classified) === "jobs" ? "jobs" : chartMetric(classified),
+    sortOrder: "desc",
+    statusKey: classified.statusReport,
+    technician: classified.entity?.type === "technician" || classified.entity?.type === "user" ? classified.technician : null,
+    technicianId: classified.entity?.type === "technician" || classified.entity?.type === "user" ? classified.entity.id : null,
+    subjectType: classified.entity?.type || null,
+    subjectId: classified.entity?.id || null,
+    ...extra
+  };
 }
 
 function moneySentence(label, pair) {
@@ -1661,6 +1865,7 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
       appliedFilters: publicFilters(state),
       executionPlan: plan,
       entity: state.entity || null,
+      chartSpecification: next.chartSpecification || null,
       source: { tool: tool || null, executed: Boolean(tool) }
     });
   };
@@ -1880,37 +2085,101 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
     return deliver(await answerScoped(scope, range, classified));
   }
 
+  if (classified.kind === "heatmap") {
+    const built = await jobsHeatmap(scope, range, classified);
+    return deliver(chartPayloadResponse("heatmap", built, range, "jobsHeatmap"));
+  }
+
+  if (classified.kind === "status_trend") {
+    const built = await statusTrend(scope, range, classified);
+    return deliver(chartPayloadResponse("status_trend", built, range, "statusTrend"));
+  }
+
+  if (classified.kind === "job_trend") {
+    const built = await jobCountTrend(scope, range, classified);
+    return deliver(chartPayloadResponse("job_trend", built, range, "jobCountTrend"));
+  }
+
   if (classified.kind === "group_chart" && classified.report) {
-    const report = await getReport(auth, classified.report, {
-      range: classified.range,
-      page: 1,
-      pageSize: 12,
-      sortBy: "jobs",
-      sortOrder: "desc",
-      statusKey: classified.statusReport,
-      technician: classified.entity?.type === "technician" || classified.entity?.type === "user" ? classified.technician : null,
-      technicianId: classified.entity?.type === "technician" || classified.entity?.type === "user" ? classified.entity.id : null,
-      subjectType: classified.entity?.type || null,
-      subjectId: classified.entity?.id || null
-    });
+    const metric = chartMetric(classified);
+    const report = await getReport(auth, classified.report, reportQuery(classified));
     const rows = report.table?.rows || [];
-    const chartType = classified.chart?.type === "pie" || classified.chart?.type === "donut" || classified.chart?.type === "line"
-      ? classified.chart.type
-      : "bar";
-    const chart = toApexChart({
-      type: chartType,
+    let dataset;
+    if (classified.comparison && rows.length) {
+      const previous = previousPeriod(report.range);
+      const previousReport = await getReport(auth, classified.report, reportQuery(classified, {
+        range: "custom",
+        from: previous.fromDate,
+        to: previous.toDate
+      }));
+      const labels = [];
+      rows.forEach((row) => {
+        const label = row.name || "None";
+        if (!labels.includes(label)) labels.push(label);
+      });
+      (previousReport.table?.rows || []).forEach((row) => {
+        const label = row.name || "None";
+        if (!labels.includes(label)) labels.push(label);
+      });
+      const valueOf = (list) => {
+        const map = new Map(list.map((row) => [row.name || "None", Number(row[metric]) || 0]));
+        return labels.map((label) => map.get(label) || 0);
+      };
+      dataset = {
+        categories: labels,
+        series: [
+          { name: report.range.label, unit: metric === "jobs" ? "count" : "money", data: valueOf(rows) },
+          { name: previous.label, unit: metric === "jobs" ? "count" : "money", data: valueOf(previousReport.table?.rows || []) }
+        ],
+        complete: true
+      };
+    } else {
+      dataset = {
+        rows: rows.map((row) => ({ label: row.name || "None", value: Number(row[metric]) || 0 })),
+        total: report.table?.totals ? report.table.totals[metric] : null,
+        complete: rows.length >= (report.table?.total || rows.length)
+      };
+    }
+    const built = buildChart({
+      requestedType: classified.chart?.type || null,
       title: report.title,
-      categories: rows.map((row) => row.name || "None"),
-      series: [{ name: "Jobs", data: rows.map((row) => Number(row.jobs) || 0) }]
-    });
-    const shape = chartType === "pie" || chartType === "donut" ? "Each slice is the number of jobs." : "The bars are the number of jobs.";
-    return deliver( {
+      metric,
+      aggregation: metric === "jobs" ? "count" : "sum",
+      groupingDimensions: classified.groupBy ? [classified.groupBy] : [],
+      stacking: classified.chart?.stacking,
+      horizontal: classified.chart?.horizontal,
+      topN: classified.chart?.topN,
+      format: metric === "jobs" ? "number" : "money",
+      businessEntity: "jobs",
+      businessFilters: classified.entity?.id ? [{ type: classified.entity.type, id: classified.entity.id, name: classified.entity.name }] : [],
+      dateRange: report.range.label,
+      comparison: classified.comparison,
+      forecast: classified.chart?.forecast,
+      yLabel: metric === "jobs" ? "Jobs" : CHART_SERIES_LABELS[metric] || metric,
+      seriesName: metric === "jobs" ? "Jobs" : CHART_SERIES_LABELS[metric] || metric
+    }, dataset);
+    const shape = built.notice
+      || (built.specification?.apexType === "pie" || built.specification?.apexType === "donut"
+        ? "Each slice is the number of jobs."
+        : metric === "jobs"
+          ? "The bars are the number of jobs."
+          : "The values use the stored amounts. Amount to collect minus expenses is not profit.");
+    return deliver({
       kind: "group_chart",
+      tool: "getReport",
+      responseType: "chart",
       answer: rows.length
         ? `${report.title} for ${report.range.label}. ${shape}`
         : `No jobs to group for ${report.range.label}.`,
-      charts: rows.length ? [chart] : [],
-      tables: rows.length ? [report.table] : []
+      charts: built.chart && rows.length ? [built.chart] : [],
+      tables: rows.length ? [report.table] : [],
+      chartSpecification: built.specification,
+      pagination: {
+        page: 1,
+        pageSize: rows.length,
+        total: report.table?.total ?? rows.length,
+        totalPages: report.table?.totalPages || 1
+      }
     });
   }
 
@@ -1928,13 +2197,18 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
   }
 
   if (classified.kind === "chart") {
-    const chart = await buildMoneyChart(scope, range, classified);
+    const built = await buildMoneyChart(scope, range, classified);
     const who = classified.technician ? ` for technician ${classified.technician}` : "";
+    const title = built.chart?.options?.title?.text || "Chart";
+    const note = built.notice ? ` ${built.notice}` : "";
     return deliver( {
       kind: "chart",
-      answer: `${chart.options.title.text}. ${range.label}${who}. Collected cash uses the collection date. Expenses use the date the expense was created. Amount to collect uses the job date.`,
-      charts: [chart],
-      tables: []
+      tool: "buildMoneyChart",
+      responseType: "chart",
+      answer: `${title}. ${range.label}${who}. Collected cash uses the collection date. Expenses use the date the expense was created. Amount to collect uses the job date.${note}`,
+      charts: built.chart ? [built.chart] : [],
+      tables: [],
+      chartSpecification: built.specification
     });
   }
 
@@ -1985,10 +2259,11 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
   const charts = [];
   const focusedMetrics = classified.kind === "financial" ? focusedMoneyMetrics(classified) : null;
   if (classified.chart && focusedMetrics) {
-    charts.push(await buildMoneyChart(scope, range, {
+    const built = await buildMoneyChart(scope, range, {
       technician: classified.technician,
-      chart: { metrics: focusedMetrics }
-    }));
+      chart: { metrics: focusedMetrics, type: "line" }
+    });
+    if (built.chart) charts.push(built.chart);
   } else if (classified.chart && (classified.kind === "financial" || classified.kind === "jobs")) {
     charts.push(toApexChart(classified.kind === "financial" ? overview.charts[0] : overview.charts[1]));
   }

@@ -40,6 +40,10 @@ const MENTION_STOP = new Set([
   "completed", "cancelled", "canceled", "resolved", "assigned", "new", "only",
   "chart", "charts", "graph", "graphs", "show", "for", "of", "in", "as", "by",
   "pie", "donut", "doughnut", "bar", "line", "visualize", "plot", "table",
+  "bullet", "heatmap", "radar", "stacked", "horizontal", "pareto", "funnel",
+  "waterfall", "gauge", "scatter", "bubble", "treemap", "combo", "forecast",
+  "legend", "trendline", "histogram", "polar", "radial", "axis", "axes",
+  "column",
   "grouped", "breakdown", "count", "total", "trend", "comparison", "make", "it",
   "category", "technician", "customer", "brand", "fault", "group", "and"
 ]);

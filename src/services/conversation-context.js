@@ -2,9 +2,11 @@ const { detectRange, detectEntityRef } = require("./management-intelligence.inte
 const {
   JOB_LINKS,
   explicitRecord,
-  choiceTypeFromMessage
+  choiceTypeFromMessage,
+  isReservedName
 } = require("./entity-resolution");
 const { interpretRequest } = require("./request-interpretation");
+const { knownChartId } = require("./chart-registry");
 
 const ENTITIES = new Set(["jobs", "technicians", "attendance", "expenses", "revenue", "collections", "cpair"]);
 const INTENTS = new Set([
@@ -57,7 +59,15 @@ function emptyState() {
       preferredType: null,
       subject: null,
       pendingCandidates: null,
-      chartType: null
+      chartType: null,
+      stacking: false,
+      horizontal: false,
+      topN: null,
+      metric: null,
+      metrics: [],
+      grain: null,
+      statusSeries: [],
+      forecast: false
     },
     outputFormat: null,
     comparison: false,
@@ -72,7 +82,7 @@ function allowed(value, set) {
 function cleanName(value) {
   if (typeof value !== "string") return null;
   const name = value.replace(/[?.!,]+$/g, "").replace(/['’]s$/i, "").trim().slice(0, 60);
-  if (!name || NAME_STOP.has(name.toLowerCase())) return null;
+  if (!name || NAME_STOP.has(name.toLowerCase()) || isReservedName(name)) return null;
   return name;
 }
 
@@ -125,7 +135,20 @@ function sanitizeState(input) {
   state.filters.preferredType = JOB_LINKS[filters.preferredType] ? filters.preferredType : null;
   state.filters.subject = sanitizeSubject(filters.subject);
   state.filters.pendingCandidates = sanitizeCandidates(filters.pendingCandidates);
-  state.filters.chartType = ["pie", "donut", "bar", "line"].includes(filters.chartType) ? filters.chartType : null;
+  state.filters.chartType = knownChartId(filters.chartType);
+  state.filters.stacking = Boolean(filters.stacking);
+  state.filters.horizontal = Boolean(filters.horizontal);
+  const topN = Number(filters.topN);
+  state.filters.topN = Number.isInteger(topN) && topN >= 1 && topN <= 50 ? topN : null;
+  const metricSet = new Set(["jobs", "amountToCollect", "expenses", "collected"]);
+  state.filters.metric = metricSet.has(filters.metric) ? filters.metric : null;
+  state.filters.metrics = Array.isArray(filters.metrics) ? filters.metrics.filter((metric) => metricSet.has(metric)).slice(0, 4) : [];
+  state.filters.grain = ["day", "month", "auto"].includes(filters.grain) ? filters.grain : null;
+  const statusSet = new Set(["completed", "pending", "cancelled", "assigned", "resolved", "new"]);
+  state.filters.statusSeries = Array.isArray(filters.statusSeries)
+    ? filters.statusSeries.filter((status) => statusSet.has(status)).slice(0, 4)
+    : [];
+  state.filters.forecast = Boolean(filters.forecast);
   state.outputFormat = typeof input.outputFormat === "string" ? input.outputFormat : null;
   state.comparison = Boolean(input.comparison);
   state.lastSuccessfulTool = typeof input.lastSuccessfulTool === "string"
@@ -177,7 +200,7 @@ function detectEntity(text) {
 
 function detectIntent(text) {
   if (/\b(export|download|csv)\b/.test(text)) return "ENTITY_EXPORT";
-  if (/\b(not (?:the |a )?summary|as a list|the list|job list|list of)\b/.test(text)) return "ENTITY_LIST";
+  if (/\b(not (?:the |a )?summary|as a list|the list|job list|list of|as a table|list behind|behind this (?:graph|chart))\b/.test(text)) return "ENTITY_LIST";
   if (/\blist\b/.test(text) && /\b(job|jobs|status|report|them|those)\b/.test(text)) return "ENTITY_LIST";
   if (/\bdetails?\b/.test(text)) return "ENTITY_DETAILS";
   if (/\b(chart|graph)\b/.test(text)) return "ENTITY_CHART";
@@ -190,7 +213,7 @@ function detectIntent(text) {
 
 function referencesPrevious(text) {
   if (/\b(them|those|their|the same|same ones|instead|not the summary|not summary)\b/.test(text)) return true;
-  if (/\b(as a list|the list|break them|compare them|compare with|compare it|compare these)\b/.test(text)) return true;
+  if (/\b(as a list|the list|as a table|break them|compare them|compare with|compare it|compare these|behind)\b/.test(text)) return true;
   if (/^(only|just)\b/.test(text.trim())) return true;
   return false;
 }
@@ -239,6 +262,13 @@ function followUps(state) {
       { label: "Show the job list", message: "Show them as a list" }
     ];
   }
+  if (state.intent === "ENTITY_CHART") {
+    return [
+      { label: "Show the list", message: "Show the list behind this graph" },
+      { label: "Pie chart", message: "Pie chart" },
+      { label: "Compare with last year", message: "Compare with last year" }
+    ];
+  }
   if (state.intent === "ENTITY_LIST" || state.intent === "ENTITY_REPORT") {
     return [
       { label: "Show their revenue", message: "Show their revenue" },
@@ -251,6 +281,26 @@ function followUps(state) {
     { label: "Break down by status", message: "Break them down by status" },
     { label: "Show their revenue", message: "Show their revenue" }
   ];
+}
+
+function chartPayload(state) {
+  const metrics = state.filters.metrics.length ? state.filters.metrics : [];
+  return {
+    type: state.filters.chartType || null,
+    stacking: Boolean(state.filters.stacking),
+    horizontal: Boolean(state.filters.horizontal),
+    topN: state.filters.topN,
+    metric: state.filters.metric || metrics[0] || "jobs",
+    metrics,
+    grain: state.filters.grain,
+    statusSeries: state.filters.statusSeries,
+    forecast: Boolean(state.filters.forecast),
+    metricsExplicit: metrics.length > 0
+  };
+}
+
+function wantsPeriodComparison(text) {
+  return /\bcompare\b/.test(text) && /\b(last year|previous year|previous period|last month|prior period|them|those|these)\b/.test(text);
 }
 
 function toClassified(state) {
@@ -284,10 +334,23 @@ function toClassified(state) {
   if (state.entity === "cpair") {
     return { ...base, kind: "cpair", focus: "cpair" };
   }
-  if (state.entity === "revenue" || state.entity === "expenses" || state.entity === "collections") {
+  if ((state.entity === "revenue" || state.entity === "expenses" || state.entity === "collections") && !(state.intent === "ENTITY_CHART" && state.filters.groupBy)) {
     const focus = state.entity === "revenue" ? "amountToCollect" : state.entity === "expenses" ? "expenses" : "collected";
     if (state.intent === "ENTITY_CHART") {
-      return { ...base, kind: "chart", focus, chart: { type: "line", metrics: [focus], metricsExplicit: true } };
+      const metrics = state.filters.metrics.length ? state.filters.metrics : [focus];
+      return {
+        ...base,
+        kind: "chart",
+        focus,
+        chart: {
+          type: state.filters.chartType || "line",
+          metrics,
+          metricsExplicit: true,
+          grain: state.filters.grain,
+          forecast: state.filters.forecast,
+          stacking: state.filters.stacking
+        }
+      };
     }
     if (state.intent === "ENTITY_LIST") {
       return { ...base, kind: "job_report", focus, statusReport: statusReport || "all_jobs" };
@@ -306,13 +369,38 @@ function toClassified(state) {
   if (state.intent === "ENTITY_REPORT" && state.filters.groupBy) {
     return { ...base, kind: "dimension_report", report: `jobs_by_${state.filters.groupBy}`, focus: "jobs" };
   }
+  if (state.intent === "ENTITY_CHART" && state.filters.statusSeries.length >= 2) {
+    return {
+      ...base,
+      kind: "status_trend",
+      chart: chartPayload(state),
+      focus: "jobs"
+    };
+  }
+  if (state.intent === "ENTITY_CHART" && state.filters.chartType === "heatmap" && state.filters.grain && state.filters.groupBy) {
+    return {
+      ...base,
+      kind: "heatmap",
+      report: `jobs_by_${state.filters.groupBy}`,
+      chart: chartPayload(state),
+      focus: "jobs"
+    };
+  }
+  if (state.intent === "ENTITY_CHART" && state.filters.grain && !state.filters.groupBy) {
+    return {
+      ...base,
+      kind: "job_trend",
+      chart: chartPayload(state),
+      focus: "jobs"
+    };
+  }
   if (state.intent === "ENTITY_CHART") {
     const group = state.filters.groupBy || "status";
     return {
       ...base,
       kind: "group_chart",
       report: `jobs_by_${group}`,
-      chart: { type: state.filters.chartType || "bar", metrics: [], metricsExplicit: false },
+      chart: chartPayload(state),
       focus: "jobs"
     };
   }
@@ -333,22 +421,24 @@ function resolveConversation(message, previous) {
   const prior = sanitizeState(previous);
   const text = String(message || "").toLowerCase();
   const ref = detectEntityRef(message);
-  const entity = detectEntity(text);
   const intent = detectIntent(text);
   const status = detectStatus(text);
   const groupBy = detectGroup(text);
   const range = mentionedRange(message);
   const technician = ref ? undefined : captureTechnician(message);
   const interpretation = interpretRequest(message);
+  const entity = detectEntity(text) || interpretation.businessEntity;
   const mention = interpretation.businessFilterCandidate;
   const record = explicitRecord(message);
-  if (interpretation.chartTypeOnly) {
+  if (interpretation.chartTypeOnly || interpretation.modifierOnly) {
     const hasChart = prior.intent === "ENTITY_CHART" || prior.outputFormat === "chart" || prior.filters.chartType || prior.filters.groupBy;
     if (!hasChart || !prior.entity) {
       return clarify("What would you like to chart? For example, jobs by category.", prior.entity ? prior : emptyState());
     }
     const next = sanitizeState(prior);
-    next.filters.chartType = interpretation.chartType;
+    if (interpretation.chartType) next.filters.chartType = interpretation.chartType;
+    if (interpretation.stacking != null) next.filters.stacking = interpretation.stacking;
+    if (interpretation.horizontal != null) next.filters.horizontal = interpretation.horizontal;
     next.intent = "ENTITY_CHART";
     next.outputFormat = "chart";
     return {
@@ -359,7 +449,10 @@ function resolveConversation(message, previous) {
       classified: toClassified(next)
     };
   }
-  if (interpretation.groupingDimensions.length > 1) {
+  const categoryDimensions = interpretation.groupingDimensions.filter((dimension) => dimension !== "day" && dimension !== "month");
+  const timeDimensions = interpretation.groupingDimensions.filter((dimension) => dimension === "day" || dimension === "month");
+  const matrixChart = interpretation.chartType === "heatmap" && categoryDimensions.length === 1 && timeDimensions.length === 1;
+  if (categoryDimensions.length > 1 && !matrixChart) {
     const next = sanitizeState(prior);
     next.entity = interpretation.businessEntity || next.entity || "jobs";
     next.intent = "ENTITY_CHART";
@@ -368,12 +461,12 @@ function resolveConversation(message, previous) {
     next.filters.technician = null;
     next.filters.technicianId = null;
     next.filters.chartType = interpretation.chartType;
-    const labels = interpretation.groupingDimensions.join(" or ");
+    const labels = categoryDimensions.join(" or ");
     return {
       handled: true,
       state: next,
       clarification: `I can chart jobs by one grouping at a time: ${labels}. Which one should I use?`,
-      suggestions: interpretation.groupingDimensions.map((dim) => ({
+      suggestions: categoryDimensions.map((dim) => ({
         label: `By ${dim}`,
         message: `Show graph of jobs by ${dim}`
       })),
@@ -381,7 +474,7 @@ function resolveConversation(message, previous) {
     };
   }
   const choiceType = choiceTypeFromMessage(message, prior.filters.pendingCandidates);
-  const compare = /\bcompare\b/.test(text);
+  const compare = wantsPeriodComparison(text);
   const clear = /\b(start (?:a )?new topic|start over|new topic|forget (?:that|this))\b/.test(text);
   const carriesName = Boolean(prior.filters.subject || prior.filters.requestedName);
   const linked = referencesPrevious(text)
@@ -391,7 +484,8 @@ function resolveConversation(message, previous) {
     || Boolean(range && !entity && !intent && !mention)
     || (carriesName && !mention && /\b(list|report|status[\s-]?wise|not the summary|as a list)\b/.test(text));
   const meaningful = Boolean(
-    entity || intent || status !== undefined || groupBy || range || technician || ref || record || mention || choiceType || compare || clear || linked
+    entity || intent || interpretation.intent || interpretation.chartType || interpretation.forecast
+    || status !== undefined || groupBy || range || technician || ref || record || mention || choiceType || compare || clear || linked
   );
 
   if (!meaningful) {
@@ -411,12 +505,20 @@ function resolveConversation(message, previous) {
     state.filters.pendingCandidates = null;
     state.filters.hintedType = null;
     state.filters.chartType = null;
+    state.filters.stacking = false;
+    state.filters.horizontal = false;
+    state.filters.topN = null;
+    state.filters.metric = null;
+    state.filters.metrics = [];
+    state.filters.grain = null;
+    state.filters.statusSeries = [];
+    state.filters.forecast = false;
     state.comparison = false;
   }
 
   if (nextEntity) state.entity = nextEntity;
-  if (intent) state.intent = intent;
-  if (status !== undefined) state.filters.status = status;
+  if (intent && !(intent === "PERIOD_COMPARISON" && !compare)) state.intent = intent;
+  if (status !== undefined && interpretation.statusSeries.length < 2) state.filters.status = status;
   if (technician && !mention) {
     state.filters.technician = technician;
     state.filters.technicianId = null;
@@ -468,12 +570,35 @@ function resolveConversation(message, previous) {
   if (/\btechnicians?\b/.test(text) && !mention && !choiceType && state.entity !== "attendance") {
     state.filters.preferredType = "technician";
   }
-  if (interpretation.chartType) state.filters.chartType = interpretation.chartType;
+  if (interpretation.chartType) {
+    state.filters.chartType = interpretation.chartType;
+    state.filters.stacking = interpretation.stacking === true;
+    state.filters.horizontal = interpretation.horizontal === true;
+  } else if (interpretation.stacking != null) {
+    state.filters.stacking = interpretation.stacking;
+  }
+  if (interpretation.horizontal != null && !interpretation.chartType) state.filters.horizontal = interpretation.horizontal;
+  if (interpretation.topN) state.filters.topN = interpretation.topN;
+  if (interpretation.metric) state.filters.metric = interpretation.metric;
+  if (interpretation.series.length && interpretation.series.every((item) => ["amountToCollect", "expenses", "collected", "jobs"].includes(item))) {
+    state.filters.metrics = interpretation.series;
+  }
+  if (interpretation.grain) state.filters.grain = interpretation.grain;
+  if (interpretation.statusSeries.length) state.filters.statusSeries = interpretation.statusSeries;
+  if (interpretation.forecast) state.filters.forecast = true;
   if (interpretation.groupingDimensions.length === 1 && GROUPS.has(interpretation.groupingDimensions[0])) {
     state.filters.groupBy = interpretation.groupingDimensions[0];
+  } else if (categoryDimensions.length === 1 && GROUPS.has(categoryDimensions[0])) {
+    state.filters.groupBy = categoryDimensions[0];
   }
+  if (timeDimensions[0] === "day") state.filters.grain = "day";
+  if (timeDimensions[0] === "month") state.filters.grain = "month";
   if (interpretation.intent === "chart") state.intent = "ENTITY_CHART";
-  if (interpretation.intent === "list" && !state.intent) state.intent = "ENTITY_LIST";
+  if (interpretation.intent === "list") state.intent = "ENTITY_LIST";
+  const groupingFollowUp = categoryDimensions.length === 1
+    && /^(?:please\s+)?(?:now\s+)?(?:group|regroup)\s+(?:it|them|this|that)\s+by\s+[a-z]+[.?!]?$/.test(text.trim())
+    && (prior.intent === "ENTITY_CHART" || prior.outputFormat === "chart");
+  if (groupingFollowUp) state.intent = "ENTITY_CHART";
   if (range) {
     state.filters.range = range;
     state.filters.rangeExplicit = true;
@@ -482,7 +607,8 @@ function resolveConversation(message, previous) {
   if (groupBy) state.filters.groupBy = groupBy;
   if (compare) {
     state.comparison = true;
-    state.intent = "PERIOD_COMPARISON";
+    const keepChart = prior.intent === "ENTITY_CHART" && !interpretation.businessEntity;
+    state.intent = keepChart ? "ENTITY_CHART" : "PERIOD_COMPARISON";
   } else if (!state.intent && nextEntity) {
     state.intent = "ENTITY_SUMMARY";
   }
@@ -507,6 +633,9 @@ function resolveConversation(message, previous) {
     if ((intent === "ENTITY_REPORT" || state.intent === "ENTITY_REPORT") && !state.filters.groupBy) {
       return clarify(REPORT_CLARIFICATION, emptyState());
     }
+    if (state.intent === "ENTITY_CHART" || interpretation.forecast) {
+      return clarify("What would you like to chart? For example, jobs by category.", emptyState());
+    }
     return { handled: false, state, clarification: null, suggestions: [], classified: null };
   }
 
@@ -526,7 +655,7 @@ function responseTypeFor(payload, classified) {
   if (kind === "clarify" || kind === "confirm" || kind === "explain") return "clarification";
   if (kind === "job_report") return "table";
   if (kind === "dimension_report") return "report";
-  if (kind === "group_chart" || kind === "chart") return "chart";
+  if (kind === "group_chart" || kind === "chart" || kind === "heatmap" || kind === "status_trend" || kind === "job_trend") return "chart";
   if (classified?.comparison) return "report";
   return "summary";
 }
@@ -544,7 +673,12 @@ function publicFilters(state) {
     subjectId: filters.subject?.id || null,
     subjectName: filters.subject?.name || null,
     requestedName: filters.requestedName || null,
-    chartType: filters.chartType || null
+    chartType: filters.chartType || null,
+    stacking: Boolean(filters.stacking),
+    horizontal: Boolean(filters.horizontal),
+    topN: filters.topN || null,
+    metric: filters.metric || null,
+    grain: filters.grain || null
   };
 }
 
@@ -552,6 +686,9 @@ function toolName(classified) {
   if (!classified) return null;
   if (classified.kind === "job_report") return "statusJobsReport";
   if (classified.kind === "dimension_report" || classified.kind === "group_chart") return "getReport";
+  if (classified.kind === "heatmap") return "jobsHeatmap";
+  if (classified.kind === "status_trend") return "statusTrend";
+  if (classified.kind === "job_trend") return "jobCountTrend";
   if (classified.kind === "chart") return "buildMoneyChart";
   if (classified.kind === "attendance") return "answerAttendance";
   if (classified.kind === "financial" || classified.kind === "jobs" || classified.kind === "cpair") return "getOverview";
