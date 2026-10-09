@@ -103,6 +103,9 @@ function detectEntityName(message) {
   const word = match[1].toLowerCase();
   const name = cleanEntityName(match[2]);
   if (!name) return null;
+  if (/^(graph|graphs|chart|charts|pie|donut|doughnut|bar|line|plot|visualize|category|status|technician|customer|group|brand|fault|service)$/i.test(name)) {
+    return null;
+  }
   return {
     word,
     type: word === "service" ? "category" : word,

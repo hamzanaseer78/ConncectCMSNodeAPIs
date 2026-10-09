@@ -845,7 +845,11 @@ const CHART_SERIES_LABELS = {
 };
 
 function toApexChart(chart) {
-  const type = chart.type === "donut" ? "donut" : chart.type === "bar" ? "bar" : "line";
+  const type = chart.type === "pie" || chart.type === "donut"
+    ? chart.type
+    : chart.type === "bar"
+      ? "bar"
+      : "line";
   const options = {
     chart: { type, toolbar: { show: false }, zoom: { enabled: false } },
     title: { text: chart.title || "" },
@@ -854,8 +858,10 @@ function toApexChart(chart) {
     legend: { position: "top" },
     tooltip: { shared: true, intersect: false }
   };
-  if (type === "donut") {
+  if (type === "donut" || type === "pie") {
     options.labels = chart.categories;
+    options.stroke = { width: 0 };
+    options.tooltip = { shared: false, intersect: false };
     return { options, series: chart.series[0]?.data || [] };
   }
   options.xaxis = { categories: chart.categories };
@@ -1888,16 +1894,20 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
       subjectId: classified.entity?.id || null
     });
     const rows = report.table?.rows || [];
+    const chartType = classified.chart?.type === "pie" || classified.chart?.type === "donut" || classified.chart?.type === "line"
+      ? classified.chart.type
+      : "bar";
     const chart = toApexChart({
-      type: "bar",
+      type: chartType,
       title: report.title,
       categories: rows.map((row) => row.name || "None"),
       series: [{ name: "Jobs", data: rows.map((row) => Number(row.jobs) || 0) }]
     });
+    const shape = chartType === "pie" || chartType === "donut" ? "Each slice is the number of jobs." : "The bars are the number of jobs.";
     return deliver( {
       kind: "group_chart",
       answer: rows.length
-        ? `${report.title} for ${report.range.label}. The bars are the number of jobs.`
+        ? `${report.title} for ${report.range.label}. ${shape}`
         : `No jobs to group for ${report.range.label}.`,
       charts: rows.length ? [chart] : [],
       tables: rows.length ? [report.table] : []

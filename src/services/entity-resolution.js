@@ -38,13 +38,22 @@ const MENTION_STOP = new Set([
   "summary", "list", "report", "attendance", "status", "revenue", "expenses",
   "performance", "this", "that", "today", "yesterday", "year", "month", "week",
   "completed", "cancelled", "canceled", "resolved", "assigned", "new", "only",
-  "chart", "graph", "show", "for", "of"
+  "chart", "charts", "graph", "graphs", "show", "for", "of", "in", "as", "by",
+  "pie", "donut", "doughnut", "bar", "line", "visualize", "plot", "table",
+  "grouped", "breakdown", "count", "total", "trend", "comparison", "make", "it",
+  "category", "technician", "customer", "brand", "fault", "group", "and"
 ]);
+
+function isReservedName(value) {
+  const name = String(value || "").replace(/[?.!,]+$/g, "").replace(/['’]s$/i, "").replace(/\s+/g, " ").trim().toLowerCase();
+  if (!name) return true;
+  return name.split(" ").some((token) => MENTION_STOP.has(token));
+}
 
 function cleanMention(value) {
   const name = String(value || "").replace(/[?.!,]+$/g, "").replace(/['’]s$/i, "").replace(/\s+/g, " ").trim();
   if (!name || name.length > 60) return null;
-  if (MENTION_STOP.has(name.toLowerCase())) return null;
+  if (isReservedName(name)) return null;
   if (!/^[A-Za-z][A-Za-z .'-]*$/.test(name)) return null;
   return name;
 }
@@ -408,6 +417,7 @@ module.exports = {
   JOB_LINKS,
   TYPE_LABEL,
   extractMention,
+  isReservedName,
   explicitRecord,
   choiceTypeFromMessage,
   decideResolution,

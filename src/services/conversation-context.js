@@ -1,10 +1,10 @@
 const { detectRange, detectEntityRef } = require("./management-intelligence.intent");
 const {
   JOB_LINKS,
-  extractMention,
   explicitRecord,
   choiceTypeFromMessage
 } = require("./entity-resolution");
+const { interpretRequest } = require("./request-interpretation");
 
 const ENTITIES = new Set(["jobs", "technicians", "attendance", "expenses", "revenue", "collections", "cpair"]);
 const INTENTS = new Set([
@@ -56,7 +56,8 @@ function emptyState() {
       hintedType: null,
       preferredType: null,
       subject: null,
-      pendingCandidates: null
+      pendingCandidates: null,
+      chartType: null
     },
     outputFormat: null,
     comparison: false,
@@ -124,6 +125,7 @@ function sanitizeState(input) {
   state.filters.preferredType = JOB_LINKS[filters.preferredType] ? filters.preferredType : null;
   state.filters.subject = sanitizeSubject(filters.subject);
   state.filters.pendingCandidates = sanitizeCandidates(filters.pendingCandidates);
+  state.filters.chartType = ["pie", "donut", "bar", "line"].includes(filters.chartType) ? filters.chartType : null;
   state.outputFormat = typeof input.outputFormat === "string" ? input.outputFormat : null;
   state.comparison = Boolean(input.comparison);
   state.lastSuccessfulTool = typeof input.lastSuccessfulTool === "string"
@@ -310,7 +312,7 @@ function toClassified(state) {
       ...base,
       kind: "group_chart",
       report: `jobs_by_${group}`,
-      chart: { type: "bar", metrics: [], metricsExplicit: false },
+      chart: { type: state.filters.chartType || "bar", metrics: [], metricsExplicit: false },
       focus: "jobs"
     };
   }
@@ -337,8 +339,47 @@ function resolveConversation(message, previous) {
   const groupBy = detectGroup(text);
   const range = mentionedRange(message);
   const technician = ref ? undefined : captureTechnician(message);
-  const mention = extractMention(message);
+  const interpretation = interpretRequest(message);
+  const mention = interpretation.businessFilterCandidate;
   const record = explicitRecord(message);
+  if (interpretation.chartTypeOnly) {
+    const hasChart = prior.intent === "ENTITY_CHART" || prior.outputFormat === "chart" || prior.filters.chartType || prior.filters.groupBy;
+    if (!hasChart || !prior.entity) {
+      return clarify("What would you like to chart? For example, jobs by category.", prior.entity ? prior : emptyState());
+    }
+    const next = sanitizeState(prior);
+    next.filters.chartType = interpretation.chartType;
+    next.intent = "ENTITY_CHART";
+    next.outputFormat = "chart";
+    return {
+      handled: true,
+      state: next,
+      clarification: null,
+      suggestions: followUps(next),
+      classified: toClassified(next)
+    };
+  }
+  if (interpretation.groupingDimensions.length > 1) {
+    const next = sanitizeState(prior);
+    next.entity = interpretation.businessEntity || next.entity || "jobs";
+    next.intent = "ENTITY_CHART";
+    next.filters.requestedName = null;
+    next.filters.subject = null;
+    next.filters.technician = null;
+    next.filters.technicianId = null;
+    next.filters.chartType = interpretation.chartType;
+    const labels = interpretation.groupingDimensions.join(" or ");
+    return {
+      handled: true,
+      state: next,
+      clarification: `I can chart jobs by one grouping at a time: ${labels}. Which one should I use?`,
+      suggestions: interpretation.groupingDimensions.map((dim) => ({
+        label: `By ${dim}`,
+        message: `Show graph of jobs by ${dim}`
+      })),
+      classified: { kind: "clarify", intent: "CLARIFICATION", range: next.filters.range || "year_to_date", chart: null }
+    };
+  }
   const choiceType = choiceTypeFromMessage(message, prior.filters.pendingCandidates);
   const compare = /\bcompare\b/.test(text);
   const clear = /\b(start (?:a )?new topic|start over|new topic|forget (?:that|this))\b/.test(text);
@@ -369,6 +410,7 @@ function resolveConversation(message, previous) {
     state.filters.requestedName = null;
     state.filters.pendingCandidates = null;
     state.filters.hintedType = null;
+    state.filters.chartType = null;
     state.comparison = false;
   }
 
@@ -423,9 +465,15 @@ function resolveConversation(message, previous) {
       state.filters.technician = state.filters.subject.name;
     }
   }
-  if (/\btechnicians?\b/.test(text) && !mention && !choiceType) {
+  if (/\btechnicians?\b/.test(text) && !mention && !choiceType && state.entity !== "attendance") {
     state.filters.preferredType = "technician";
   }
+  if (interpretation.chartType) state.filters.chartType = interpretation.chartType;
+  if (interpretation.groupingDimensions.length === 1 && GROUPS.has(interpretation.groupingDimensions[0])) {
+    state.filters.groupBy = interpretation.groupingDimensions[0];
+  }
+  if (interpretation.intent === "chart") state.intent = "ENTITY_CHART";
+  if (interpretation.intent === "list" && !state.intent) state.intent = "ENTITY_LIST";
   if (range) {
     state.filters.range = range;
     state.filters.rangeExplicit = true;
@@ -435,7 +483,7 @@ function resolveConversation(message, previous) {
   if (compare) {
     state.comparison = true;
     state.intent = "PERIOD_COMPARISON";
-  } else if (!intent && nextEntity) {
+  } else if (!state.intent && nextEntity) {
     state.intent = "ENTITY_SUMMARY";
   }
   if (!state.intent && state.entity) state.intent = "ENTITY_SUMMARY";
@@ -495,7 +543,8 @@ function publicFilters(state) {
     subjectType: filters.subject?.type || null,
     subjectId: filters.subject?.id || null,
     subjectName: filters.subject?.name || null,
-    requestedName: filters.requestedName || null
+    requestedName: filters.requestedName || null,
+    chartType: filters.chartType || null
   };
 }
 
