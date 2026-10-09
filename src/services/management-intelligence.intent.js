@@ -32,7 +32,7 @@ function explicitRange(message) {
 }
 
 function detectRange(message) {
-  return explicitRange(message) || "this_month";
+  return explicitRange(message) || "year_to_date";
 }
 
 function detectFocus(message) {
@@ -77,7 +77,71 @@ function detectReport(message) {
   return match ? match[1] : null;
 }
 
+function detectEntityRef(message) {
+  const match = String(message || "").match(/\b(technician|user|category|service|brand|fault)\s+id\s+(\d+)\b/i);
+  if (!match) return null;
+  const word = match[1].toLowerCase();
+  return {
+    word,
+    type: word === "service" ? "category" : word,
+    id: Number(match[2])
+  };
+}
+
+function cleanEntityName(raw) {
+  return String(raw || "")
+    .replace(/\b(report|reports|chart|graph|line|for|vs|versus|today|yesterday|details|detail|info|list|show|me|jobs|job|performance|collections|collection|expenses|expense|this|last|previous|year|month|week|quarter)\b/gi, "")
+    .replace(/[.?!,]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectEntityName(message) {
+  if (detectEntityRef(message)) return null;
+  const match = String(message || "").match(/\b(technician|user|category|service|brand|fault)\s+([A-Za-z][A-Za-z0-9 .'-]{0,50})/i);
+  if (!match) return null;
+  const word = match[1].toLowerCase();
+  const name = cleanEntityName(match[2]);
+  if (!name) return null;
+  return {
+    word,
+    type: word === "service" ? "category" : word,
+    name
+  };
+}
+
+function pinEntity(message, word, id) {
+  const pattern = new RegExp(`\\b${word}\\s+(?!id\\s+\\d+)`, "i");
+  if (pattern.test(message)) return message.replace(pattern, `${word} id ${id} `);
+  return `${message} ${word} id ${id}`;
+}
+
+const SUGGESTION_BANK = [
+  { label: "Job performance this year", message: "Show me job performance this year", keys: ["job", "performance", "work", "complaint"] },
+  { label: "Completed jobs this year", message: "Show me completed jobs report this year", keys: ["complete", "done", "closed"] },
+  { label: "Collections this year", message: "Show me collections this year", keys: ["collect", "cash", "money", "payment", "paid"] },
+  { label: "Expenses this year", message: "Show me expenses this year", keys: ["expense", "cost", "spend"] },
+  { label: "Outstanding C-Pair", message: "Show outstanding C-Pair", keys: ["pair", "part", "spare", "stock"] },
+  { label: "Who is checked in", message: "Who is checked in", keys: ["attend", "present", "absent", "staff", "check"] },
+  { label: "Technicians", message: "Show technicians", keys: ["tech", "employee", "staff"] },
+  { label: "How many customers", message: "How many customers do I have?", keys: ["customer", "client"] },
+  { label: "Brands", message: "Show brands", keys: ["brand", "product", "item"] },
+  { label: "My name", message: "What is my name?", keys: ["name", "who am", "profile", "account"] }
+];
+
+function buildSuggestions(message) {
+  const text = String(message || "").toLowerCase();
+  const scored = SUGGESTION_BANK.map((item) => ({
+    item,
+    score: item.keys.reduce((total, key) => total + (text.includes(key) ? 1 : 0), 0)
+  }));
+  const matched = scored.filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score);
+  const chosen = (matched.length ? matched : scored).slice(0, 4);
+  return chosen.map((entry) => ({ label: entry.item.label, message: entry.item.message }));
+}
+
 function detectTechnician(message) {
+  if (detectEntityRef(message)?.type === "technician") return null;
   const match = String(message || "").match(/\btechnician\s+([A-Za-z][A-Za-z .'-]{0,60})/i);
   if (!match) return null;
   const name = match[1]
@@ -102,14 +166,21 @@ function detectChart(message) {
   const text = String(message || "").toLowerCase();
   if (!/chart|graph/.test(text)) return null;
   const metrics = [];
-  if (/collect/.test(text)) metrics.push("collected");
+  if (/collect/.test(text) && !/amount to collect/.test(text)) metrics.push("collected");
   if (/expense/.test(text)) metrics.push("expenses");
   if (/revenue|amount to collect/.test(text)) metrics.push("amountToCollect");
   return {
     type: "line",
-    metrics: metrics.length ? metrics : ["collected", "expenses"],
+    metrics,
     metricsExplicit: metrics.length > 0
   };
+}
+
+function dimensionReportKey(message) {
+  const text = String(message || "").toLowerCase();
+  if (!/\bby\b|group/.test(text)) return null;
+  const report = detectReport(text);
+  return report && report.startsWith("jobs_by_") ? report : null;
 }
 
 function detectProfile(message) {
@@ -208,6 +279,7 @@ function classifyQuestion(message) {
   const range = detectRange(text);
   const technician = detectTechnician(message);
   const chart = detectChart(text);
+  const groupedReport = dimensionReportKey(message);
   const statusReport = detectStatusReport(text);
   const report = /\bby\b|which technician|per technician|c-?pair/.test(text) ? detectReport(text) : null;
   const financial = /revenue|expense|collect|outstanding|amount to collect|receivable|financial|margin/.test(text);
@@ -228,8 +300,9 @@ function classifyQuestion(message) {
   else if (attendanceFocus && !financial && !cpair) kind = "attendance";
   else if (technicianQuestion && !statusReport) kind = "technicians";
   else if (moduleQuestion && !statusReport && !aboutJobs) kind = "module";
+  else if (groupedReport && chart) kind = "group_chart";
   else if (chart && aboutJobs && !financial) kind = "jobs";
-  else if (chart) kind = "chart";
+  else if (chart && chart.metricsExplicit) kind = "chart";
   else if (statusReport) kind = "job_report";
   else if (cpair) kind = "cpair";
   else if (financial) kind = "financial";
@@ -246,7 +319,9 @@ function classifyQuestion(message) {
     profileField,
     attendanceFocus,
     module: moduleQuestion,
-    chart: plainAnswer ? null : chart,
+    chart: kind === "group_chart"
+      ? { type: "bar", metrics: [], metricsExplicit: false }
+      : plainAnswer ? null : chart,
     statusReport,
     report: report && REPORTS.some((item) => item.key === report) ? report : null
   };
@@ -328,8 +403,13 @@ function resolveQuestion(message, history) {
       focus
     };
     if (wantsChart) {
+      const grouped = dimensionReportKey(message) || (String(prior.report || "").startsWith("jobs_by_") ? prior.report : null);
       const metrics = current.chart?.metricsExplicit ? current.chart.metrics : metricsFor(next);
-      if (metrics) {
+      if (grouped) {
+        next.kind = "group_chart";
+        next.report = grouped;
+        next.chart = { type: "bar", metrics: [], metricsExplicit: false };
+      } else if (metrics) {
         next.kind = "chart";
         next.chart = { type: "line", metrics, metricsExplicit: true };
       }
@@ -343,16 +423,23 @@ function resolveQuestion(message, history) {
 
   if (current.kind === "clarify" || !focus) {
     if (wantsChart) {
+      const grouped = dimensionReportKey(message) || (String(prior.report || "").startsWith("jobs_by_") ? prior.report : null);
       const metrics = current.chart?.metricsExplicit ? current.chart.metrics : metricsFor(prior);
-      if (metrics) {
+      if (grouped) {
+        inherited.kind = "group_chart";
+        inherited.report = grouped;
+        inherited.chart = { type: "bar", metrics: [], metricsExplicit: false };
+        inherited.statusReport = null;
+      } else if (metrics) {
         inherited.kind = "chart";
         inherited.chart = { type: "line", metrics, metricsExplicit: true };
         inherited.statusReport = null;
-      } else if (prior.kind === "job_report" || prior.kind === "jobs" || prior.focus === "jobs") {
-        inherited.kind = "jobs";
+      } else if (prior.kind === "job_report" || prior.kind === "jobs" || prior.focus === "jobs" || prior.kind === "group_chart") {
+        inherited.kind = "group_chart";
+        inherited.report = prior.report && String(prior.report).startsWith("jobs_by_") ? prior.report : "jobs_by_status";
         inherited.focus = "jobs";
         inherited.statusReport = null;
-        inherited.chart = null;
+        inherited.chart = { type: "bar", metrics: [], metricsExplicit: false };
       }
     }
     if (!wantsChart && statusWord && (prior.kind === "job_report" || prior.kind === "jobs" || prior.focus === "jobs")) {
@@ -377,5 +464,9 @@ module.exports = {
   detectRange,
   detectReport,
   detectTechnician,
-  detectChart
+  detectChart,
+  detectEntityRef,
+  detectEntityName,
+  pinEntity,
+  buildSuggestions
 };

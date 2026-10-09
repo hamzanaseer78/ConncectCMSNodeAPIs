@@ -8,6 +8,7 @@ const RANGE_PRESETS = Object.freeze([
   "previous_month",
   "this_quarter",
   "this_year",
+  "year_to_date",
   "previous_year",
   "custom"
 ]);
@@ -80,7 +81,7 @@ function assertRangeLength(from, to) {
 }
 
 function resolveIntelligenceRange(query = {}, now = new Date()) {
-  const preset = String(query.range || query.preset || "this_month").trim().toLowerCase();
+  const preset = String(query.range || query.preset || "year_to_date").trim().toLowerCase();
   if (!RANGE_PRESETS.includes(preset)) {
     const err = new Error(`range must be one of: ${RANGE_PRESETS.join(", ")}`);
     err.status = 400;
@@ -113,6 +114,9 @@ function resolveIntelligenceRange(query = {}, now = new Date()) {
   } else if (preset === "this_year") {
     from = utcDate(today.getUTCFullYear(), 0, 1);
     to = utcDate(today.getUTCFullYear() + 1, 0, 1);
+  } else if (preset === "year_to_date") {
+    from = utcDate(today.getUTCFullYear(), 0, 1);
+    to = addUtcDays(today, 1);
   } else if (preset === "previous_year") {
     from = utcDate(today.getUTCFullYear() - 1, 0, 1);
     to = utcDate(today.getUTCFullYear(), 0, 1);
@@ -135,9 +139,12 @@ function previousPeriod(range) {
     const from = utcDate(range.from.getUTCFullYear(), range.from.getUTCMonth() - 3, 1);
     return rangeResult("previous", from, new Date(range.from));
   }
-  if (range.preset === "this_year" || range.preset === "previous_year") {
+  if (range.preset === "this_year" || range.preset === "previous_year" || range.preset === "year_to_date") {
     const from = utcDate(range.from.getUTCFullYear() - 1, 0, 1);
-    return rangeResult("previous", from, new Date(range.from));
+    const to = range.preset === "year_to_date"
+      ? utcDate(range.to.getUTCFullYear() - 1, range.to.getUTCMonth(), range.to.getUTCDate())
+      : utcDate(range.from.getUTCFullYear(), 0, 1);
+    return rangeResult("previous", from, to);
   }
   const length = range.to.getTime() - range.from.getTime();
   return rangeResult("previous", new Date(range.from.getTime() - length), new Date(range.from));

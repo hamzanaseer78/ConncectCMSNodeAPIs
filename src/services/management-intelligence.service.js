@@ -14,7 +14,7 @@ const {
   getReportDefinition,
   listReportCatalog
 } = require("./management-intelligence.catalog");
-const { resolveQuestion } = require("./management-intelligence.intent");
+const { resolveQuestion, detectEntityRef, detectEntityName, pinEntity, buildSuggestions } = require("./management-intelligence.intent");
 const chatSession = require("./ai-chat-session");
 const { activeMembershipWhere } = require("../utils/user-branch-access");
 const container = require("../utils/service-container");
@@ -813,7 +813,7 @@ const CHART_SERIES_LABELS = {
 };
 
 function toApexChart(chart) {
-  const type = chart.type === "donut" ? "donut" : "line";
+  const type = chart.type === "donut" ? "donut" : chart.type === "bar" ? "bar" : "line";
   const options = {
     chart: { type, toolbar: { show: false }, zoom: { enabled: false } },
     title: { text: chart.title || "" },
@@ -844,9 +844,21 @@ function statusFilterSql(statusKey, context) {
   return Prisma.sql`TRUE`;
 }
 
-function technicianNameSql(technicianName) {
+function technicianNameSql(technicianName, entity) {
+  if (entity?.id && (entity.type === "technician" || entity.type === "user")) {
+    return Prisma.sql`tu.userid = ${Number(entity.id)}`;
+  }
   if (!technicianName) return Prisma.sql`TRUE`;
   return Prisma.sql`tu.name ILIKE ${`%${technicianName}%`}`;
+}
+
+function recordFilterSql(entity) {
+  if (!entity?.id) return Prisma.sql`TRUE`;
+  if (entity.type === "category") return Prisma.sql`j.serviceid = ${Number(entity.id)}`;
+  if (entity.type === "fault") return Prisma.sql`j.faultid = ${Number(entity.id)}`;
+  if (entity.type === "brand") return Prisma.sql`j.brandid = ${Number(entity.id)}`;
+  if (entity.type === "technician" || entity.type === "user") return Prisma.sql`j.assignedto = ${Number(entity.id)}`;
+  return Prisma.sql`TRUE`;
 }
 
 async function findTechnicianNames(scope, technicianName) {
@@ -863,7 +875,7 @@ async function findTechnicianNames(scope, technicianName) {
   return rows.map((row) => row.name).filter(Boolean);
 }
 
-async function statusJobsReport(scope, range, context, statusKey, technicianName) {
+async function statusJobsReport(scope, range, context, statusKey, technicianName, entity) {
   const rows = await prisma.$queryRaw`
     SELECT
       j.recno AS id,
@@ -888,7 +900,8 @@ async function statusJobsReport(scope, range, context, statusKey, technicianName
     ) ex ON ex.jobid = j.recno
     WHERE ${jobScope(scope, range)}
       AND ${statusFilterSql(statusKey, context)}
-      AND ${technicianNameSql(technicianName)}
+      AND ${technicianNameSql(technicianName, entity)}
+      AND ${recordFilterSql(entity)}
     ORDER BY j.date DESC, j.recno DESC
     LIMIT 50
   `;
@@ -898,7 +911,8 @@ async function statusJobsReport(scope, range, context, statusKey, technicianName
     LEFT JOIN users tu ON tu.userid = j.assignedto
     WHERE ${jobScope(scope, range)}
       AND ${statusFilterSql(statusKey, context)}
-      AND ${technicianNameSql(technicianName)}
+      AND ${technicianNameSql(technicianName, entity)}
+      AND ${recordFilterSql(entity)}
   `;
   return {
     title: STATUS_REPORT_TITLES[statusKey] || "Jobs",
@@ -928,20 +942,21 @@ async function statusJobsReport(scope, range, context, statusKey, technicianName
   };
 }
 
-async function metricTrend(scope, range, technicianName, metric) {
+async function metricTrend(scope, range, technicianName, metric, entity) {
   const grain = chartGrain(range);
   const bucket = bucketExpr(
     metric === "amountToCollect" ? Prisma.sql`j.date` : metric === "collected" ? Prisma.sql`c.collectedat` : Prisma.sql`e.createdat`,
     grain
   );
   const assigned = scope.manageBranch ? Prisma.sql`TRUE` : Prisma.sql`j.assignedto = ${scope.userid}`;
-  const technician = technicianNameSql(technicianName);
+  const technician = technicianNameSql(technicianName, entity);
+  const record = recordFilterSql(entity);
   if (metric === "amountToCollect") {
     return prisma.$queryRaw`
       SELECT ${bucket} AS bucket, COALESCE(SUM(j.totalcost), 0) AS amount
       FROM job j
       LEFT JOIN users tu ON tu.userid = j.assignedto
-      WHERE ${jobScope(scope, range)} AND ${technician}
+      WHERE ${jobScope(scope, range)} AND ${technician} AND ${record}
       GROUP BY 1
     `;
   }
@@ -955,6 +970,7 @@ async function metricTrend(scope, range, technicianName, metric) {
         AND j.branchid = ${scope.branchid}
         AND ${assigned}
         AND ${technician}
+        AND ${record}
         AND c.collectedat >= ${range.from}
         AND c.collectedat < ${range.to}
       GROUP BY 1
@@ -969,6 +985,7 @@ async function metricTrend(scope, range, technicianName, metric) {
       AND j.branchid = ${scope.branchid}
       AND ${assigned}
       AND ${technician}
+      AND ${record}
       AND e.createdat >= ${range.from}
       AND e.createdat < ${range.to}
     GROUP BY 1
@@ -976,12 +993,12 @@ async function metricTrend(scope, range, technicianName, metric) {
 }
 
 async function buildMoneyChart(scope, range, classified) {
-  const metrics = classified.chart?.metrics || ["collected", "expenses"];
+  const metrics = classified.chart?.metrics?.length ? classified.chart.metrics : ["collected", "expenses"];
   const grain = chartGrain(range);
   const categories = listBuckets(range, grain);
   const series = [];
   for (const metric of metrics) {
-    const rows = await metricTrend(scope, range, classified.technician, metric);
+    const rows = await metricTrend(scope, range, classified.technician, metric, classified.entity);
     series.push({
       name: CHART_SERIES_LABELS[metric] || metric,
       data: fillSeries(categories, rows)
@@ -1220,8 +1237,9 @@ async function answerTechnicians(auth, classified) {
   const scope = await resolveScope(auth);
   const [people, sessions] = await Promise.all([branchPeople(scope), openSessions(scope)]);
   const byUser = new Map(sessions.map((row) => [Number(row.userid), row.status]));
-  const needle = String(classified.technician || "").toLowerCase();
+  const needle = String(classified.entity?.name || classified.technician || "").toLowerCase();
   const technicians = people.filter((person) => {
+    if (classified.entity?.id) return Number(person.userid) === Number(classified.entity.id);
     if (person.usertype !== "technician") return false;
     if (!needle) return true;
     return String(person.name || "").toLowerCase().includes(needle);
@@ -1300,8 +1318,172 @@ async function answerModule(auth, classified, message) {
   }
 }
 
+function matchLabel(type, row) {
+  if (type === "technician" || type === "user") {
+    return [row.name, row.email, row.contactno, row.usertype, row.affiliation, row.companyname].filter(Boolean).join(" · ");
+  }
+  if (type === "category") {
+    return [row.name, row.group_name ? `group ${row.group_name}` : null, row.isactive === false ? "inactive" : null].filter(Boolean).join(" · ");
+  }
+  if (type === "fault") {
+    return [row.name, row.category_name ? `category ${row.category_name}` : null].filter(Boolean).join(" · ");
+  }
+  return [row.name, row.isactive === false ? "inactive" : "active"].filter(Boolean).join(" · ");
+}
+
+function likeTerm(name) {
+  return `%${String(name || "").replace(/[%_\\]/g, "")}%`;
+}
+
+async function lookupNamedRows(scope, named) {
+  const like = likeTerm(named.name);
+  if (named.type === "technician" || named.type === "user") {
+    const typeSql = named.type === "technician"
+      ? Prisma.sql`AND u.usertype::text = 'technician'`
+      : Prisma.sql``;
+    return prisma.$queryRaw`
+      SELECT u.userid AS id, u.name, u.email, u.contactno, u.usertype::text AS usertype,
+             u.technicianaffiliation::text AS affiliation, u.companyname
+      FROM users u
+      INNER JOIN userorganizations uo ON uo.userid = u.userid
+      WHERE uo.tenantid = ${scope.tenantid}
+        AND uo.branchid = ${scope.branchid}
+        AND (uo.isblocked = false OR uo.isblocked IS NULL)
+        AND (u.isdeleted = false OR u.isdeleted IS NULL)
+        AND u.name ILIKE ${like}
+        ${typeSql}
+      ORDER BY u.name
+      LIMIT 8
+    `;
+  }
+  if (named.type === "category") {
+    return prisma.$queryRaw`
+      SELECT c.categoryid AS id, c.name, g.name AS group_name, c.isactive
+      FROM jobcategories c
+      LEFT JOIN jobgroups g ON g.groupid = c.groupid
+      WHERE c.tenantid = ${scope.tenantid}
+        AND (c.branchid IS NULL OR c.branchid = ${scope.branchid})
+        AND c.name ILIKE ${like}
+      ORDER BY c.name
+      LIMIT 8
+    `;
+  }
+  if (named.type === "fault") {
+    return prisma.$queryRaw`
+      SELECT s.subcategoryid AS id, s.name, c.name AS category_name, s.isactive
+      FROM jobsubcategories s
+      LEFT JOIN jobcategories c ON c.categoryid = s.categoryid
+      WHERE s.tenantid = ${scope.tenantid}
+        AND (s.branchid IS NULL OR s.branchid = ${scope.branchid})
+        AND s.name ILIKE ${like}
+      ORDER BY s.name
+      LIMIT 8
+    `;
+  }
+  return prisma.$queryRaw`
+    SELECT b.recno AS id, b.name, b.isactive
+    FROM brands b
+    WHERE b.tenantid = ${scope.tenantid}
+      AND b.name ILIKE ${like}
+    ORDER BY b.name
+    LIMIT 8
+  `;
+}
+
+async function lookupEntityById(scope, ref) {
+  if (ref.type === "technician" || ref.type === "user") {
+    const typeSql = ref.type === "technician"
+      ? Prisma.sql`AND u.usertype::text = 'technician'`
+      : Prisma.sql``;
+    return prisma.$queryRaw`
+      SELECT u.userid AS id, u.name
+      FROM users u
+      INNER JOIN userorganizations uo ON uo.userid = u.userid
+      WHERE uo.tenantid = ${scope.tenantid}
+        AND uo.branchid = ${scope.branchid}
+        AND u.userid = ${ref.id}
+        ${typeSql}
+      LIMIT 1
+    `;
+  }
+  if (ref.type === "category") {
+    return prisma.$queryRaw`
+      SELECT c.categoryid AS id, c.name
+      FROM jobcategories c
+      WHERE c.tenantid = ${scope.tenantid}
+        AND c.categoryid = ${ref.id}
+      LIMIT 1
+    `;
+  }
+  if (ref.type === "fault") {
+    return prisma.$queryRaw`
+      SELECT s.subcategoryid AS id, s.name
+      FROM jobsubcategories s
+      WHERE s.tenantid = ${scope.tenantid}
+        AND s.subcategoryid = ${ref.id}
+      LIMIT 1
+    `;
+  }
+  return prisma.$queryRaw`
+    SELECT b.recno AS id, b.name
+    FROM brands b
+    WHERE b.tenantid = ${scope.tenantid}
+      AND b.recno = ${ref.id}
+    LIMIT 1
+  `;
+}
+
+async function disambiguate(auth, message) {
+  const ref = detectEntityRef(message);
+  const named = detectEntityName(message);
+  if (!ref && !named) return null;
+  const scope = await resolveScope(auth);
+  if (ref) {
+    const rows = await lookupEntityById(scope, ref);
+    if (!rows.length) {
+      return {
+        response: {
+          kind: "confirm",
+          answer: `No ${ref.word} with id ${ref.id} is in this branch.`,
+          suggestions: buildSuggestions(message),
+          charts: [],
+          tables: []
+        }
+      };
+    }
+    return { entity: { type: ref.type, id: ref.id, name: rows[0].name, word: ref.word } };
+  }
+  const rows = await lookupNamedRows(scope, named);
+  if (!rows.length) {
+    return {
+      response: {
+        kind: "confirm",
+        answer: `No ${named.word} matching ${named.name} is in this branch.`,
+        suggestions: buildSuggestions(message),
+        charts: [],
+        tables: []
+      }
+    };
+  }
+  if (rows.length === 1) {
+    return { entity: { type: named.type, id: Number(rows[0].id), name: rows[0].name, word: named.word, detail: matchLabel(named.type, rows[0]) } };
+  }
+  return {
+    response: {
+      kind: "confirm",
+      answer: `More than one ${named.word} matches ${named.name}. Which one do you mean?`,
+      suggestions: rows.map((row) => ({
+        label: matchLabel(named.type, row),
+        message: pinEntity(message, named.word, row.id)
+      })),
+      charts: [],
+      tables: []
+    }
+  };
+}
+
 async function answerQuestion(auth, message, history) {
-  const classified = resolveQuestion(message, chatSession.historyFor(auth, history));
+  let classified = resolveQuestion(message, chatSession.historyFor(auth, history));
   if (classified.kind === "greeting") {
     return finishAnswer(auth, message, {
       kind: "greeting",
@@ -1319,27 +1501,47 @@ async function answerQuestion(auth, message, history) {
   if (classified.kind === "attendance") {
     return finishAnswer(auth, message, await answerAttendance(auth, classified));
   }
-  if (classified.kind === "technicians") {
-    return finishAnswer(auth, message, await answerTechnicians(auth, classified));
-  }
-  if (classified.kind === "module") {
-    return finishAnswer(auth, message, await answerModule(auth, classified, message));
-  }
   if (classified.kind === "clarify") {
     return finishAnswer(auth, message, {
       kind: "clarify",
-      answer:
-        "Ask about jobs, amount to collect, expenses, collections, C-Pair quantities, or who is checked in, on the way, or on location. Include a period such as today, this month, or last month.",
+      answer: "That isn't something Connect CMS can answer. Try one of these:",
+      suggestions: buildSuggestions(message),
       charts: [],
-      tables: [],
-      reports: listReportCatalog()
+      tables: []
     });
+  }
+
+  const named = await disambiguate(auth, message);
+  if (named?.response) return finishAnswer(auth, message, named.response);
+  if (named?.entity) {
+    classified = {
+      ...classified,
+      entity: named.entity,
+      technician: named.entity.type === "technician" || named.entity.type === "user"
+        ? named.entity.name
+        : classified.technician
+    };
+  }
+
+  if (classified.kind === "technicians") {
+    return finishAnswer(auth, message, await answerTechnicians(auth, classified));
+  }
+  if (classified.kind === "module" && classified.entity) {
+    return finishAnswer(auth, message, {
+      kind: "module",
+      answer: `${classified.entity.word}: ${classified.entity.detail || classified.entity.name}.`,
+      charts: [],
+      tables: []
+    });
+  }
+  if (classified.kind === "module") {
+    return finishAnswer(auth, message, await answerModule(auth, classified, message));
   }
 
   const scope = await resolveScope(auth);
   const range = resolveIntelligenceRange({ range: classified.range });
 
-  if (classified.technician) {
+  if (classified.technician && !classified.entity?.id) {
     const names = await findTechnicianNames(scope, classified.technician);
     if (!names.length) {
       return finishAnswer(auth, message, {
@@ -1349,6 +1551,31 @@ async function answerQuestion(auth, message, history) {
         tables: []
       });
     }
+  }
+
+  if (classified.kind === "group_chart" && classified.report) {
+    const report = await getReport(auth, classified.report, {
+      range: classified.range,
+      page: 1,
+      pageSize: 12,
+      sortBy: "jobs",
+      sortOrder: "desc"
+    });
+    const rows = report.table?.rows || [];
+    const chart = toApexChart({
+      type: "bar",
+      title: report.title,
+      categories: rows.map((row) => row.name || "None"),
+      series: [{ name: "Jobs", data: rows.map((row) => Number(row.jobs) || 0) }]
+    });
+    return finishAnswer(auth, message, {
+      kind: "group_chart",
+      answer: rows.length
+        ? `${report.title} for ${report.range.label}. The bars are the number of jobs.`
+        : `No jobs to group for ${report.range.label}.`,
+      charts: rows.length ? [chart] : [],
+      tables: rows.length ? [report.table] : []
+    });
   }
 
   if (classified.kind === "chart") {
@@ -1372,7 +1599,7 @@ async function answerQuestion(auth, message, history) {
         tables: []
       });
     }
-    const table = await statusJobsReport(scope, range, context, classified.statusReport, classified.technician);
+    const table = await statusJobsReport(scope, range, context, classified.statusReport, classified.technician, classified.entity);
     const title = STATUS_REPORT_TITLES[classified.statusReport] || "Jobs";
     const extra = table.total > table.rows.length ? ` Showing the first ${table.rows.length} of ${table.total}.` : "";
     const who = classified.technician ? ` for technician ${classified.technician}` : "";
@@ -1430,6 +1657,7 @@ function getCatalog() {
       "previous_month",
       "this_quarter",
       "this_year",
+      "year_to_date",
       "previous_year",
       "custom"
     ],

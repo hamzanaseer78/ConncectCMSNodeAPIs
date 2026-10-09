@@ -89,11 +89,11 @@ async function executeAiTool(auth, name, args = {}) {
   }
 
   if (name === "management_snapshot") {
-    const overview = await intelligence.getOverview(auth, { range: args.range || "this_month" });
+    const overview = await intelligence.getOverview(auth, { range: args.range || "year_to_date" });
     let table = null;
     if (args.report) {
       const report = await intelligence.getReport(auth, args.report, {
-        range: args.range || "this_month",
+        range: args.range || "year_to_date",
         page: 1,
         pageSize: 10
       });
