@@ -47,7 +47,9 @@ const {
 const {
   resolveInitialJobStatusId,
   syncJobStatusWithAssignment,
-  applyCompletedJobStatus
+  applyCompletedJobStatus,
+  applyCancelledJobStatus,
+  findCancelledJobStatus
 } = require("../utils/job-assignment-status");
 const {
   enrichJobApiRow,
@@ -108,6 +110,19 @@ const {
   normalizeCustomerPhone,
   assertCustomerPhoneAvailable
 } = require("../utils/customer-phone");
+
+function pickCancellationReason(payload = {}) {
+  const reason =
+    (payload.reason != null && String(payload.reason).trim()) ||
+    (payload.remarks != null && String(payload.remarks).trim()) ||
+    "";
+  if (!reason) {
+    const err = new Error("reason is required");
+    err.status = 400;
+    throw err;
+  }
+  return reason;
+}
 
 function logJobWorkflow(auth, action, job, extra = {}) {
   return userActivityLogService.logSafe(auth, {
@@ -213,6 +228,64 @@ function toNumber(value) {
   if (value === null || value === undefined || value === "") return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalStatusId(payload = {}) {
+  if (payload.statusid === undefined && payload.statusId === undefined) {
+    return undefined;
+  }
+  const id = toNumber(payload.statusid ?? payload.statusId);
+  if (!id || id <= 0) {
+    return undefined;
+  }
+  return id;
+}
+
+async function applyExplicitJobStatusChange(
+  tx,
+  scope,
+  job,
+  auth,
+  statusId,
+  { remarks, changedAt } = {}
+) {
+  const tostatus = Number(statusId);
+  if (!Number.isFinite(tostatus) || tostatus <= 0) {
+    return null;
+  }
+
+  const statusRow = await tx.jobstatuses.findFirst({
+    where: { recno: tostatus, tenantid: scope.tenantid }
+  });
+  if (!statusRow) {
+    const err = new Error(`statusid ${tostatus} is not valid for this organization`);
+    err.status = 400;
+    throw err;
+  }
+
+  const fromStatus = job.statusid ?? null;
+  if (Number(fromStatus) === tostatus) {
+    return null;
+  }
+
+  const when = changedAt || utcNow();
+  await tx.jobstatuslog.create({
+    data: {
+      jobid: Number(job.recno),
+      ...scope,
+      fromstatus: fromStatus,
+      tostatus,
+      remarks: remarks || null,
+      changedby: Number(auth.userid),
+      changedat: when
+    }
+  });
+  await tx.job.update({
+    where: { recno: Number(job.recno) },
+    data: { statusid: tostatus }
+  });
+
+  return { fromStatus, toStatus: tostatus };
 }
 
 /** Map camelCase API fields to DB column names on create/update bodies. */
@@ -2214,6 +2287,9 @@ class JobsWorkflowService {
     const scope = this.buildScope(auth);
     const assignedTo = toNumber(payload.assignedto ?? payload.assignedToId);
     if (!assignedTo) throw new Error("assignedto is required");
+    const explicitStatusId = parseOptionalStatusId(payload);
+    const assignmentRemarks = payload.remarks || "Technician assigned";
+    let statusChange = null;
 
     await prisma.$transaction(async (tx) => {
       await tx.job.update({ where: { recno: job.recno }, data: { assignedto: assignedTo } });
@@ -2224,24 +2300,44 @@ class JobsWorkflowService {
           userid: assignedTo,
           assignedby: Number(auth.userid),
           assignedat: now,
-          remarks: payload.remarks || "Technician assigned"
+          remarks: assignmentRemarks
         }
       });
       await this.patchJobDetail(tx, auth, scope, job.recno, {
         assignedat: now,
         assignedby: Number(auth.userid),
-        assignedremarks: payload.remarks || "Technician assigned"
+        assignedremarks: assignmentRemarks
       });
+      if (explicitStatusId) {
+        statusChange = await applyExplicitJobStatusChange(tx, scope, job, auth, explicitStatusId, {
+          remarks: assignmentRemarks,
+          changedAt: now
+        });
+      }
     });
 
     pushDispatch.onJobAssigned({ ...job, assignedto: assignedTo }, assignedTo, auth);
+    if (statusChange) {
+      pushDispatch.onJobStatusChanged(
+        job,
+        auth,
+        statusChange.fromStatus,
+        statusChange.toStatus,
+        assignmentRemarks
+      );
+    }
 
     await logJobWorkflow(auth, "assign", job, {
       summary: `Assigned technician to job ${job.code || job.recno}`,
-      metadata: { assignedTo }
+      metadata: { assignedTo, statusId: explicitStatusId ?? null }
     });
 
-    return { message: "Technician assigned successfully", jobid: job.recno, assignedto: assignedTo };
+    return {
+      message: "Technician assigned successfully",
+      jobid: job.recno,
+      assignedto: assignedTo,
+      statusid: statusChange ? statusChange.toStatus : job.statusid ?? null
+    };
   }
 
   async assignFollowUpBy(auth, id, payload = {}) {
@@ -2279,21 +2375,44 @@ class JobsWorkflowService {
       }
     }
 
+    const now = utcNow();
+    const explicitStatusId = parseOptionalStatusId(payload);
+    const followUpRemarks =
+      payload.remarks ||
+      (followUpPayload.followupby != null ? "Follow-up user assigned" : "Follow-up user cleared");
+    let statusChange = null;
+
     await prisma.$transaction(async (tx) => {
       await resolveJobForeignKeys(tx, scope, payload, followUpPayload);
       await tx.job.update({
         where: { recno: job.recno },
         data: { followupby: followUpPayload.followupby ?? null }
       });
+      if (explicitStatusId) {
+        statusChange = await applyExplicitJobStatusChange(tx, scope, job, auth, explicitStatusId, {
+          remarks: followUpRemarks,
+          changedAt: now
+        });
+      }
     });
 
     const followUpBy = followUpPayload.followupby ?? null;
+
+    if (statusChange) {
+      pushDispatch.onJobStatusChanged(
+        job,
+        auth,
+        statusChange.fromStatus,
+        statusChange.toStatus,
+        followUpRemarks
+      );
+    }
 
     await logJobWorkflow(auth, followUpBy ? "assign" : "unassign", job, {
       summary: followUpBy
         ? `Assigned follow-up user to job ${job.code || job.recno}`
         : `Cleared follow-up user on job ${job.code || job.recno}`,
-      metadata: { followUpBy }
+      metadata: { followUpBy, statusId: explicitStatusId ?? null }
     });
 
     return {
@@ -2301,7 +2420,8 @@ class JobsWorkflowService {
         ? "Follow-up user assigned successfully"
         : "Follow-up user cleared successfully",
       jobid: job.recno,
-      followUpById: followUpBy
+      followUpById: followUpBy,
+      statusid: statusChange ? statusChange.toStatus : job.statusid ?? null
     };
   }
 
@@ -2608,6 +2728,89 @@ class JobsWorkflowService {
       attachments,
       attachmentsTotal: attachments.length,
       cpairAutoReceive
+    };
+  }
+
+  async cancelJob(auth, id, payload) {
+    const now = utcNow();
+    const job = await this.getScopedJob(auth, id);
+    await this.ensureAssignedUser(auth, job);
+    const scope = this.buildScope(auth);
+    const stopLoc = pickStopLocation(payload || {});
+    const cancelReason = pickCancellationReason(payload || {});
+    let attachmentRows = [];
+    let statusChange = null;
+
+    const adminActor = await this.isAdmin(auth);
+    const existingCancelled = await findCancelledJobStatus(prisma, scope.tenantid);
+    if (existingCancelled && Number(job.statusid) === Number(existingCancelled.recno)) {
+      const err = new Error("Job is already cancelled");
+      err.status = 409;
+      throw err;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const workWhere = { ...scope, jobid: job.recno, stopedat: null };
+      if (!adminActor) {
+        workWhere.workedby = Number(auth.userid);
+      }
+      const open = await tx.jobworklhistory.findFirst({
+        where: workWhere,
+        orderBy: { recno: "desc" }
+      });
+      if (open) {
+        await tx.jobworklhistory.update({
+          where: { recno: open.recno },
+          data: { stopedat: now, ...stopLoc, remarks: cancelReason }
+        });
+      }
+
+      statusChange = await applyCancelledJobStatus(tx, scope, job, auth, {
+        changedAt: now,
+        remarks: cancelReason
+      });
+
+      await this.patchJobDetail(tx, auth, scope, job.recno, {
+        notes: cancelReason
+      });
+
+      attachmentRows = await this.createAttachmentsFromAction(
+        tx,
+        auth,
+        scope,
+        job.recno,
+        payload,
+        "job cancel"
+      );
+    });
+
+    const attachments = attachmentRows.map(formatJobAttachmentRow);
+
+    if (statusChange) {
+      pushDispatch.onJobStatusChanged(
+        job,
+        auth,
+        statusChange.fromStatus,
+        statusChange.toStatus,
+        cancelReason
+      );
+    }
+    pushDispatch.onJobCancelled(job, auth, cancelReason);
+    attachmentRows.forEach((row) =>
+      pushDispatch.onJobAttachment(job, auth, row.attachmentname)
+    );
+
+    await logJobWorkflow(auth, "cancel", job, {
+      summary: `Cancelled job ${job.code || job.recno}`
+    });
+
+    return {
+      message: "Job cancelled",
+      jobid: job.recno,
+      reason: cancelReason,
+      ...locationFromPayload(payload || {}),
+      attachments,
+      attachmentsTotal: attachments.length
     };
   }
 
