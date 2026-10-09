@@ -57,6 +57,7 @@ router.post("/:id/actions/stop-travel", jobController.stopTravel);
 router.post("/:id/actions/start-job", uploadJobActionFiles, jobController.startJobWork);
 router.post("/:id/actions/stop-job", uploadJobActionFiles, jobController.stopJobWork);
 router.post("/:id/actions/complete-job", uploadJobActionFiles, jobController.completeJobWork);
+router.post("/:id/actions/cancel-job", uploadJobActionFiles, jobController.cancelJobWork);
 router.post("/:id/actions/resolve-job", uploadJobActionFiles, jobController.resolveJob);
 router.post("/:id/actions/close-job", jobController.closeJob);
 router.post("/:id/actions/first-response", jobController.updateFirstResponse);

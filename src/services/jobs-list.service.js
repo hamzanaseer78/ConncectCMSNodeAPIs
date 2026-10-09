@@ -19,6 +19,7 @@ const {
   buildJobKpiWhere,
   mergeWhereClauses,
   parseJobStatsKpiKey,
+  sumTotalJobKpiCounts,
   formatStatsKpisResponse,
   JOB_STATS_KPI_KEYS
 } = require("../utils/job-stats-kpis");
@@ -539,7 +540,9 @@ class JobsListService {
           recno: true,
           title: true,
           isfirststatus: true,
-          iscompletedstatus: true
+          iscompletedstatus: true,
+          isresolvedstatus: true,
+          iscancelledstatus: true
         },
         orderBy: [{ sort: "asc" }, { recno: "asc" }]
       });
@@ -608,7 +611,9 @@ class JobsListService {
         recno: true,
         title: true,
         isfirststatus: true,
-        iscompletedstatus: true
+        iscompletedstatus: true,
+        isresolvedstatus: true,
+        iscancelledstatus: true
       },
       orderBy: [{ sort: "asc" }, { recno: "asc" }]
     });
@@ -619,15 +624,13 @@ class JobsListService {
         where: mergeWhereClauses(baseWhere, buildJobKpiWhere(kpiKey, context))
       });
 
-    const [totalJobs, ...kpiCounts] = await Promise.all([
-      prisma.job.count({ where: baseWhere }),
-      ...JOB_STATS_KPI_KEYS.map((key) => countFor(key))
-    ]);
+    const kpiCounts = await Promise.all(JOB_STATS_KPI_KEYS.map((key) => countFor(key)));
 
-    const counts = { totalJobs };
+    const counts = {};
     JOB_STATS_KPI_KEYS.forEach((key, index) => {
       counts[key] = kpiCounts[index];
     });
+    counts.totalJobs = sumTotalJobKpiCounts(counts);
 
     return formatStatsKpisResponse(this.mode, counts);
   }
@@ -661,7 +664,8 @@ class JobsListService {
           sort: true,
           isfirststatus: true,
           iscompletedstatus: true,
-          isresolvedstatus: true
+          isresolvedstatus: true,
+          iscancelledstatus: true
         },
         orderBy: [{ sort: "asc" }, { recno: "asc" }]
       })
@@ -686,7 +690,8 @@ class JobsListService {
       count: countByStatusId.get(meta.recno) ?? 0,
       isFirstStatus: meta.isfirststatus ?? null,
       isCompletedStatus: meta.iscompletedstatus ?? null,
-      isResolvedStatus: meta.isresolvedstatus ?? null
+      isResolvedStatus: meta.isresolvedstatus ?? null,
+      isCancelledStatus: meta.iscancelledstatus ?? null
     }));
 
     if (noStatusCount > 0) {
@@ -698,7 +703,8 @@ class JobsListService {
         count: noStatusCount,
         isFirstStatus: null,
         isCompletedStatus: null,
-        isResolvedStatus: null
+        isResolvedStatus: null,
+        isCancelledStatus: null
       });
     }
 

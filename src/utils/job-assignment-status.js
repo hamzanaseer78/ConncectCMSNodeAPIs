@@ -38,6 +38,25 @@ async function findFirstJobStatus(tx, tenantid) {
   });
 }
 
+async function findCancelledJobStatus(tx, tenantid) {
+  const flagged = await tx.jobstatuses.findFirst({
+    where: { tenantid: Number(tenantid), iscancelledstatus: true },
+    select: { recno: true, title: true },
+    orderBy: [{ sort: "asc" }, { recno: "asc" }]
+  });
+  if (flagged) {
+    return flagged;
+  }
+
+  const rows = await tx.jobstatuses.findMany({
+    where: { tenantid: Number(tenantid) },
+    select: { recno: true, title: true },
+    orderBy: [{ sort: "asc" }, { recno: "asc" }]
+  });
+
+  return rows.find((row) => isCancelledStatusTitle(row.title)) || null;
+}
+
 async function findCompletedJobStatus(tx, tenantid) {
   const flagged = await tx.jobstatuses.findFirst({
     where: { tenantid: Number(tenantid), iscompletedstatus: true },
@@ -80,6 +99,44 @@ async function applyCompletedJobStatus(tx, scope, job, auth, { changedAt, remark
       fromstatus: fromStatus,
       tostatus: Number(toStatus),
       remarks: remarks || "Job completed",
+      changedby: Number(auth.userid),
+      changedat: changedAt
+    }
+  });
+
+  await tx.job.update({
+    where: { recno: Number(job.recno) },
+    data: { statusid: Number(toStatus) }
+  });
+
+  return { fromStatus, toStatus: Number(toStatus) };
+}
+
+/**
+ * Move job to the tenant's cancelled status and write a status log entry.
+ */
+async function applyCancelledJobStatus(tx, scope, job, auth, { changedAt, remarks } = {}) {
+  const cancelled = await findCancelledJobStatus(tx, scope.tenantid);
+  if (!cancelled) {
+    const err = new Error("No cancelled job status configured for this tenant");
+    err.status = 400;
+    throw err;
+  }
+
+  const toStatus = cancelled.recno;
+  const fromStatus = job.statusid ?? null;
+
+  if (Number(fromStatus) === Number(toStatus)) {
+    return null;
+  }
+
+  await tx.jobstatuslog.create({
+    data: {
+      jobid: Number(job.recno),
+      ...scope,
+      fromstatus: fromStatus,
+      tostatus: Number(toStatus),
+      remarks: remarks || "Job cancelled",
       changedby: Number(auth.userid),
       changedat: changedAt
     }
@@ -150,8 +207,10 @@ module.exports = {
   isCompletedStatusTitle,
   isCancelledStatusTitle,
   findUnassignedJobStatus,
+  findCancelledJobStatus,
   findCompletedJobStatus,
   resolveInitialJobStatusId,
   syncJobStatusWithAssignment,
-  applyCompletedJobStatus
+  applyCompletedJobStatus,
+  applyCancelledJobStatus
 };

@@ -629,6 +629,17 @@ async function completeJobWork(req, res, next) {
   }
 }
 
+async function cancelJobWork(req, res, next) {
+  try {
+    const payload = buildJobActionPayload(req);
+    const data = await jobsWorkflowService.cancelJob(req.auth, req.params.id, payload);
+    res.status(200).json(data);
+  } catch (err) {
+    if (err.status) err.statusCode = err.status;
+    next(err);
+  }
+}
+
 async function resolveJob(req, res, next) {
   try {
     const payload = buildJobActionPayload(req);
@@ -1148,6 +1159,7 @@ module.exports = {
   approveJob,
   closeJob,
   completeJobWork,
+  cancelJobWork,
   createCustomerRemark,
   getCustomerFeedback,
   saveCustomerFeedback,

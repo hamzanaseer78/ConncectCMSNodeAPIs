@@ -132,6 +132,44 @@ function isDistributorExcludedScreen(screen) {
   return isManagerExcludedScreen(screen);
 }
 
+const DENIED_SCREEN_RIGHTS = Object.freeze({
+  viewscreen: false,
+  addscreen: false,
+  updatescreen: false,
+  deletescreen: false,
+  others: false
+});
+
+function resolvePolicyTemplateKey(policy) {
+  if (policy?.isdefaultpolicy === true) {
+    return "admin";
+  }
+
+  const description = String(policy?.description || "")
+    .trim()
+    .toLowerCase();
+  if (!description) {
+    return null;
+  }
+
+  const match = DEFAULT_ORGANIZATION_POLICY_TEMPLATES.find(
+    (template) => template.description.toLowerCase() === description
+  );
+  return match?.key || null;
+}
+
+/**
+ * Rights for one screen on a policy.
+ * Known role templates use their relative screens. Custom policies attach the screen with rights off.
+ */
+function resolveAttachedScreenRights(policy, screen) {
+  const templateKey = resolvePolicyTemplateKey(policy);
+  if (!templateKey) {
+    return { ...DENIED_SCREEN_RIGHTS };
+  }
+  return resolveDefaultPolicyRights(templateKey, screen);
+}
+
 /**
  * Resolve userrights action flags for a screen under a default org policy template.
  * @param {"admin"|"manager"|"technician"|"distributor"} templateKey
@@ -168,13 +206,13 @@ function resolveDefaultPolicyRights(templateKey, screen) {
   }
 
   if (templateKey === "technician") {
-    const viewOnly = isTechnicianAllowedScreen(screen);
+    const jobsScreen = isTechnicianJobsScreen(screen);
     return {
-      viewscreen: viewOnly,
-      addscreen: false,
-      updatescreen: false,
-      deletescreen: false,
-      others: false
+      viewscreen: jobsScreen,
+      addscreen: jobsScreen,
+      updatescreen: jobsScreen,
+      deletescreen: jobsScreen,
+      others: jobsScreen
     };
   }
 
@@ -225,5 +263,7 @@ module.exports = {
   isTechnicianJobDefinitionsScreen,
   isTechnicianAllowedScreen,
   isDistributorExcludedScreen,
+  resolvePolicyTemplateKey,
+  resolveAttachedScreenRights,
   resolveDefaultPolicyRights
 };

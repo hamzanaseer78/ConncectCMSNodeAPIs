@@ -11,7 +11,7 @@ const {
 
 const MAX_MINUTES = 24 * 60;
 const DEFAULT_LIVE_MINUTES = 30;
-const MAX_PINGS_PER_REQUEST = 100;
+const MAX_PINGS_PER_REQUEST = 150;
 
 const PING_INCLUDE = {
   users: { select: { userid: true, name: true, email: true } },

@@ -663,10 +663,17 @@ function jobListQueryParameters() {
       name: "kpi",
       schema: {
         type: "string",
-        enum: ["newJobs", "assignedJobs", "followUpJobs", "completedJobs", "cancelledJobs"]
+        enum: [
+          "newJobs",
+          "assignedJobs",
+          "resolvedJobs",
+          "completedJobs",
+          "cancelledJobs",
+          "followUpJobs"
+        ]
       },
       description:
-        "Filter the job list by a Job page KPI bucket. Aliases: statsKpi"
+        "Filter the job list by a Job page KPI bucket (new = unassigned; assigned = assigned and not resolved/completed/cancelled; resolved/completed/cancelled = job status flags; follow-up = has follow-up user until completed). Aliases: statsKpi"
     },
     ...createdByQueryParameters({ includeName: true })
   ];
@@ -1038,6 +1045,59 @@ module.exports = swaggerJsdoc({
       { name: "GraphQL", description: "GraphQL reporting and dashboard endpoint" }
     ],
     paths: {
+      "/api/ai/setup": {
+        get: {
+          summary: "Organization AI chat status",
+          description:
+            "Questions used toward the 3 free questions, and whether this organization has saved its own provider key. The key itself is never returned.",
+          tags: ["AI"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: {
+              description: "AI setup status",
+              content: {
+                "application/json": { schema: { $ref: "#/components/schemas/OrganizationAiSetup" } }
+              }
+            }
+          }
+        },
+        put: {
+          summary: "Save organization AI provider and API key",
+          description:
+            "Organization admin only. Provider is openai (ChatGPT), gemini, claude, or cursor. After this is saved, chat uses this key instead of the free platform allowance.",
+          tags: ["AI"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/OrganizationAiSetupBody" } }
+            }
+          },
+          responses: {
+            200: { description: "AI provider saved" },
+            403: { description: "Not an organization admin" }
+          }
+        }
+      },
+      "/api/ai/chat": {
+        post: {
+          summary: "Ask the organization AI assistant",
+          description:
+            "The first 3 questions for an organization use the platform Gemini key. After that, the organization must save its own provider and API key. The model can read job lists and job KPI counts for the signed-in user.",
+          tags: ["AI"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/OrganizationAiChatBody" } }
+            }
+          },
+          responses: {
+            200: { description: "Assistant answer" },
+            402: { description: "Free questions used. Save a provider key." }
+          }
+        }
+      },
       "/api/auth/signup": {
         post: {
           summary: "Start signup",
@@ -2006,7 +2066,7 @@ module.exports = swaggerJsdoc({
         post: {
           summary: "Record user location pings (batch)",
           description:
-            "Stores one row per ping for the JWT user in the current tenant/branch. Send a JSON array of ping objects, or `{ \"pings\": [...] }`. Max 100 per request. Omit `jobid` to record general technician location when not travelling to or working on a job.",
+            "Stores one row per ping for the JWT user in the current tenant/branch. Send a JSON array of ping objects, or `{ \"pings\": [...] }`. Max 150 per request. Omit `jobid` to record general technician location when not travelling to or working on a job.",
           tags: ["Tracking"],
           security: [{ bearerAuth: [] }],
           requestBody: {
@@ -4330,7 +4390,7 @@ module.exports = swaggerJsdoc({
         get: {
           summary: "Job page Stats KPIs (all jobs)",
           description:
-            "Returns counts for New Jobs (no technician assigned), Assigned Jobs (technician assigned, no follow-up user), Follow-up Jobs (follow-up user assigned), Completed Jobs, and Cancelled Jobs (status title Cancelled/Cancel/Canceled). Supports the same list filters as `/api/jobs-all` (except `kpi`). Use `kpi` on the job list endpoints to drill down when a card is clicked.",
+            "Returns job page KPI counts: **New** (not assigned to any user), **Assigned** (assigned and status is not resolved, completed, or cancelled), **Resolved** (`isresolvedstatus`), **Completed** (`iscompletedstatus`), **Cancelled** (`iscancelledstatus`), and **Follow-up** (has `followupby` until status is completed; not included in `totalJobs`). `totalJobs` is the sum of new + assigned + resolved + completed + cancelled. Supports the same list filters as `/api/jobs-all` (except `kpi`). Use `kpi` on the job list endpoints to drill down when a card is clicked.",
           tags: [ALL_JOBS_TAG],
           security: [{ bearerAuth: [] }],
           parameters: jobListQueryParameters().filter(
@@ -5330,6 +5390,8 @@ module.exports = swaggerJsdoc({
       "/api/jobs/{id}/actions/assign": {
         post: {
           summary: "Assign or reassign technician",
+          description:
+            "Optionally set `statusid` (or `statusId`) in the same request to move the job to that tenant job status; writes a status log entry using `remarks` when provided.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
@@ -5340,22 +5402,32 @@ module.exports = swaggerJsdoc({
                 schema: {
                   type: "object",
                   properties: {
-                    assignedto: { type: "integer" },
-                    remarks: { type: "string" }
+                    assignedto: { type: "integer", description: "Technician user id" },
+                    remarks: { type: "string" },
+                    statusid: {
+                      type: "integer",
+                      description: "Optional job status (jobstatuses.recno) to apply when assigning"
+                    },
+                    statusId: { type: "integer", description: "Alias of statusid" }
                   },
                   required: ["assignedto"]
+                },
+                example: {
+                  assignedto: 0,
+                  remarks: "string",
+                  statusid: 0
                 }
               }
             }
           },
-          responses: { 200: { description: "Technician assigned" } }
+          responses: { 200: { description: "Technician assigned (includes statusid when changed)" } }
         }
       },
       "/api/jobs/{id}/actions/assign-follow-up": {
         post: {
           summary: "Assign or clear follow-up user",
           description:
-            "Admin/manager only. Sets `followUpById` on the job to the selected branch user, or clears it when `followUpById` is null.",
+            "Admin/manager only. Sets `followUpById` on the job to the selected branch user, or clears it when `followUpById` is null. Optionally set `statusid` to change job status in the same request.",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
@@ -5376,13 +5448,24 @@ module.exports = swaggerJsdoc({
                       nullable: true,
                       description: "Alias of followUpById"
                     },
-                    remarks: { type: "string" }
+                    remarks: { type: "string" },
+                    statusid: {
+                      type: "integer",
+                      description: "Optional job status (jobstatuses.recno) to apply with this action"
+                    },
+                    statusId: { type: "integer", description: "Alias of statusid" }
                   }
+                },
+                example: {
+                  followUpById: 0,
+                  followupby: 0,
+                  remarks: "string",
+                  statusid: 0
                 }
               }
             }
           },
-          responses: { 200: { description: "Follow-up user assigned or cleared" } }
+          responses: { 200: { description: "Follow-up user assigned or cleared (includes statusid when changed)" } }
         }
       },
       "/api/jobs/{id}/actions/start-travel": {
@@ -5465,6 +5548,28 @@ module.exports = swaggerJsdoc({
             }
           },
           responses: { 200: { description: "Job completed (includes customerFeedback and attachments when provided)" } }
+        }
+      },
+      "/api/jobs/{id}/actions/cancel-job": {
+        post: {
+          summary: "Mark job as cancelled",
+          description:
+            "Assigned technician or admin. Requires a cancellation `reason` (or `remarks`). Sets the job to the tenant status flagged `iscancelledstatus` (or title Cancelled/Cancel). Stops any open work session. Optional `attachments` or multipart files (`files` / `file`).",
+          tags: ["Jobs"],
+          security: [{ bearerAuth: [] }],
+          parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": { schema: { $ref: "#/components/schemas/JobCancelBody" } },
+              "multipart/form-data": { schema: { $ref: "#/components/schemas/JobCancelMultipartBody" } }
+            }
+          },
+          responses: {
+            200: { description: "Job cancelled (status updated, reason recorded)" },
+            400: { description: "Missing reason or no cancelled status configured" },
+            409: { description: "Job is already cancelled" }
+          }
         }
       },
       "/api/jobs/{id}/customer-feedback": {
@@ -6301,6 +6406,45 @@ module.exports = swaggerJsdoc({
         }
       },
       schemas: {
+        OrganizationAiSetupBody: {
+          type: "object",
+          required: ["provider", "apiKey"],
+          properties: {
+            provider: { type: "string", enum: ["openai", "gemini", "claude", "cursor"], example: "gemini" },
+            apiKey: { type: "string", description: "Provider API key. Stored encrypted and not returned." }
+          }
+        },
+        OrganizationAiSetup: {
+          type: "object",
+          properties: {
+            questionLimit: { type: "integer", example: 3 },
+            questionsUsed: { type: "integer" },
+            questionsRemaining: { type: "integer", nullable: true },
+            provider: { type: "string", nullable: true },
+            keyConfigured: { type: "boolean" },
+            usingOrganizationKey: { type: "boolean" },
+            platformAvailable: { type: "boolean" },
+            requiresAiSetup: { type: "boolean" },
+            providers: { type: "array", items: { type: "string" } }
+          }
+        },
+        OrganizationAiChatBody: {
+          type: "object",
+          required: ["message"],
+          properties: {
+            message: { type: "string" },
+            history: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  role: { type: "string", enum: ["user", "assistant"] },
+                  content: { type: "string" }
+                }
+              }
+            }
+          }
+        },
         Pagination: {
           type: "object",
           properties: {
@@ -6871,7 +7015,14 @@ module.exports = swaggerJsdoc({
           properties: {
             key: {
               type: "string",
-              enum: ["newJobs", "assignedJobs", "followUpJobs", "completedJobs", "cancelledJobs"]
+              enum: [
+                "newJobs",
+                "assignedJobs",
+                "resolvedJobs",
+                "completedJobs",
+                "cancelledJobs",
+                "followUpJobs"
+              ]
             },
             label: { type: "string", example: "New Jobs" },
             count: { type: "integer" }
@@ -6884,7 +7035,8 @@ module.exports = swaggerJsdoc({
             asOf: { type: "string", format: "date-time" },
             totalJobs: {
               type: "integer",
-              description: "Total jobs in scope after optional list filters (date range, search, etc.)"
+              description:
+                "Sum of newJobs + assignedJobs + resolvedJobs + completedJobs + cancelledJobs (after optional list filters). Follow-up jobs are not included."
             },
             statsKpis: {
               type: "array",
@@ -9387,6 +9539,38 @@ module.exports = swaggerJsdoc({
             attachmentsTotal: { type: "integer" }
           }
         },
+        JobCancelBody: {
+          allOf: [
+            { $ref: "#/components/schemas/JobActionWithAttachmentsBody" },
+            {
+              type: "object",
+              required: ["reason"],
+              properties: {
+                reason: {
+                  type: "string",
+                  description: "Why the job is being cancelled (also accepted as `remarks` for multipart)"
+                },
+                remarks: {
+                  type: "string",
+                  description: "Alias for `reason` when sending JSON or multipart"
+                }
+              }
+            }
+          ]
+        },
+        JobCancelMultipartBody: {
+          allOf: [
+            { $ref: "#/components/schemas/JobActionMultipartBody" },
+            {
+              type: "object",
+              required: ["reason"],
+              properties: {
+                reason: { type: "string", description: "Cancellation reason (required)" },
+                remarks: { type: "string", description: "Alias for reason" }
+              }
+            }
+          ]
+        },
         JobCompleteBody: {
           allOf: [
             { $ref: "#/components/schemas/JobActionWithAttachmentsBody" },
@@ -9868,7 +10052,7 @@ module.exports = swaggerJsdoc({
             {
               type: "array",
               minItems: 1,
-              maxItems: 100,
+              maxItems: 150,
               items: { $ref: "#/components/schemas/TrackingPingItem" }
             },
             {
@@ -9878,7 +10062,7 @@ module.exports = swaggerJsdoc({
                 pings: {
                   type: "array",
                   minItems: 1,
-                  maxItems: 100,
+                  maxItems: 150,
                   items: { $ref: "#/components/schemas/TrackingPingItem" }
                 }
               }
