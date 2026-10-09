@@ -81,7 +81,7 @@ function detectTechnician(message) {
   const match = String(message || "").match(/\btechnician\s+([A-Za-z][A-Za-z .'-]{0,60})/i);
   if (!match) return null;
   const name = match[1]
-    .replace(/\b(report|reports|chart|graph|line|for|vs|versus|today|yesterday)\b/gi, "")
+    .replace(/\b(report|reports|chart|graph|line|for|vs|versus|today|yesterday|details|detail|info|list|show|me)\b/gi, "")
     .replace(/[.?!,]+$/g, "")
     .trim();
   return name || null;
@@ -124,15 +124,81 @@ function detectBranchQuestion(message) {
   return /\bbranches?\b/.test(text) && /how many|count|do i have|i have|list|which|show/.test(text);
 }
 
+const MODULE_QUESTIONS = [
+  [/customer/, "customers", "Customers"],
+  [/erp product/, "erpproducts", "ERP products"],
+  [/\bproducts?\b|\bitems?\b/, "products", "Products"],
+  [/\bbrands?\b/, "brands", "Brands"],
+  [/\bcities\b|\bcity\b/, "cities", "Cities"],
+  [/\bcountries\b|\bcountry\b/, "countries", "Countries"],
+  [/\bareas?\b/, "areas", "Areas"],
+  [/job status/, "jobstauses", "Job statuses"],
+  [/job categor/, "jobcategories", "Job categories"],
+  [/job group/, "jobgroups", "Job groups"],
+  [/subcategor/, "jobsubcategories", "Job subcategories"],
+  [/\bpolicies\b|\bpolicy\b/, "policies", "Policies"],
+  [/\bunits?\b/, "units", "Units"],
+  [/expense type/, "expensetypes", "Expense types"],
+  [/delivery type/, "deliverytypes", "Delivery types"],
+  [/job type/, "jobtypes", "Job types"],
+  [/job source/, "jobsources", "Job sources"],
+  [/\busers?\b/, "users", "Users"]
+];
+
+function detectGreeting(message) {
+  const text = String(message || "").toLowerCase().replace(/[.?!,]/g, "").trim();
+  return /^(hi|hello|hey|thanks|thank you|good morning|good afternoon)$/.test(text);
+}
+
+function detectAttendanceFocus(message) {
+  const text = String(message || "").toLowerCase();
+  if (!/absent|leave|\blate\b|checked in|on break|on the way|on location|attendance|available right now/.test(text)) {
+    return null;
+  }
+  if (/absent|leave/.test(text)) return "absent";
+  if (/\blate\b/.test(text)) return "late";
+  if (/on the way/.test(text)) return "on_the_way";
+  if (/on location/.test(text)) return "on_location";
+  if (/on break/.test(text)) return "on_break";
+  if (/checked in/.test(text)) return "checked_in";
+  return "attendance";
+}
+
+function detectTechnicianQuestion(message) {
+  const text = String(message || "").toLowerCase();
+  if (!/technician/.test(text)) return false;
+  if (/expense|collect|c-?pair|chart|graph|report|revenue|outstanding|attendance|absent/.test(text)) return false;
+  return true;
+}
+
+function detectModule(message) {
+  const text = String(message || "").toLowerCase();
+  if (/chart|graph|report|expense|collect|revenue|outstanding|c-?pair/.test(text)) return null;
+  const match = MODULE_QUESTIONS.find(([pattern]) => pattern.test(text));
+  if (!match) return null;
+  return { resource: match[1], label: match[2] };
+}
+
+function isRangeOnly(message) {
+  if (!explicitRange(message)) return false;
+  const stripped = String(message || "")
+    .toLowerCase()
+    .replace(/[.?!,]/g, " ")
+    .replace(/\b(yesterday|today|this week|last month|previous month|this month|this quarter|last year|previous year|this year|show|me|the|for|in|on|a|an|please)\b/g, " ")
+    .trim();
+  return stripped.length === 0;
+}
+
 function isContinuation(message, current) {
   const text = String(message || "").toLowerCase().trim();
-  if (current.kind === "profile" || current.kind === "branches") return false;
+  if (["profile", "branches", "attendance", "technicians", "module", "greeting"].includes(current.kind)) {
+    return false;
+  }
   if (/\b(what|how) about\b|\bsame\b|\binstead\b/.test(text)) return true;
   if (/^(and|also|now|that|those)\b/.test(text)) return true;
   if (/chart|graph/.test(text) && !detectFocus(message)) return true;
-  const words = text.replace(/[.?!,]/g, "").split(/\s+/).filter(Boolean);
-  if (current.kind === "clarify" && explicitRange(message) && words.length <= 4) return true;
-  if (bareStatus(text) && words.length <= 3) return true;
+  if (current.kind === "clarify" && isRangeOnly(message)) return true;
+  if (bareStatus(text) && text.replace(/[.?!,]/g, "").split(/\s+/).filter(Boolean).length <= 3) return true;
   if (/\b(by|per) technician\b|\bwhich technicians?\b/.test(text)) return true;
   return false;
 }
@@ -146,21 +212,30 @@ function classifyQuestion(message) {
   const report = /\bby\b|which technician|per technician|c-?pair/.test(text) ? detectReport(text) : null;
   const financial = /revenue|expense|collect|outstanding|amount to collect|receivable|financial|margin/.test(text);
   const cpair = /c-?pair/.test(text);
-  const attendance = /attendance|checked in|on break|on the way|on location|available right now|technician status/.test(text);
+  const attendanceFocus = detectAttendanceFocus(message);
   const profileField = detectProfile(message);
   const branchQuestion = detectBranchQuestion(message);
-  const aboutJobs = /pending|completed|cancelled|assigned|\bjobs?\b/.test(text);
-  const jobs = aboutJobs || (/how many/.test(text) && !branchQuestion && !profileField);
+  const greeting = detectGreeting(message);
+  const technicianQuestion = detectTechnicianQuestion(message);
+  const moduleQuestion = detectModule(message);
+  const aboutJobs = /pending|completed|cancelled|assigned|\bjobs?\b|job performance/.test(text);
+  const jobs = aboutJobs || (/how many/.test(text) && !branchQuestion && !profileField && !moduleQuestion);
 
   let kind = "clarify";
   if (profileField) kind = "profile";
   else if (branchQuestion) kind = "branches";
+  else if (greeting) kind = "greeting";
+  else if (attendanceFocus && !financial && !cpair) kind = "attendance";
+  else if (technicianQuestion && !statusReport) kind = "technicians";
+  else if (moduleQuestion && !statusReport && !aboutJobs) kind = "module";
+  else if (chart && aboutJobs && !financial) kind = "jobs";
   else if (chart) kind = "chart";
   else if (statusReport) kind = "job_report";
   else if (cpair) kind = "cpair";
-  else if (attendance && !financial) kind = "attendance";
   else if (financial) kind = "financial";
   else if (jobs || report) kind = "jobs";
+
+  const plainAnswer = kind === "profile" || kind === "branches" || kind === "greeting" || kind === "attendance" || kind === "technicians" || kind === "module";
 
   return {
     kind,
@@ -169,7 +244,9 @@ function classifyQuestion(message) {
     technician,
     focus: detectFocus(message),
     profileField,
-    chart: kind === "profile" || kind === "branches" ? null : chart,
+    attendanceFocus,
+    module: moduleQuestion,
+    chart: plainAnswer ? null : chart,
     statusReport,
     report: report && REPORTS.some((item) => item.key === report) ? report : null
   };
@@ -192,7 +269,7 @@ function latestUserClassification(history) {
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     if (turns[index].role !== "user") continue;
     const classified = classifyQuestion(turns[index].content);
-    if (classified.kind !== "clarify" && classified.kind !== "profile" && classified.kind !== "branches") {
+    if (!["clarify", "profile", "branches", "greeting", "attendance", "technicians", "module"].includes(classified.kind)) {
       return classified;
     }
   }

@@ -17,6 +17,7 @@ const {
 const { resolveQuestion } = require("./management-intelligence.intent");
 const chatSession = require("./ai-chat-session");
 const { activeMembershipWhere } = require("../utils/user-branch-access");
+const container = require("../utils/service-container");
 
 const DIMENSIONS = {
   status: {
@@ -1115,13 +1116,214 @@ async function answerBranches(auth) {
   };
 }
 
+function personList(names) {
+  const unique = [...new Set(names.filter(Boolean))];
+  return unique.length ? unique.join(", ") : "none";
+}
+
+async function branchPeople(scope) {
+  const userFilter = scope.manageBranch ? Prisma.sql`TRUE` : Prisma.sql`uo.userid = ${scope.userid}`;
+  return prisma.$queryRaw`
+    SELECT
+      u.userid,
+      u.name,
+      u.email,
+      u.usertype::text AS usertype,
+      u.technicianaffiliation::text AS affiliation,
+      u.companyname
+    FROM userorganizations uo
+    INNER JOIN users u ON u.userid = uo.userid
+    WHERE uo.tenantid = ${scope.tenantid}
+      AND uo.branchid = ${scope.branchid}
+      AND (uo.isblocked = false OR uo.isblocked IS NULL)
+      AND (u.isactive = true OR u.isactive IS NULL)
+      AND (u.isdeleted = false OR u.isdeleted IS NULL)
+      AND ${userFilter}
+    ORDER BY u.name
+  `;
+}
+
+async function openSessions(scope) {
+  const userFilter = scope.manageBranch ? Prisma.sql`TRUE` : Prisma.sql`userid = ${scope.userid}`;
+  return prisma.$queryRaw`
+    SELECT userid, status::text AS status
+    FROM userattendancesession
+    WHERE tenantid = ${scope.tenantid}
+      AND branchid = ${scope.branchid}
+      AND isopen = true
+      AND ${userFilter}
+  `;
+}
+
+async function liveNames(scope, table, userColumn) {
+  const userFilter = scope.manageBranch ? Prisma.sql`TRUE` : Prisma.sql`${Prisma.raw(userColumn)} = ${scope.userid}`;
+  const rows = await prisma.$queryRaw`
+    SELECT DISTINCT u.name AS name
+    FROM ${Prisma.raw(table)} t
+    INNER JOIN users u ON u.userid = t.${Prisma.raw(userColumn)}
+    WHERE t.tenantid = ${scope.tenantid}
+      AND t.branchid = ${scope.branchid}
+      AND t.startedat IS NOT NULL
+      AND t.stopedat IS NULL
+      AND ${userFilter}
+    ORDER BY u.name
+  `;
+  return rows.map((row) => row.name).filter(Boolean);
+}
+
+async function answerAttendance(auth, classified) {
+  const scope = await resolveScope(auth);
+  const [people, sessions, onTheWay, onLocation] = await Promise.all([
+    branchPeople(scope),
+    openSessions(scope),
+    liveNames(scope, "jobtravelhistory", "traveledby"),
+    liveNames(scope, "jobworklhistory", "workedby")
+  ]);
+  const byUser = new Map(sessions.map((row) => [Number(row.userid), row.status]));
+  const checkedIn = [];
+  const onBreak = [];
+  const noSession = [];
+  people.forEach((person) => {
+    const status = byUser.get(Number(person.userid));
+    if (status === "checked_in") checkedIn.push(person.name);
+    else if (status === "on_break") onBreak.push(person.name);
+    else noSession.push(person.name);
+  });
+  const focus = classified.attendanceFocus;
+  const lines = [
+    "Absent, late, and leave are not stored. An open attendance session is current only while it is still open."
+  ];
+  if (focus === "absent" || focus === "late" || focus === "attendance") {
+    lines.push(`No open attendance session: ${personList(noSession)}. That is not a recorded absence.`);
+  }
+  if (!focus || focus === "attendance" || focus === "checked_in" || focus === "absent") {
+    lines.push(`Checked in: ${personList(checkedIn)}.`);
+  }
+  if (!focus || focus === "attendance" || focus === "on_break" || focus === "absent") {
+    lines.push(`On break: ${personList(onBreak)}.`);
+  }
+  if (!focus || focus === "attendance" || focus === "on_the_way") {
+    lines.push(`On the way: ${personList(onTheWay)}.`);
+  }
+  if (!focus || focus === "attendance" || focus === "on_location") {
+    lines.push(`On location: ${personList(onLocation)}.`);
+  }
+  return {
+    kind: "attendance",
+    answer: lines.join(" "),
+    charts: [],
+    tables: []
+  };
+}
+
+async function answerTechnicians(auth, classified) {
+  const scope = await resolveScope(auth);
+  const [people, sessions] = await Promise.all([branchPeople(scope), openSessions(scope)]);
+  const byUser = new Map(sessions.map((row) => [Number(row.userid), row.status]));
+  const needle = String(classified.technician || "").toLowerCase();
+  const technicians = people.filter((person) => {
+    if (person.usertype !== "technician") return false;
+    if (!needle) return true;
+    return String(person.name || "").toLowerCase().includes(needle);
+  });
+  if (!technicians.length) {
+    return {
+      kind: "technicians",
+      answer: needle
+        ? `No technician matching ${classified.technician} is in this branch.`
+        : "No technicians are in this branch.",
+      charts: [],
+      tables: []
+    };
+  }
+  const rows = technicians.map((person) => ({
+    id: person.userid,
+    name: person.name,
+    email: person.email,
+    affiliation: person.affiliation,
+    company: person.companyname,
+    attendance: byUser.get(Number(person.userid)) || "no open session"
+  }));
+  const summary = rows
+    .map((row) => `${row.name} (${row.attendance}${row.affiliation ? `, ${row.affiliation}` : ""})`)
+    .join("; ");
+  return {
+    kind: "technicians",
+    answer: `${rows.length === 1 ? "Technician" : "Technicians"}: ${summary}.`,
+    charts: [],
+    tables: [{
+      id: "technicians",
+      title: "Technicians",
+      columns: [
+        { key: "name", label: "Name" },
+        { key: "email", label: "Email" },
+        { key: "affiliation", label: "Affiliation" },
+        { key: "attendance", label: "Attendance" }
+      ],
+      rows
+    }]
+  };
+}
+
+function moduleLabel(row) {
+  return row?.name || row?.title || row?.description || row?.code || row?.email || null;
+}
+
+async function answerModule(auth, classified, message) {
+  const moduleQuestion = classified.module;
+  try {
+    const service = container.getGenericService(moduleQuestion.resource);
+    const result = await service.list(auth, { page: 1, pageSize: 10 });
+    const rows = result.data || [];
+    const total = result.pagination?.total ?? rows.length;
+    const labels = rows.map(moduleLabel).filter(Boolean);
+    const showRows = /list|show|which|who/.test(String(message || "").toLowerCase());
+    const names = showRows && labels.length ? ` ${labels.join(", ")}.` : "";
+    return {
+      kind: "module",
+      answer: `${moduleQuestion.label}: ${total}.${names}`,
+      charts: [],
+      tables: showRows && labels.length ? [{
+        id: moduleQuestion.resource,
+        title: moduleQuestion.label,
+        columns: [{ key: "name", label: "Name" }],
+        rows: labels.map((name, index) => ({ id: index, name }))
+      }] : []
+    };
+  } catch (err) {
+    return {
+      kind: "module",
+      answer: err.message || `Could not read ${moduleQuestion.label}.`,
+      charts: [],
+      tables: []
+    };
+  }
+}
+
 async function answerQuestion(auth, message, history) {
   const classified = resolveQuestion(message, chatSession.historyFor(auth, history));
+  if (classified.kind === "greeting") {
+    return finishAnswer(auth, message, {
+      kind: "greeting",
+      answer: "Hello. I can answer with your name, technicians, jobs, attendance, customers, products, or a report.",
+      charts: [],
+      tables: []
+    });
+  }
   if (classified.kind === "profile") {
     return finishAnswer(auth, message, await answerProfile(auth, classified));
   }
   if (classified.kind === "branches") {
     return finishAnswer(auth, message, await answerBranches(auth));
+  }
+  if (classified.kind === "attendance") {
+    return finishAnswer(auth, message, await answerAttendance(auth, classified));
+  }
+  if (classified.kind === "technicians") {
+    return finishAnswer(auth, message, await answerTechnicians(auth, classified));
+  }
+  if (classified.kind === "module") {
+    return finishAnswer(auth, message, await answerModule(auth, classified, message));
   }
   if (classified.kind === "clarify") {
     return finishAnswer(auth, message, {
@@ -1187,12 +1389,12 @@ async function answerQuestion(auth, message, history) {
   const overview = await getOverview(auth, { range: classified.range });
   const charts = [];
   const focusedMetrics = classified.kind === "financial" ? focusedMoneyMetrics(classified) : null;
-  if (focusedMetrics) {
+  if (classified.chart && focusedMetrics) {
     charts.push(await buildMoneyChart(scope, range, {
       technician: classified.technician,
       chart: { metrics: focusedMetrics }
     }));
-  } else if (classified.kind === "financial" || classified.kind === "jobs") {
+  } else if (classified.chart && (classified.kind === "financial" || classified.kind === "jobs")) {
     charts.push(toApexChart(classified.kind === "financial" ? overview.charts[0] : overview.charts[1]));
   }
   let table = null;
