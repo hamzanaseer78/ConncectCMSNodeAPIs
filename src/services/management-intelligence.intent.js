@@ -18,7 +18,7 @@ const REPORT_PATTERNS = [
   [/status/, "jobs_by_status"]
 ];
 
-function detectRange(message) {
+function explicitRange(message) {
   const text = String(message || "").toLowerCase();
   if (/\byesterday\b/.test(text)) return "yesterday";
   if (/\btoday\b/.test(text)) return "today";
@@ -28,7 +28,47 @@ function detectRange(message) {
   if (/this quarter/.test(text)) return "this_quarter";
   if (/last year|previous year/.test(text)) return "previous_year";
   if (/this year/.test(text)) return "this_year";
-  return "this_month";
+  return null;
+}
+
+function detectRange(message) {
+  return explicitRange(message) || "this_month";
+}
+
+function detectFocus(message) {
+  const text = String(message || "").toLowerCase();
+  if (/c-?pair/.test(text)) return "cpair";
+  if (/attendance|checked in|on break|on the way|on location/.test(text)) return "attendance";
+  const financial = [];
+  if (/expense/.test(text)) financial.push("expenses");
+  if (/amount to collect|\brevenue\b/.test(text)) financial.push("amountToCollect");
+  if (/outstanding|receivable|\bbalance\b/.test(text)) financial.push("outstanding");
+  if (/collect/.test(text) && !/amount to collect/.test(text)) financial.push("collected");
+  if (financial.length === 1) return financial[0];
+  if (financial.length > 1) return "financial";
+  if (/pending|completed|cancelled|assigned|\bjobs?\b|\bnew\b/.test(text)) return "jobs";
+  return null;
+}
+
+function bareStatus(message) {
+  const text = String(message || "").toLowerCase();
+  if (/report|jobs?\b|list/.test(text)) return null;
+  if (/completed/.test(text)) return "completed_jobs";
+  if (/cancelled/.test(text)) return "cancelled_jobs";
+  if (/pending/.test(text)) return "pending_jobs";
+  if (/\bnew\b/.test(text)) return "new_jobs";
+  if (/assigned/.test(text)) return "assigned_jobs";
+  return null;
+}
+
+function metricsFor(classified) {
+  if (classified?.chart?.metricsExplicit && classified.chart.metrics?.length) return classified.chart.metrics;
+  if (classified?.focus === "expenses") return ["expenses"];
+  if (classified?.focus === "collected") return ["collected"];
+  if (classified?.focus === "amountToCollect") return ["amountToCollect"];
+  if (classified?.focus === "outstanding") return ["amountToCollect", "collected"];
+  if (classified?.kind === "financial" || classified?.focus === "financial") return ["collected", "expenses"];
+  return null;
 }
 
 function detectReport(message) {
@@ -67,7 +107,8 @@ function detectChart(message) {
   if (/revenue|amount to collect/.test(text)) metrics.push("amountToCollect");
   return {
     type: "line",
-    metrics: metrics.length ? metrics : ["collected", "expenses"]
+    metrics: metrics.length ? metrics : ["collected", "expenses"],
+    metricsExplicit: metrics.length > 0
   };
 }
 
@@ -94,15 +135,135 @@ function classifyQuestion(message) {
   return {
     kind,
     range,
+    rangeExplicit: Boolean(explicitRange(message)),
     technician,
+    focus: detectFocus(message),
     chart,
     statusReport,
     report: report && REPORTS.some((item) => item.key === report) ? report : null
   };
 }
 
+function normalizeHistory(history) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .filter((item) => item && (item.role === "user" || item.role === "assistant"))
+    .map((item) => ({
+      role: item.role,
+      content: String(item.content || item.text || "").trim()
+    }))
+    .filter((item) => item.content)
+    .slice(-12);
+}
+
+function latestUserClassification(history) {
+  const turns = normalizeHistory(history);
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    if (turns[index].role !== "user") continue;
+    const classified = classifyQuestion(turns[index].content);
+    if (classified.kind !== "clarify") return classified;
+  }
+  return null;
+}
+
+function resolveQuestion(message, history) {
+  const current = classifyQuestion(message);
+  const prior = latestUserClassification(history);
+  if (!prior) return current;
+
+  const text = String(message || "").toLowerCase();
+  const range = explicitRange(message);
+  const technician = detectTechnician(message);
+  const clearTechnician = /\b(all|every|each) technicians?\b|\bwhole branch\b|\beveryone\b/.test(text);
+  const wantsChart = /chart|graph/.test(text);
+  const focus = detectFocus(message);
+  const statusWord = current.statusReport || bareStatus(text);
+  const technicianName = clearTechnician ? null : technician || prior.technician;
+
+  const inherited = {
+    ...prior,
+    range: range || prior.range,
+    rangeExplicit: Boolean(range) || prior.rangeExplicit,
+    technician: technicianName,
+    focus: focus || prior.focus
+  };
+
+  if (/\bby technician\b|\bper technician\b|\bwhich technicians?\b/.test(text)) {
+    const topic = focus || prior.focus;
+    if (topic === "expenses") {
+      inherited.report = "expenses_by_technician";
+      inherited.kind = "financial";
+      inherited.focus = "expenses";
+    } else if (topic === "collected") {
+      inherited.report = "collections_by_collector";
+      inherited.kind = "financial";
+      inherited.focus = "collected";
+    } else if (topic === "cpair" || prior.kind === "cpair") {
+      inherited.report = "cpair_by_technician";
+      inherited.kind = "cpair";
+      inherited.focus = "cpair";
+    } else if (topic === "jobs" || prior.kind === "jobs" || prior.kind === "job_report") {
+      inherited.report = "jobs_by_technician";
+      inherited.kind = "jobs";
+      inherited.focus = "jobs";
+    }
+  }
+
+  if (focus && focus !== prior.focus && current.kind !== "clarify") {
+    const next = {
+      ...current,
+      range: range || prior.range,
+      rangeExplicit: Boolean(range),
+      technician: technicianName,
+      focus
+    };
+    if (wantsChart) {
+      const metrics = current.chart?.metricsExplicit ? current.chart.metrics : metricsFor(next);
+      if (metrics) {
+        next.kind = "chart";
+        next.chart = { type: "line", metrics, metricsExplicit: true };
+      }
+    }
+    if (!wantsChart && statusWord && (focus === "jobs" || prior.kind === "job_report")) {
+      next.kind = "job_report";
+      next.statusReport = statusWord;
+    }
+    return next;
+  }
+
+  if (current.kind === "clarify" || !focus) {
+    if (wantsChart) {
+      const metrics = current.chart?.metricsExplicit ? current.chart.metrics : metricsFor(prior);
+      if (metrics) {
+        inherited.kind = "chart";
+        inherited.chart = { type: "line", metrics, metricsExplicit: true };
+        inherited.statusReport = null;
+      } else if (prior.kind === "job_report" || prior.kind === "jobs" || prior.focus === "jobs") {
+        inherited.kind = "jobs";
+        inherited.focus = "jobs";
+        inherited.statusReport = null;
+        inherited.chart = null;
+      }
+    }
+    if (!wantsChart && statusWord && (prior.kind === "job_report" || prior.kind === "jobs" || prior.focus === "jobs")) {
+      inherited.kind = "job_report";
+      inherited.statusReport = statusWord;
+      inherited.focus = "jobs";
+      inherited.chart = null;
+    }
+    return inherited;
+  }
+
+  return {
+    ...current,
+    range: range || prior.range,
+    technician: technicianName
+  };
+}
+
 module.exports = {
   classifyQuestion,
+  resolveQuestion,
   detectRange,
   detectReport,
   detectTechnician,

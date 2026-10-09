@@ -29,7 +29,7 @@ async function askQuestion(req, res, next) {
       err.status = 400;
       throw err;
     }
-    res.status(200).json(await intelligence.answerQuestion(req.auth, message));
+    res.status(200).json(await intelligence.answerQuestion(req.auth, message, req.body?.history));
   } catch (err) {
     forward(err, next);
   }

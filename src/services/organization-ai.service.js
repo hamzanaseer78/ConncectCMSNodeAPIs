@@ -10,8 +10,9 @@ const {
   resolveChatAccess
 } = require("../utils/organization-ai-access");
 const { completeOrganizationChat } = require("./organization-ai-providers");
-const { classifyQuestion } = require("./management-intelligence.intent");
+const { resolveQuestion } = require("./management-intelligence.intent");
 const { answerQuestion } = require("./management-intelligence.service");
+const chatSession = require("./ai-chat-session");
 
 function httpError(message, status) {
   const err = new Error(message);
@@ -139,12 +140,13 @@ async function ask(auth, body = {}) {
     ? decryptAiKey(row.apikeycipher)
     : String(process.env.GEMINI_API_KEY).trim();
 
+  const prior = chatSession.historyFor(auth, body.history);
   let answerText;
   let charts = [];
   let tables = [];
   try {
-    if (classifyQuestion(message).kind !== "clarify") {
-      const local = await answerQuestion(auth, message);
+    if (resolveQuestion(message, prior).kind !== "clarify") {
+      const local = await answerQuestion(auth, message, prior);
       answerText = local.answer;
       charts = local.charts || [];
       tables = local.tables || [];
@@ -153,12 +155,13 @@ async function ask(auth, body = {}) {
         provider,
         apiKey,
         message,
-        history: body.history,
+        history: prior,
         auth
       });
       answerText = typeof model === "string" ? model : model.text;
       charts = model?.charts || [];
       tables = model?.tables || [];
+      chatSession.remember(auth, message, answerText);
     }
   } catch (err) {
     if (err.clientSafe || err.details) {

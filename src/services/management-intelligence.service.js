@@ -14,7 +14,8 @@ const {
   getReportDefinition,
   listReportCatalog
 } = require("./management-intelligence.catalog");
-const { classifyQuestion } = require("./management-intelligence.intent");
+const { resolveQuestion } = require("./management-intelligence.intent");
+const chatSession = require("./ai-chat-session");
 
 const DIMENSIONS = {
   status: {
@@ -1004,14 +1005,24 @@ function answerFromOverview(overview, classified) {
   const scopeText = overview.scope === "branch" ? "this branch" : "jobs assigned to you";
   const lead = `Date range ${overview.range.label}, compared with ${overview.previousRange.label}. Figures are for ${scopeText}.`;
   if (classified.kind === "financial") {
-    return [
-      lead,
-      moneySentence("Amount to collect, by job date,", overview.financial.amountToCollect),
-      moneySentence("Expenses recorded in the period,", overview.financial.expensesInPeriod),
-      moneySentence("Cash collected in the period,", overview.financial.collectedInPeriod),
-      `Outstanding on jobs in the range is ${formatMoney(overview.financial.outstanding)} (amount to collect minus collected cash on those jobs).`,
-      "Amount to collect minus expenses is not net profit."
-    ].join(" ");
+    const focus = classified.focus;
+    const lines = [lead];
+    if (!focus || focus === "financial" || focus === "amountToCollect") {
+      lines.push(moneySentence("Amount to collect, by job date,", overview.financial.amountToCollect));
+    }
+    if (!focus || focus === "financial" || focus === "expenses") {
+      lines.push(moneySentence("Expenses recorded in the period,", overview.financial.expensesInPeriod));
+    }
+    if (!focus || focus === "financial" || focus === "collected") {
+      lines.push(moneySentence("Cash collected in the period,", overview.financial.collectedInPeriod));
+    }
+    if (!focus || focus === "financial" || focus === "outstanding" || focus === "amountToCollect") {
+      lines.push(`Outstanding on jobs in the range is ${formatMoney(overview.financial.outstanding)} (amount to collect minus collected cash on those jobs).`);
+    }
+    if (!focus || focus === "financial") {
+      lines.push("Amount to collect minus expenses is not net profit.");
+    }
+    return lines.join(" ");
   }
   if (classified.kind === "cpair") {
     const cpair = overview.cpair;
@@ -1038,17 +1049,30 @@ function answerFromOverview(overview, classified) {
   ].join(" ");
 }
 
-async function answerQuestion(auth, message) {
-  const classified = classifyQuestion(message);
+function finishAnswer(auth, message, payload) {
+  chatSession.remember(auth, message, payload.answer);
+  return payload;
+}
+
+function focusedMoneyMetrics(classified) {
+  if (classified.focus === "expenses") return ["expenses"];
+  if (classified.focus === "collected") return ["collected"];
+  if (classified.focus === "amountToCollect") return ["amountToCollect"];
+  if (classified.focus === "outstanding") return ["amountToCollect", "collected"];
+  return null;
+}
+
+async function answerQuestion(auth, message, history) {
+  const classified = resolveQuestion(message, chatSession.historyFor(auth, history));
   if (classified.kind === "clarify") {
-    return {
+    return finishAnswer(auth, message, {
       kind: "clarify",
       answer:
         "Ask about jobs, amount to collect, expenses, collections, C-Pair quantities, or who is checked in, on the way, or on location. Include a period such as today, this month, or last month.",
       charts: [],
       tables: [],
       reports: listReportCatalog()
-    };
+    });
   }
 
   const scope = await resolveScope(auth);
@@ -1057,52 +1081,59 @@ async function answerQuestion(auth, message) {
   if (classified.technician) {
     const names = await findTechnicianNames(scope, classified.technician);
     if (!names.length) {
-      return {
+      return finishAnswer(auth, message, {
         kind: classified.kind,
         answer: `No technician matching ${classified.technician} has jobs in this branch.`,
         charts: [],
         tables: []
-      };
+      });
     }
   }
 
   if (classified.kind === "chart") {
     const chart = await buildMoneyChart(scope, range, classified);
     const who = classified.technician ? ` for technician ${classified.technician}` : "";
-    return {
+    return finishAnswer(auth, message, {
       kind: "chart",
-      answer: `${chart.options.title.text}. ${range.label}${who}. Collected cash uses the collection date. Expenses use the date the expense was created.`,
+      answer: `${chart.options.title.text}. ${range.label}${who}. Collected cash uses the collection date. Expenses use the date the expense was created. Amount to collect uses the job date.`,
       charts: [chart],
       tables: []
-    };
+    });
   }
 
   if (classified.kind === "job_report") {
     const context = await loadStatusContext(scope.tenantid);
     if (classified.statusReport === "completed_jobs" && !context.completedStatusIds.length) {
-      return {
+      return finishAnswer(auth, message, {
         kind: "job_report",
         answer: "No job status is marked completed for this organization.",
         charts: [],
         tables: []
-      };
+      });
     }
     const table = await statusJobsReport(scope, range, context, classified.statusReport, classified.technician);
     const title = STATUS_REPORT_TITLES[classified.statusReport] || "Jobs";
     const extra = table.total > table.rows.length ? ` Showing the first ${table.rows.length} of ${table.total}.` : "";
-    return {
+    const who = classified.technician ? ` for technician ${classified.technician}` : "";
+    return finishAnswer(auth, message, {
       kind: "job_report",
       answer: table.total
-        ? `${title} for ${range.label}: ${table.total}.${extra}`
-        : `No ${title.toLowerCase()} for ${range.label}.`,
+        ? `${title} for ${range.label}${who}: ${table.total}.${extra}`
+        : `No ${title.toLowerCase()} for ${range.label}${who}.`,
       charts: [],
       tables: table.total ? [{ id: classified.statusReport, title: `${title} — ${range.label}`, ...table }] : []
-    };
+    });
   }
 
   const overview = await getOverview(auth, { range: classified.range });
   const charts = [];
-  if (classified.kind === "financial" || classified.kind === "jobs") {
+  const focusedMetrics = classified.kind === "financial" ? focusedMoneyMetrics(classified) : null;
+  if (focusedMetrics) {
+    charts.push(await buildMoneyChart(scope, range, {
+      technician: classified.technician,
+      chart: { metrics: focusedMetrics }
+    }));
+  } else if (classified.kind === "financial" || classified.kind === "jobs") {
     charts.push(toApexChart(classified.kind === "financial" ? overview.charts[0] : overview.charts[1]));
   }
   let table = null;
@@ -1110,14 +1141,22 @@ async function answerQuestion(auth, message) {
     const report = await getReport(auth, classified.report, { range: classified.range, page: 1, pageSize: 10 });
     table = report.table;
   }
-  return {
+  let answer = answerFromOverview(overview, classified);
+  if (classified.technician && focusedMetrics && charts[0]) {
+    const totals = (charts[0].series || []).map((series) => {
+      const total = (series.data || []).reduce((sum, value) => sum + Number(value || 0), 0);
+      return `${series.name} ${formatMoney(total)}`;
+    });
+    answer = `${range.label} for technician ${classified.technician}. ${totals.join(". ")}. Collected cash uses the collection date. Expenses use the date the expense was created. Amount to collect uses the job date.`;
+  }
+  return finishAnswer(auth, message, {
     kind: classified.kind,
-    answer: answerFromOverview(overview, classified),
+    answer,
     charts,
     tables: table ? [table] : [],
     range: overview.range,
     definitions: overview.definitions
-  };
+  });
 }
 
 function getCatalog() {
