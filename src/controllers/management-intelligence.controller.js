@@ -35,7 +35,8 @@ async function askQuestion(req, res, next) {
       message,
       req.body?.history,
       req.body?.conversationState,
-      stateProvided
+      stateProvided,
+      req.body?.conversationId
     ));
   } catch (err) {
     forward(err, next);

@@ -69,6 +69,7 @@ function emptyState() {
       statusSeries: [],
       forecast: false
     },
+    fallbackStreak: 0,
     outputFormat: null,
     comparison: false,
     lastSuccessfulTool: null
@@ -149,6 +150,8 @@ function sanitizeState(input) {
     ? filters.statusSeries.filter((status) => statusSet.has(status)).slice(0, 4)
     : [];
   state.filters.forecast = Boolean(filters.forecast);
+  const streak = Number(input.fallbackStreak);
+  state.fallbackStreak = Number.isInteger(streak) && streak > 0 && streak < 10 ? streak : 0;
   state.outputFormat = typeof input.outputFormat === "string" ? input.outputFormat : null;
   state.comparison = Boolean(input.comparison);
   state.lastSuccessfulTool = typeof input.lastSuccessfulTool === "string"
@@ -488,6 +491,21 @@ function resolveConversation(message, previous) {
     || status !== undefined || groupBy || range || technician || ref || record || mention || choiceType || compare || clear || linked
   );
 
+  if (/\bwhat is this\b|\bwhat'?s this\b|\bexplain (?:this|that)\b|\bwhat does (?:this|that) mean\b/.test(text) && prior.entity) {
+    return {
+      handled: true,
+      state: prior,
+      clarification: null,
+      suggestions: followUps(prior),
+      classified: {
+        kind: "explain",
+        intent: "CLARIFICATION",
+        range: prior.filters.range || "year_to_date",
+        chart: null
+      }
+    };
+  }
+
   if (!meaningful) {
     return { handled: false, state: prior, clarification: null, suggestions: [], classified: null };
   }
@@ -614,6 +632,24 @@ function resolveConversation(message, previous) {
   }
   if (!state.intent && state.entity) state.intent = "ENTITY_SUMMARY";
 
+  const ownIntent = Boolean(intent)
+    || interpretation.intent === "chart"
+    || interpretation.intent === "list"
+    || interpretation.intent === "report"
+    || interpretation.intent === "comparison";
+  const freshSubject = Boolean(nextEntity) && !linked && !ownIntent && !interpretation.chartType;
+  if (freshSubject) {
+    state.intent = "ENTITY_SUMMARY";
+    state.filters.groupBy = null;
+    state.filters.chartType = null;
+    state.filters.stacking = false;
+    state.filters.horizontal = false;
+    state.filters.topN = null;
+    state.filters.statusSeries = [];
+    state.filters.forecast = false;
+    state.comparison = false;
+  }
+
   if (intent === "ENTITY_EXPORT") {
     const kept = prior.intent && prior.intent !== "ENTITY_EXPORT" ? prior.intent : (state.entity ? "ENTITY_SUMMARY" : null);
     state.intent = kept;
@@ -637,6 +673,16 @@ function resolveConversation(message, previous) {
       return clarify("What would you like to chart? For example, jobs by category.", emptyState());
     }
     return { handled: false, state, clarification: null, suggestions: [], classified: null };
+  }
+
+  if ((state.entity === "attendance" || state.entity === "cpair")
+    && ["ENTITY_LIST", "ENTITY_REPORT", "ENTITY_CHART", "ENTITY_DETAILS", "PERIOD_COMPARISON"].includes(state.intent)) {
+    const answer = state.entity === "attendance"
+      ? "Live attendance is the open-session snapshot. It is not a job list or chart. Ask who is checked in, or ask for a jobs, revenue, or expenses report."
+      : "C-Pair in this chat is a quantity summary, not a job list. Ask for the C-Pair quantities, or for a jobs, revenue, or expenses report.";
+    state.intent = "CLARIFICATION";
+    state.outputFormat = "clarification";
+    return clarify(answer, state);
   }
 
   state.outputFormat = formatFor(state.intent);
@@ -695,6 +741,13 @@ function toolName(classified) {
   return null;
 }
 
+function unsupportedAnswer(streak) {
+  if (Number(streak) >= 1) {
+    return "I still can't match that to Connect CMS data. Ask about jobs, who is checked in, expenses, or revenue.";
+  }
+  return "That isn't something Connect CMS can answer. Try one of these:";
+}
+
 module.exports = {
   emptyState,
   sanitizeState,
@@ -703,5 +756,6 @@ module.exports = {
   responseTypeFor,
   publicFilters,
   toolName,
+  unsupportedAnswer,
   REPORT_CLARIFICATION
 };

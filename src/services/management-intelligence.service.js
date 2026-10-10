@@ -14,13 +14,14 @@ const {
   getReportDefinition,
   listReportCatalog
 } = require("./management-intelligence.catalog");
-const { resolveQuestion, detectEntityRef, detectEntityName, pinEntity, buildSuggestions } = require("./management-intelligence.intent");
+const { classifyQuestion, detectEntityRef, detectEntityName, pinEntity, buildSuggestions } = require("./management-intelligence.intent");
 const {
   resolveConversation,
   toClassified,
   responseTypeFor,
   publicFilters,
-  toolName
+  toolName,
+  unsupportedAnswer
 } = require("./conversation-context");
 const {
   decideResolution,
@@ -1360,12 +1361,29 @@ function answerFromOverview(overview, classified) {
   ].join(" ");
 }
 
-function finishAnswer(auth, message, payload) {
-  chatSession.remember(auth, message, payload.answer);
+function finishAnswer(auth, message, payload, conversationId) {
+  chatSession.remember(auth, message, payload.answer, conversationId);
   if (payload && Object.prototype.hasOwnProperty.call(payload, "conversationState")) {
-    chatSession.rememberState(auth, payload.conversationState);
+    chatSession.rememberState(auth, payload.conversationState, conversationId);
   }
   return payload;
+}
+
+function toolFailureAnswer(err) {
+  return {
+    kind: "error",
+    responseType: "error",
+    answer: "I couldn't retrieve that data. The request failed, so this is not a result.",
+    charts: [],
+    tables: [],
+    suggestions: [],
+    source: {
+      tool: null,
+      executed: false,
+      error: String(err?.code || err?.status || "tool_error").slice(0, 40)
+    },
+    fallbackReason: "tool_error"
+  };
 }
 
 function focusedMoneyMetrics(classified) {
@@ -1828,15 +1846,49 @@ async function answerScoped(scope, range, classified) {
   };
 }
 
-async function answerQuestion(auth, message, history, clientState, stateProvided) {
+async function answerQuestion(auth, message, history, clientState, stateProvided, conversationId) {
+  const traceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    return await answerWithinTrace(auth, message, history, clientState, stateProvided, conversationId, traceId);
+  } catch (err) {
+    if (err?.status && Number(err.status) < 500) throw err;
+    logger.error("intelligence.tool_failed", {
+      traceId,
+      conversationId: chatSession.conversationKey(conversationId),
+      error: String(err?.code || err?.status || "tool_error").slice(0, 40)
+    });
+    const failure = toolFailureAnswer(err);
+    return finishAnswer(auth, message, {
+      ...failure,
+      traceId,
+      conversationState: clientState || null,
+      cache: "miss",
+      retry: 0
+    }, conversationId);
+  }
+}
+
+async function answerWithinTrace(auth, message, history, clientState, stateProvided, conversationId, traceId) {
+  const priorHistory = chatSession.canonicalizeHistory(history, message);
   const resolution = resolveConversation(
     message,
-    chatSession.stateFor(auth, clientState, Boolean(stateProvided))
+    chatSession.stateFor(auth, clientState, Boolean(stateProvided), conversationId)
   );
   let state = resolution.state;
-  let classified = resolution.handled
-    ? resolution.classified
-    : resolveQuestion(message, chatSession.historyFor(auth, history));
+  let classified = resolution.classified;
+  let fallbackReason = null;
+  if (!resolution.handled) {
+    const direct = classifyQuestion(message);
+    if (direct.kind !== "clarify") {
+      classified = direct;
+    } else if (state?.filters?.pendingCandidates?.length) {
+      classified = { kind: "clarify", intent: "CLARIFICATION" };
+      fallbackReason = "pending_choice";
+    } else {
+      classified = { kind: "clarify", intent: "CLARIFICATION" };
+      fallbackReason = (state?.fallbackStreak || 0) >= 1 ? "repeated_unsupported" : "unsupported";
+    }
+  }
   const deliver = (payload) => {
     const plan = executionPlan(state);
     let next = payload;
@@ -1854,9 +1906,31 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
     }
     const tool = next.tool || (skipTool ? null : toolName(classified));
     if (tool) state = { ...state, lastSuccessfulTool: tool };
+    const reason = next.fallbackReason || fallbackReason;
+    if (reason === "unsupported" || reason === "repeated_unsupported") {
+      state = { ...state, fallbackStreak: (state.fallbackStreak || 0) + 1 };
+    } else if (!reason) {
+      state = { ...state, fallbackStreak: 0 };
+    }
     const suggestions = next.suggestions?.length
       ? next.suggestions
       : (resolution.handled && !skipTool ? resolution.suggestions : next.suggestions);
+    logger.info("intelligence.turn", {
+      traceId,
+      conversationId: chatSession.conversationKey(conversationId),
+      messageLength: String(message || "").length,
+      historyMessages: priorHistory.length,
+      handled: resolution.handled,
+      intent: state.intent || null,
+      entity: state.entity || null,
+      kind: next.kind || classified?.kind || null,
+      tool: tool || null,
+      toolExecuted: Boolean(tool),
+      subjectResolved: Boolean(state.filters?.subject?.id),
+      fallbackReason: reason || null,
+      cache: "miss",
+      retry: 0
+    });
     return finishAnswer(auth, message, {
       ...next,
       suggestions,
@@ -1866,8 +1940,12 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
       executionPlan: plan,
       entity: state.entity || null,
       chartSpecification: next.chartSpecification || null,
-      source: { tool: tool || null, executed: Boolean(tool) }
-    });
+      traceId,
+      cache: "miss",
+      retry: 0,
+      fallbackReason: reason || null,
+      source: { tool: tool || null, executed: Boolean(tool) && !reason }
+    }, conversationId);
   };
   if (resolution.clarification) {
     return deliver({
@@ -1897,9 +1975,25 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
     return deliver( await answerAttendance(auth, classified));
   }
   if (classified.kind === "clarify") {
-    return deliver( {
+    if (fallbackReason === "pending_choice") {
+      return deliver({
+        kind: "clarify",
+        responseType: "clarification",
+        fallbackReason,
+        answer: "I still need you to choose one of the matching records.",
+        suggestions: (state.filters.pendingCandidates || []).map((item) => ({
+          label: `${item.entityType}: ${item.displayName}`,
+          message: `${item.entityType} id ${item.entityId}`
+        })),
+        charts: [],
+        tables: []
+      });
+    }
+    return deliver({
       kind: "clarify",
-      answer: "That isn't something Connect CMS can answer. Try one of these:",
+      responseType: "clarification",
+      fallbackReason,
+      answer: unsupportedAnswer(state.fallbackStreak || 0),
       suggestions: buildSuggestions(message),
       charts: [],
       tables: []
@@ -2321,5 +2415,6 @@ module.exports = {
   getOverview,
   getReport,
   exportReport,
-  answerQuestion
+  answerQuestion,
+  toolFailureAnswer
 };
