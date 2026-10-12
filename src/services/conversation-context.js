@@ -6,6 +6,7 @@ const {
   isReservedName
 } = require("./entity-resolution");
 const { interpretRequest } = require("./request-interpretation");
+const { interpretSemantics, getConcept } = require("./app-semantics");
 const { knownChartId } = require("./chart-registry");
 
 const ENTITIES = new Set(["jobs", "technicians", "attendance", "expenses", "revenue", "collections", "cpair"]);
@@ -20,7 +21,9 @@ const INTENTS = new Set([
   "PERIOD_COMPARISON",
   "ENTITY_FILTER",
   "ENTITY_EXPORT",
-  "CLARIFICATION"
+  "CLARIFICATION",
+  "DEFINITION",
+  "HOW_TO"
 ]);
 const STATUSES = new Set(["pending", "new", "assigned", "resolved", "completed", "cancelled"]);
 const GROUPS = new Set(["status", "technician", "customer", "category", "fault", "group", "brand", "source", "area", "city"]);
@@ -74,7 +77,8 @@ function emptyState() {
     fallbackStreak: 0,
     outputFormat: null,
     comparison: false,
-    lastSuccessfulTool: null
+    lastSuccessfulTool: null,
+    lastConcept: null
   };
 }
 
@@ -155,6 +159,8 @@ function sanitizeState(input) {
   const horizon = Number(filters.forecastHorizon);
   state.filters.forecastHorizon = Number.isInteger(horizon) && horizon >= 1 && horizon <= 12 ? horizon : null;
   state.filters.drilldown = Boolean(filters.drilldown);
+  state.filters.diagnostic = Boolean(filters.diagnostic);
+  state.filters.aliasCollapsed = Boolean(filters.aliasCollapsed);
   const streak = Number(input.fallbackStreak);
   state.fallbackStreak = Number.isInteger(streak) && streak > 0 && streak < 10 ? streak : 0;
   state.outputFormat = typeof input.outputFormat === "string" ? input.outputFormat : null;
@@ -162,6 +168,7 @@ function sanitizeState(input) {
   state.lastSuccessfulTool = typeof input.lastSuccessfulTool === "string"
     ? input.lastSuccessfulTool.slice(0, 80)
     : null;
+  state.lastConcept = getConcept(input.lastConcept) ? input.lastConcept : null;
   return state;
 }
 
@@ -202,14 +209,14 @@ function detectEntity(text) {
   if (/\bexpenses?\b/.test(text)) return "expenses";
   if (/\b(collected|collections?)\b/.test(text)) return "collections";
   if (/\bc-?pair\b/.test(text)) return "cpair";
-  if (/\bjobs?\b|\bjob performance\b/.test(text)) return "jobs";
+  if (/\b(jobs?|complaints?|service requests?|job performance)\b/.test(text)) return "jobs";
   return null;
 }
 
 function detectIntent(text) {
   if (/\b(export|download|csv)\b/.test(text)) return "ENTITY_EXPORT";
   if (/\b(not (?:the |a )?summary|as a list|the list|job list|list of|as a table|list behind|behind this (?:graph|chart))\b/.test(text)) return "ENTITY_LIST";
-  if (/\blist\b/.test(text) && /\b(job|jobs|status|report|them|those)\b/.test(text)) return "ENTITY_LIST";
+  if (/\blist\b/.test(text) && /\b(job|jobs|complaint|complaints|service request|status|report|them|those)\b/.test(text)) return "ENTITY_LIST";
   if (/\bdetails?\b/.test(text)) return "ENTITY_DETAILS";
   if (/\b(chart|graph)\b/.test(text)) return "ENTITY_CHART";
   if (/\bcompare\b/.test(text)) return "PERIOD_COMPARISON";
@@ -335,7 +342,9 @@ function toClassified(state) {
         : null,
     requestedName: state.filters.requestedName,
     outputFormat: state.outputFormat,
-    drilldown: Boolean(state.filters.drilldown)
+    drilldown: Boolean(state.filters.drilldown),
+    diagnostic: Boolean(state.filters.diagnostic),
+    aliasCollapsed: Boolean(state.filters.aliasCollapsed)
   };
 
   if (state.entity === "attendance") {
@@ -430,6 +439,31 @@ function clarify(answer, state) {
 
 function resolveConversation(message, previous) {
   const prior = sanitizeState(previous);
+  const semantics = interpretSemantics(message, prior);
+  if (semantics.handled) {
+    const concept = getConcept(semantics.conceptId);
+    const state = sanitizeState({
+      ...prior,
+      entity: concept?.entity || prior.entity,
+      intent: semantics.intent,
+      lastConcept: semantics.conceptId || prior.lastConcept
+    });
+    return {
+      handled: true,
+      state,
+      clarification: null,
+      suggestions: semantics.suggestions || [],
+      classified: {
+        kind: semantics.kind,
+        intent: semantics.intent,
+        range: null,
+        chart: null,
+        answer: semantics.answer,
+        concept: semantics.conceptId || null
+      }
+    };
+  }
+  if (semantics.canonical) message = semantics.canonical;
   const text = String(message || "").toLowerCase();
   const ref = detectEntityRef(message);
   const intent = detectIntent(text);
@@ -495,6 +529,7 @@ function resolveConversation(message, previous) {
   const clear = /\b(start (?:a )?new topic|start over|new topic|forget (?:that|this))\b/.test(text);
   const carriesName = Boolean(prior.filters.subject || prior.filters.requestedName);
   const linked = referencesPrevious(text)
+    || Boolean(semantics.linked)
     || Boolean(ref)
     || Boolean(record)
     || Boolean(choiceType)
@@ -649,6 +684,7 @@ function resolveConversation(message, previous) {
   if (!state.intent && state.entity) state.intent = "ENTITY_SUMMARY";
 
   const ownIntent = Boolean(intent)
+    || Boolean(semantics.diagnostic)
     || interpretation.intent === "chart"
     || interpretation.intent === "list"
     || interpretation.intent === "report"
@@ -667,6 +703,13 @@ function resolveConversation(message, previous) {
     state.filters.drilldown = false;
     state.comparison = false;
   }
+
+  if (semantics.diagnostic) {
+    state.filters.diagnostic = true;
+    state.comparison = true;
+  }
+  if (semantics.collapsedAlias) state.filters.aliasCollapsed = true;
+  if (semantics.conceptId) state.lastConcept = semantics.conceptId;
 
   if (interpretation.forecast) {
     state.filters.forecast = true;

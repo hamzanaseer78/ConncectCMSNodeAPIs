@@ -1901,7 +1901,7 @@ async function answerWithinTrace(auth, message, history, clientState, stateProvi
   const deliver = (payload) => {
     const plan = executionPlan(state);
     let next = payload;
-    let skipTool = ["clarify", "confirm", "greeting", "profile", "branches", "explain"].includes(next.kind);
+    let skipTool = ["clarify", "confirm", "greeting", "profile", "branches", "explain", "definition", "howto"].includes(next.kind);
     if (!plan.ok && !skipTool) {
       next = {
         kind: "clarify",
@@ -1920,6 +1920,18 @@ async function answerWithinTrace(auth, message, history, clientState, stateProvi
       state = { ...state, fallbackStreak: (state.fallbackStreak || 0) + 1 };
     } else if (!reason) {
       state = { ...state, fallbackStreak: 0 };
+    }
+    if (classified?.aliasCollapsed && next.answer && !next.answer.startsWith("Job and complaint")) {
+      next = {
+        ...next,
+        answer: `Job and complaint name the same records, so they are counted once. ${next.answer}`
+      };
+    }
+    if (classified?.diagnostic && next.answer && !/does not establish why/.test(next.answer)) {
+      next = {
+        ...next,
+        answer: `${next.answer} The comparison is the measured change. It does not establish why the change happened.`
+      };
     }
     const suggestions = next.suggestions?.length
       ? next.suggestions
@@ -1957,6 +1969,16 @@ async function answerWithinTrace(auth, message, history, clientState, stateProvi
       source: { tool: tool || null, executed: Boolean(tool) && !reason }
     }, conversationId);
   };
+  if (classified?.kind === "definition" || classified?.kind === "howto") {
+    return deliver({
+      kind: classified.kind,
+      responseType: "explanation",
+      answer: classified.answer,
+      suggestions: resolution.suggestions,
+      charts: [],
+      tables: []
+    });
+  }
   if (resolution.clarification) {
     return deliver({
       kind: "clarify",
