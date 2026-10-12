@@ -17,6 +17,65 @@ function asksForRecords(text) {
   return /\b(revenue|expense|expenses|collect|collected|attendance|jobs?|summary|report)\b/i.test(text);
 }
 
+function periodFor(text) {
+  return /\b(last|previous) month\b/i.test(text) ? "previous_month" : "this_month";
+}
+
+function directTools(text) {
+  const source = String(text || "").toLowerCase();
+  const period = periodFor(source);
+  const expenses = /\bexpenses?\b/.test(source);
+  const collect = /\b(revenue|amount to collect)\b/.test(source);
+  const cash = /\bcash collected\b|\bcollections?\b/.test(source);
+  const summary = /\bfinancial summary\b/.test(source) || (expenses && collect);
+  if (summary) return [{ name: "monthly_financial_summary", arguments: { period } }];
+  if (/\bbranch report\b/.test(source)) return [{ name: "branch_report", arguments: { period } }];
+  if (cash && !expenses && !collect) return [{ name: "collection_summary", arguments: { period } }];
+  if (expenses) return [{ name: "total_expenses", arguments: { period } }];
+  if (collect) return [{ name: "total_amount_to_collect", arguments: { period } }];
+  if (/\battendance\b/.test(source)) return [{ name: "attendance_summary", arguments: {} }];
+  return null;
+}
+
+function moneyText(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "0.00";
+  return number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatDirectAnswer(tool) {
+  const result = tool.result || {};
+  const lines = [];
+  if (result.label) lines.push(`Monthly Financial Summary — ${result.label}`);
+  if (typeof result.amountToCollect === "number") lines.push(`- Amount to Collect: ${moneyText(result.amountToCollect)}`);
+  if (typeof result.totalExpenses === "number") lines.push(`- Total Expenses: ${moneyText(result.totalExpenses)}`);
+  if (typeof result.cashCollected === "number") lines.push(`- Cash collected: ${moneyText(result.cashCollected)}`);
+  if (typeof result.jobsInPeriod === "number") lines.push(`- Jobs: ${result.jobsInPeriod}`);
+  if (typeof result.checkedIn === "number") {
+    lines.push(`- Checked in: ${result.checkedIn}`);
+    lines.push(`- On break: ${Number(result.onBreak || 0)}`);
+  }
+  if (Array.isArray(result.jobs)) lines.push(`${result.jobs.length} jobs found.`);
+  if (Array.isArray(result.notes)) lines.push(...result.notes.map((note) => String(note)));
+  return lines.join("\n");
+}
+
+async function answerDirect(text, auth, deps) {
+  const planned = directTools(text);
+  if (!planned) return null;
+  const tools = [];
+  for (const call of planned) {
+    const result = await executeTool(call.name, call.arguments, auth, deps);
+    tools.push({ name: call.name, result });
+  }
+  return {
+    answer: tools.map(formatDirectAnswer).filter(Boolean).join("\n\n"),
+    provider: "database",
+    tools,
+    generatedFromTools: true
+  };
+}
+
 function toolMessage(call, content) {
   return {
     role: "tool",
@@ -30,6 +89,8 @@ async function answerQuestion({ message, provider, auth, config, deps = {} }) {
   const text = String(message || "").trim();
   if (!text) throw new AiMcpError("A question is required.", 400, "message_required");
   if (text.length > 4000) throw new AiMcpError("The question is too long.", 400, "message_too_long");
+  const direct = await answerDirect(text, auth, deps);
+  if (direct) return direct;
   let selected;
   try {
     selected = resolveProvider(provider, config);
@@ -88,5 +149,6 @@ async function answerQuestion({ message, provider, auth, config, deps = {} }) {
 
 module.exports = {
   answerQuestion,
-  asksForRecords
+  asksForRecords,
+  directTools
 };
