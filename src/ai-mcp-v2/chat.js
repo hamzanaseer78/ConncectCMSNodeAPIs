@@ -1,4 +1,5 @@
 const { AiMcpError } = require("./errors");
+const { resolveProvider } = require("./config");
 const { completeChat } = require("./providers");
 const { TOOLS, executeTool } = require("./tools");
 
@@ -29,7 +30,15 @@ async function answerQuestion({ message, provider, auth, config, deps = {} }) {
   const text = String(message || "").trim();
   if (!text) throw new AiMcpError("A question is required.", 400, "message_required");
   if (text.length > 4000) throw new AiMcpError("The question is too long.", 400, "message_too_long");
-  const selected = provider || config.defaultProvider;
+  let selected;
+  try {
+    selected = resolveProvider(provider, config);
+  } catch (err) {
+    if (err.message === "NO_PROVIDER") {
+      throw new AiMcpError("No AI provider is configured.", 503, "provider_not_configured");
+    }
+    throw err;
+  }
   const messages = [
     { role: "system", content: SYSTEM },
     { role: "user", content: text }

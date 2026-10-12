@@ -1020,6 +1020,10 @@ module.exports = swaggerJsdoc({
         description: "Development server"
       },
       {
+        url: "http://localhost:14400",
+        description: "Local API"
+      },
+      {
         url: "http://72.60.236.155",
         description: "Development server"
       }
@@ -1042,7 +1046,11 @@ module.exports = swaggerJsdoc({
       { name: DASHBOARD_TAG, description: "Dashboard overview metrics for the authenticated tenant and branch" },
       { name: "Settings", description: "Tenant/branch configuration (job code format and related settings)" },
       { name: "Dropdowns", description: "Dropdown data for frontend selectors" },
-      { name: "GraphQL", description: "GraphQL reporting and dashboard endpoint" }
+      { name: "GraphQL", description: "GraphQL reporting and dashboard endpoint" },
+      {
+        name: "AI MCP v2",
+        description: "Separate read-only AI assistant. Tenant and branch come from the bearer token, not from the request body."
+      }
     ],
     paths: {
       "/api/ai/setup": {
@@ -1095,6 +1103,118 @@ module.exports = swaggerJsdoc({
           responses: {
             200: { description: "Assistant answer" },
             402: { description: "Free questions used. Save a provider key." }
+          }
+        }
+      },
+      "/api/v2/ai-mcp/health": {
+        get: {
+          summary: "AI MCP v2 status",
+          description: "Reports whether AI MCP v2 is enabled and which provider names have a server key. Keys are not returned.",
+          tags: ["AI MCP v2"],
+          responses: {
+            200: { description: "Service status" },
+            404: { description: "AI MCP v2 is disabled" }
+          }
+        }
+      },
+      "/api/v2/ai-mcp/tools": {
+        get: {
+          summary: "List AI MCP v2 tools",
+          tags: ["AI MCP v2"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "Read-only tool names" },
+            401: { description: "Authentication is required" }
+          }
+        }
+      },
+      "/api/v2/ai-mcp/ask": {
+        post: {
+          summary: "Ask the AI MCP v2 assistant",
+          description:
+            "Asks a business question and calculates the answer from authorized records. Provider may be openai, gemini, anthropic, or claude. If that provider has no server key, a configured provider is used. Amount to collect, cash collected, and expenses stay separate and are not reported as profit. Tenant and branch in the body are ignored.",
+          tags: ["AI MCP v2"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["message"],
+                  properties: {
+                    message: { type: "string", example: "What is my total revenue and expense this month?" },
+                    provider: { type: "string", enum: ["openai", "gemini", "anthropic", "claude"] }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: "Answer and the tool results it was based on" },
+            401: { description: "Authentication is required" },
+            503: { description: "No AI provider is configured" }
+          }
+        }
+      },
+      "/api/v2/ai-mcp/tools/{name}": {
+        post: {
+          summary: "Run one AI MCP v2 tool",
+          description: "Runs a read-only tool for the authenticated tenant and branch. period is this_month or previous_month.",
+          tags: ["AI MCP v2"],
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              in: "path",
+              name: "name",
+              required: true,
+              schema: {
+                type: "string",
+                enum: [
+                  "monthly_financial_summary",
+                  "total_amount_to_collect",
+                  "total_expenses",
+                  "collection_summary",
+                  "branch_report",
+                  "attendance_summary",
+                  "search_jobs",
+                  "job_details"
+                ]
+              }
+            }
+          ],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    period: { type: "string", enum: ["this_month", "previous_month"] },
+                    search: { type: "string" },
+                    limit: { type: "integer" },
+                    jobId: { type: "integer" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: "Tool result" },
+            401: { description: "Authentication is required" },
+            404: { description: "Unknown tool or record" }
+          }
+        }
+      },
+      "/api/v2/ai-mcp/mcp": {
+        post: {
+          summary: "AI MCP v2 JSON-RPC endpoint",
+          description: "MCP endpoint for Cursor and Claude.ai. Accepts initialize, tools/list, and tools/call. This is not the same thing as an OpenAI, Gemini, or Anthropic API key.",
+          tags: ["AI MCP v2"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            200: { description: "JSON-RPC response" },
+            401: { description: "Authentication is required" }
           }
         }
       },
