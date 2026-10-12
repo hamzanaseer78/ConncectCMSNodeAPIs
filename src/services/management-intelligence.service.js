@@ -23,6 +23,7 @@ const {
   toolName,
   unsupportedAnswer
 } = require("./conversation-context");
+const { formatInsights, selectAnalyticsTool, drilldownFromRows } = require("./analytics-plugin");
 const {
   decideResolution,
   executionPlan,
@@ -1133,6 +1134,7 @@ async function buildMoneyChart(scope, range, classified) {
     format: "money",
     grain,
     forecast: classified.chart?.forecast,
+    horizon: classified.chart?.horizon,
     stacking: classified.chart?.stacking,
     businessEntity: classified.focus || "revenue",
     yLabel: series.length === 1 ? series[0].name : "Amount",
@@ -1262,6 +1264,7 @@ async function jobCountTrend(scope, range, classified) {
     metric: "jobs",
     aggregation: "count",
     forecast: classified.chart?.forecast,
+    horizon: classified.chart?.horizon,
     businessEntity: "jobs",
     format: "number",
     grain,
@@ -1274,15 +1277,21 @@ async function jobCountTrend(scope, range, classified) {
   });
 }
 
+function insightSuffix(specification) {
+  const text = formatInsights(specification?.insights);
+  return text ? ` ${text}` : "";
+}
+
 function chartPayloadResponse(kind, built, range, tool) {
   const title = built.chart?.options?.title?.text || "Chart";
   const note = built.notice ? ` ${built.notice}` : "";
+  const insight = insightSuffix(built.specification);
   return {
     kind,
     tool,
     responseType: "chart",
     answer: built.chart
-      ? `${title} for ${range.label}.${note}`
+      ? `${title} for ${range.label}.${note}${insight}`
       : `No data to chart for ${range.label}.${note}`,
     charts: built.chart ? [built.chart] : [],
     tables: [],
@@ -1943,6 +1952,7 @@ async function answerWithinTrace(auth, message, history, clientState, stateProvi
       traceId,
       cache: "miss",
       retry: 0,
+      analyticsTool: selectAnalyticsTool(classified),
       fallbackReason: reason || null,
       source: { tool: tool || null, executed: Boolean(tool) && !reason }
     }, conversationId);
@@ -2153,12 +2163,14 @@ async function answerWithinTrace(auth, message, history, clientState, stateProvi
       subjectId: classified.entity?.id || null
     });
     const rows = report.table?.rows || [];
+    const drill = classified.drilldown ? drilldownFromRows(rows, chartMetric(classified)) : null;
+    const drillText = drill?.ok ? ` The highest value is ${drill.row.name} at ${drill.row.value}.` : "";
     return deliver({
       kind: "dimension_report",
       responseType: "report",
       tool: "getReport",
       answer: rows.length
-        ? `Here is ${report.title} for ${report.range.label}.`
+        ? `Here is ${report.title} for ${report.range.label}.${drillText}`
         : `No rows to break down for ${report.range.label}.`,
       charts: [],
       tables: rows.length ? [report.table] : [],
@@ -2249,9 +2261,12 @@ async function answerWithinTrace(auth, message, history, clientState, stateProvi
       dateRange: report.range.label,
       comparison: classified.comparison,
       forecast: classified.chart?.forecast,
+      horizon: classified.chart?.horizon,
       yLabel: metric === "jobs" ? "Jobs" : CHART_SERIES_LABELS[metric] || metric,
       seriesName: metric === "jobs" ? "Jobs" : CHART_SERIES_LABELS[metric] || metric
     }, dataset);
+    const drill = classified.drilldown ? drilldownFromRows(rows, metric) : null;
+    const drillText = drill?.ok ? ` The highest ${metric} is ${drill.row.name} at ${drill.row.value}.` : "";
     const shape = built.notice
       || (built.specification?.apexType === "pie" || built.specification?.apexType === "donut"
         ? "Each slice is the number of jobs."
@@ -2263,7 +2278,7 @@ async function answerWithinTrace(auth, message, history, clientState, stateProvi
       tool: "getReport",
       responseType: "chart",
       answer: rows.length
-        ? `${report.title} for ${report.range.label}. ${shape}`
+        ? `${report.title} for ${report.range.label}. ${shape}${insightSuffix(built.specification)}${drillText}`
         : `No jobs to group for ${report.range.label}.`,
       charts: built.chart && rows.length ? [built.chart] : [],
       tables: rows.length ? [report.table] : [],
@@ -2299,7 +2314,7 @@ async function answerWithinTrace(auth, message, history, clientState, stateProvi
       kind: "chart",
       tool: "buildMoneyChart",
       responseType: "chart",
-      answer: `${title}. ${range.label}${who}. Collected cash uses the collection date. Expenses use the date the expense was created. Amount to collect uses the job date.${note}`,
+      answer: `${title}. ${range.label}${who}. Collected cash uses the collection date. Expenses use the date the expense was created. Amount to collect uses the job date.${note}${insightSuffix(built.specification)}`,
       charts: built.chart ? [built.chart] : [],
       tables: [],
       chartSpecification: built.specification

@@ -83,6 +83,13 @@ function detectGroupings(text) {
   const ranked = String(text || "").match(/\btop\s+\d{1,2}\s+(customers|technicians|categories|brands|groups|statuses)\b/);
   if (ranked) add(TOP_DIMENSIONS[ranked[1]]);
   if (/\btechnician performance\b/.test(text)) add("technician");
+  if (/\b(growing|fastest|increasing|decreasing|biggest changes)\b/.test(text) || /\bdrill[\s-]?down\b/.test(text)) {
+    if (/\bcategor/.test(text)) add("category");
+    if (/\btechnicians?\b/.test(text)) add("technician");
+    if (/\bcustomers?\b/.test(text)) add("customer");
+    if (/\bbrands?\b/.test(text)) add("brand");
+    if (/\bfaults?\b/.test(text)) add("fault");
+  }
   return dims;
 }
 
@@ -189,6 +196,13 @@ function detectExplicitRange(text) {
   return null;
 }
 
+function detectHorizon(text) {
+  const counted = String(text || "").match(/\bnext\s+(\d{1,2})\s+months?\b/);
+  if (counted) return Math.min(12, Math.max(1, Number(counted[1])));
+  if (/\bnext month\b/.test(text)) return 1;
+  return null;
+}
+
 function outputFor(intent) {
   if (intent === "chart") return "chart";
   if (intent === "list") return "table";
@@ -238,7 +252,10 @@ function interpretRequest(message) {
     dateRange: chartTypeOnly || modifierOnly ? null : detectExplicitRange(text),
     grain,
     statusSeries,
-    forecast: /\bforecast(?:ing)?\b/.test(text),
+    forecast: /\bforecast(?:ing)?\b|\bpredict\b|\bestimate future\b/.test(text),
+    forecastHorizon: detectHorizon(text),
+    drilldown: /\bdrill[\s-]?down\b/.test(text),
+    changeRank: /\b(growing|fastest|increasing|decreasing|biggest changes)\b/.test(text),
     formatting: metrics.some((item) => MONEY_METRICS.has(item)) ? "money" : "number",
     outputFormat: outputFor(intent),
     unresolvedEntities,

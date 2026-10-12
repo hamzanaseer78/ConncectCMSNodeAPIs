@@ -4,6 +4,7 @@ const { registerGenericTools } = require("./generic.tools");
 const { registerJobsTools } = require("./jobs.tools");
 const { registerReportsTools } = require("./reports.tools");
 const { registerDashboardTools } = require("./dashboard.tools");
+const { registerAnalyticsTools } = require("./analytics.tools");
 
 function registerTools(server) {
   registerAuthTools(server);
@@ -12,6 +13,7 @@ function registerTools(server) {
   registerJobsTools(server);
   registerReportsTools(server);
   registerDashboardTools(server);
+  registerAnalyticsTools(server);
 }
 
 module.exports = {

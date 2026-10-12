@@ -67,7 +67,9 @@ function emptyState() {
       metrics: [],
       grain: null,
       statusSeries: [],
-      forecast: false
+      forecast: false,
+      forecastHorizon: null,
+      drilldown: false
     },
     fallbackStreak: 0,
     outputFormat: null,
@@ -150,6 +152,9 @@ function sanitizeState(input) {
     ? filters.statusSeries.filter((status) => statusSet.has(status)).slice(0, 4)
     : [];
   state.filters.forecast = Boolean(filters.forecast);
+  const horizon = Number(filters.forecastHorizon);
+  state.filters.forecastHorizon = Number.isInteger(horizon) && horizon >= 1 && horizon <= 12 ? horizon : null;
+  state.filters.drilldown = Boolean(filters.drilldown);
   const streak = Number(input.fallbackStreak);
   state.fallbackStreak = Number.isInteger(streak) && streak > 0 && streak < 10 ? streak : 0;
   state.outputFormat = typeof input.outputFormat === "string" ? input.outputFormat : null;
@@ -298,6 +303,7 @@ function chartPayload(state) {
     grain: state.filters.grain,
     statusSeries: state.filters.statusSeries,
     forecast: Boolean(state.filters.forecast),
+    horizon: state.filters.forecastHorizon,
     metricsExplicit: metrics.length > 0
   };
 }
@@ -328,7 +334,8 @@ function toClassified(state) {
         ? { type: "technician", id: state.filters.technicianId, name: state.filters.technician }
         : null,
     requestedName: state.filters.requestedName,
-    outputFormat: state.outputFormat
+    outputFormat: state.outputFormat,
+    drilldown: Boolean(state.filters.drilldown)
   };
 
   if (state.entity === "attendance") {
@@ -351,6 +358,7 @@ function toClassified(state) {
           metricsExplicit: true,
           grain: state.filters.grain,
           forecast: state.filters.forecast,
+          horizon: state.filters.forecastHorizon,
           stacking: state.filters.stacking
         }
       };
@@ -431,6 +439,12 @@ function resolveConversation(message, previous) {
   const technician = ref ? undefined : captureTechnician(message);
   const interpretation = interpretRequest(message);
   const entity = detectEntity(text) || interpretation.businessEntity;
+  if (/\bby\s+(?:branch|branches|product|products|model|models)\b/.test(text)) {
+    return clarify(
+      "This chat can group jobs by category, technician, customer, status, brand, fault, group, source, area, or city. A comparison by branch, product, or model is not available from these job reports.",
+      prior.entity ? prior : emptyState()
+    );
+  }
   const mention = interpretation.businessFilterCandidate;
   const record = explicitRecord(message);
   if (interpretation.chartTypeOnly || interpretation.modifierOnly) {
@@ -485,9 +499,11 @@ function resolveConversation(message, previous) {
     || Boolean(record)
     || Boolean(choiceType)
     || Boolean(range && !entity && !intent && !mention)
+    || interpretation.drilldown
     || (carriesName && !mention && /\b(list|report|status[\s-]?wise|not the summary|as a list)\b/.test(text));
   const meaningful = Boolean(
     entity || intent || interpretation.intent || interpretation.chartType || interpretation.forecast
+    || interpretation.drilldown || interpretation.changeRank
     || status !== undefined || groupBy || range || technician || ref || record || mention || choiceType || compare || clear || linked
   );
 
@@ -646,8 +662,23 @@ function resolveConversation(message, previous) {
     state.filters.horizontal = false;
     state.filters.topN = null;
     state.filters.statusSeries = [];
-    state.filters.forecast = false;
+    if (!interpretation.forecast) state.filters.forecast = false;
+    state.filters.forecastHorizon = null;
+    state.filters.drilldown = false;
     state.comparison = false;
+  }
+
+  if (interpretation.forecast) {
+    state.filters.forecast = true;
+    if (interpretation.forecastHorizon) state.filters.forecastHorizon = interpretation.forecastHorizon;
+    if (state.entity && !["ENTITY_LIST", "ENTITY_REPORT", "ENTITY_DETAILS"].includes(state.intent)) {
+      state.intent = "ENTITY_CHART";
+    }
+  }
+  if (interpretation.drilldown) state.filters.drilldown = true;
+  if (interpretation.changeRank && state.filters.groupBy) {
+    state.comparison = true;
+    if (!state.intent || state.intent === "ENTITY_SUMMARY") state.intent = "ENTITY_CHART";
   }
 
   if (intent === "ENTITY_EXPORT") {

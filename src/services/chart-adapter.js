@@ -4,6 +4,7 @@ const {
   getChart,
   listCharts
 } = require("./chart-registry");
+const { attachForecast, compareAligned, explainInsights } = require("./analytics-plugin");
 
 const PALETTE = Object.freeze([
   "#1B4D3E",
@@ -309,9 +310,6 @@ function decideChart(request, described) {
   const requested = getChart(request.requestedType);
   const fallbackId = described.kind === "time" || request.grain ? "line" : "bar";
   const notices = [];
-  if (request.forecast) {
-    notices.push("A forecast is not available because no forecasting model is stored. The chart shows the actual values.");
-  }
 
   const choose = (id, reason) => {
     const chart = getChart(id) || getChart("bar");
@@ -406,8 +404,26 @@ function buildChart(request = {}, dataset = {}) {
     outputFormat: "chart",
     apexType: decision.apexType,
     limitation: null,
-    horizontal: Boolean(decision.horizontal)
+    horizontal: Boolean(decision.horizontal),
+    forecast: null,
+    insights: null
   };
+
+  if (request.forecast && described.kind === "time") {
+    const attached = attachForecast(dataset, { horizon: request.horizon });
+    notices.push(attached.notice);
+    specification.forecast = attached.forecast;
+    if (attached.applied) dataset = attached.dataset;
+  } else if (request.forecast && described.kind !== "empty") {
+    const skipped = {
+      ok: false,
+      interval: null,
+      forecast: [],
+      reasonText: "A forecast needs a time series of actual values. This result is not a time series, so no future points were added."
+    };
+    notices.push(skipped.reasonText);
+    specification.forecast = skipped;
+  }
 
   if (described.kind === "empty") {
     specification.limitation = notices.filter(Boolean).join(" ") || "There is no data for this chart.";
@@ -486,6 +502,18 @@ function buildChart(request = {}, dataset = {}) {
     : [];
   if (!specification.series.length && decision.seriesName) specification.series = [decision.seriesName];
   specification.limitation = notices.filter(Boolean).join(" ") || null;
+  const comparisons = request.comparison && Array.isArray(dataset.series) && dataset.series.length >= 2
+    ? compareAligned(dataset.categories, dataset.series[0], dataset.series[1])
+    : [];
+  specification.comparison = comparisons;
+  specification.insights = explainInsights({
+    title: decision.title,
+    rows: described.kind === "category" ? described.rows : null,
+    categories: dataset.categories,
+    series: Array.isArray(dataset.series) ? dataset.series : null,
+    comparisons,
+    forecast: specification.forecast
+  });
   if (specification.limitation && chart.options) {
     chart.options.subtitle = { text: specification.limitation };
   }
@@ -558,7 +586,7 @@ function planChart(state) {
   }
 
   if (chartIntent && filters.forecast) {
-    limitation = [limitation, "A forecast is not available because no forecasting model is stored. The chart shows the actual values."]
+    limitation = [limitation, "Forecast points are added only when at least 3 actual values exist. The projection is not a guaranteed outcome."]
       .filter(Boolean)
       .join(" ");
   }
