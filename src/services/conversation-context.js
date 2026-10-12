@@ -7,6 +7,7 @@ const {
 } = require("./entity-resolution");
 const { interpretRequest } = require("./request-interpretation");
 const { interpretSemantics, getConcept } = require("./app-semantics");
+const { asksForMoneyTotals } = require("./money-question");
 const { knownChartId } = require("./chart-registry");
 
 const ENTITIES = new Set(["jobs", "technicians", "attendance", "expenses", "revenue", "collections", "cpair"]);
@@ -72,7 +73,8 @@ function emptyState() {
       statusSeries: [],
       forecast: false,
       forecastHorizon: null,
-      drilldown: false
+      drilldown: false,
+      moneySummary: false
     },
     fallbackStreak: 0,
     outputFormat: null,
@@ -160,6 +162,7 @@ function sanitizeState(input) {
   state.filters.forecastHorizon = Number.isInteger(horizon) && horizon >= 1 && horizon <= 12 ? horizon : null;
   state.filters.drilldown = Boolean(filters.drilldown);
   state.filters.diagnostic = Boolean(filters.diagnostic);
+  state.filters.moneySummary = Boolean(filters.moneySummary);
   state.filters.aliasCollapsed = Boolean(filters.aliasCollapsed);
   const streak = Number(input.fallbackStreak);
   state.fallbackStreak = Number.isInteger(streak) && streak > 0 && streak < 10 ? streak : 0;
@@ -352,6 +355,13 @@ function toClassified(state) {
   }
   if (state.entity === "cpair") {
     return { ...base, kind: "cpair", focus: "cpair" };
+  }
+  if (state.filters.moneySummary && (state.entity === "revenue" || state.entity === "expenses")) {
+    const metrics = state.filters.metrics.length
+      ? state.filters.metrics
+      : [state.entity === "expenses" ? "expenses" : "amountToCollect"];
+    const focus = metrics.length > 1 ? "financial" : (metrics[0] === "expenses" ? "expenses" : "amountToCollect");
+    return { ...base, kind: "financial", focus, metrics, moneySummary: true };
   }
   if ((state.entity === "revenue" || state.entity === "expenses" || state.entity === "collections") && !(state.intent === "ENTITY_CHART" && state.filters.groupBy)) {
     const focus = state.entity === "revenue" ? "amountToCollect" : state.entity === "expenses" ? "expenses" : "collected";
@@ -717,6 +727,20 @@ function resolveConversation(message, previous) {
     if (state.entity && !["ENTITY_LIST", "ENTITY_REPORT", "ENTITY_DETAILS"].includes(state.intent)) {
       state.intent = "ENTITY_CHART";
     }
+  }
+  if (asksForMoneyTotals(text)) {
+    const wanted = [];
+    if (/\b(revenue|amount to collect|financial summary)\b/.test(text)) wanted.push("amountToCollect");
+    if (/\bexpenses?\b|\bfinancial summary\b/.test(text)) wanted.push("expenses");
+    state.filters.metrics = wanted;
+    state.filters.moneySummary = true;
+    state.filters.range = state.filters.range || "this_month";
+    state.filters.rangeExplicit = true;
+    state.entity = wanted.length === 1 && wanted[0] === "expenses" ? "expenses" : "revenue";
+    state.intent = "ENTITY_SUMMARY";
+    state.comparison = false;
+    state.filters.chartType = null;
+    state.filters.groupBy = null;
   }
   if (interpretation.drilldown) state.filters.drilldown = true;
   if (interpretation.changeRank && state.filters.groupBy) {

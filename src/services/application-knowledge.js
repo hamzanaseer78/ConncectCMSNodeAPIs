@@ -1,4 +1,5 @@
 const { sanitizeState } = require("./conversation-context");
+const { asksForMoneyTotals } = require("./money-question");
 const STOP = new Set(["the", "and", "for", "with", "that", "this", "what", "how", "does", "did", "are", "was", "were", "our", "you", "your", "can", "from", "into", "when", "why", "who", "its", "it"]);
 
 const FACTS = [
@@ -146,6 +147,7 @@ function detectModule(text, prior) {
 
 function needsLiveData(text) {
   const source = String(text || "").toLowerCase();
+  if (asksForMoneyTotals(source)) return true;
   if (/\b(workflow|what is|what are|what's|how does|how do|how is|how are|explain|difference|linked|relate|related|trace|happens when|defined|calculated|why)\b/.test(source)) {
     return false;
   }
@@ -214,6 +216,7 @@ function knowledgeState(prior, assessment) {
 module.exports = {
   FACTS,
   assessKnowledge,
+  asksForMoneyTotals,
   retrieveFacts,
   assembleEvidence,
   knowledgeState,

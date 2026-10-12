@@ -1323,7 +1323,33 @@ function moneySentence(label, pair) {
   return `${label} ${formatMoney(pair.current)} (${change}; previous ${formatMoney(pair.previous)}).`;
 }
 
+function monthYearLabel(range) {
+  return range.from.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC"
+  });
+}
+
+function monthlyMoneySummary(overview, classified) {
+  const metrics = classified.metrics?.length
+    ? classified.metrics
+    : (classified.focus === "expenses" ? ["expenses"] : ["amountToCollect"]);
+  const lines = [`Monthly Financial Summary — ${monthYearLabel(overview.range)}`];
+  if (metrics.includes("amountToCollect")) {
+    lines.push(`- Amount to Collect: ${formatMoney(overview.financial.amountToCollect.current)}`);
+  }
+  if (metrics.includes("expenses")) {
+    lines.push(`- Total Expenses: ${formatMoney(overview.financial.expensesInPeriod.current)}`);
+  }
+  if (metrics.includes("amountToCollect")) {
+    lines.push("Amount to Collect is the sum of job costs for jobs dated in this month. It is not cash collected.");
+  }
+  return lines.join("\n");
+}
+
 function answerFromOverview(overview, classified) {
+  if (classified.moneySummary) return monthlyMoneySummary(overview, classified);
   const scopeText = overview.scope === "branch" ? "this branch" : "jobs assigned to you";
   const lead = `Date range ${overview.range.label}, compared with ${overview.previousRange.label}. Figures are for ${scopeText}.`;
   if (classified.kind === "financial") {
@@ -2511,5 +2537,6 @@ module.exports = {
   getReport,
   exportReport,
   answerQuestion,
-  toolFailureAnswer
+  toolFailureAnswer,
+  monthlyMoneySummary
 };
