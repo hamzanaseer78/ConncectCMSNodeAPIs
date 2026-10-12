@@ -207,6 +207,10 @@ app.use("/api/org", orgBranchRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/ai", organizationAiRoutes);
 app.use("/api/intelligence", managementIntelligenceRoutes);
+if (process.env.AI_MCP_V2_ENABLED === "true") {
+  const { createRouter: createAiMcpV2Router } = require("./ai-mcp-v2/routes");
+  app.use("/api/v2/ai-mcp", createAiMcpV2Router());
+}
 app.use("/api/jobs/form", jobFormSettingsRoutes);
 app.use("/api/jobs/code", jobCodeSettingsRoutes);
 app.use("/api/jobs", jobRoutes);
