@@ -1144,7 +1144,7 @@ module.exports = swaggerJsdoc({
                   required: ["message"],
                   properties: {
                     message: { type: "string", example: "What is my total revenue and expense this month?" },
-                    provider: { type: "string", enum: ["openai", "gemini", "anthropic", "claude"] }
+                    provider: { type: "string", enum: ["openai", "gemini", "anthropic", "claude", "cursor"] }
                   }
                 }
               }

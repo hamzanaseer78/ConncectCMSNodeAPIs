@@ -1,4 +1,4 @@
-const PROVIDERS = Object.freeze(["openai", "anthropic", "gemini"]);
+const PROVIDERS = Object.freeze(["openai", "anthropic", "gemini", "cursor"]);
 
 function clampInt(value, min, max, fallback) {
   const number = Number(value);
@@ -10,7 +10,8 @@ function loadConfig(env = process.env) {
   const keys = {
     openai: String(env.AI_MCP_V2_OPENAI_API_KEY || ""),
     anthropic: String(env.AI_MCP_V2_ANTHROPIC_API_KEY || ""),
-    gemini: String(env.AI_MCP_V2_GEMINI_API_KEY || env.GEMINI_API_KEY || "")
+    gemini: String(env.AI_MCP_V2_GEMINI_API_KEY || env.GEMINI_API_KEY || ""),
+    cursor: String(env.AI_MCP_V2_CURSOR_API_KEY || "")
   };
   const requested = String(env.AI_MCP_V2_DEFAULT_PROVIDER || "").trim().toLowerCase();
   const preferred = PROVIDERS.includes(requested) ? requested : "";
@@ -29,8 +30,11 @@ function loadConfig(env = process.env) {
     models: {
       openai: String(env.AI_MCP_V2_OPENAI_MODEL || "gpt-4o-mini"),
       anthropic: String(env.AI_MCP_V2_ANTHROPIC_MODEL || "claude-sonnet-4-5"),
-      gemini: String(env.AI_MCP_V2_GEMINI_MODEL || "gemini-2.5-flash")
+      gemini: String(env.AI_MCP_V2_GEMINI_MODEL || "gemini-2.5-flash"),
+      cursor: String(env.AI_MCP_V2_CURSOR_MODEL || env.CURSOR_MODEL || "composer-2.5")
     },
+    cursorApiBase: String(env.AI_MCP_V2_CURSOR_API_BASE || env.CURSOR_API_BASE || "https://api.cursor.com"),
+    cursorTimeoutMs: clampInt(env.AI_MCP_V2_CURSOR_TIMEOUT_MS, 5000, 180000, 120000),
     databaseUrl: String(env.AI_MCP_V2_DATABASE_URL || "")
   };
 }

@@ -226,6 +226,134 @@ function parseAnthropic(payload) {
   return { text, toolCalls };
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function cursorOrigin(config) {
+  return String(config.cursorApiBase || "https://api.cursor.com").trim().replace(/\/+$/, "").replace(/\/v1$/, "");
+}
+
+function cursorPrompt(messages) {
+  const conversation = messages
+    .filter((message) => message.role !== "system")
+    .map((message) => {
+      if (message.role === "tool") return `tool ${message.name}: ${message.content}`;
+      if (message.toolCalls?.length) {
+        return `assistant requested ${message.toolCalls.map((call) => call.name).join(", ")}`;
+      }
+      return `${message.role}: ${message.content}`;
+    })
+    .join("\n");
+  const toolLines = TOOLS.map((tool) => `- ${tool.name}: ${tool.description}`).join("\n");
+  return [
+    messages.find((message) => message.role === "system")?.content || "",
+    "You are a no-repo assistant. Do not edit files, run commands, or browse a repository.",
+    "When you need authorized business figures, reply with only this JSON shape:",
+    '{"tool_calls":[{"name":"total_expenses","args":{"period":"this_month"}}]}',
+    "Allowed tools:",
+    toolLines,
+    "When the tool results are enough, reply in plain text. Do not invent amounts.",
+    conversation
+  ].filter(Boolean).join("\n\n");
+}
+
+function parseCursorReply(text) {
+  let candidate = String(text || "").trim();
+  const fenced = candidate.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) candidate = fenced[1].trim();
+  if (candidate.startsWith("{") && candidate.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(candidate);
+      const calls = parsed.tool_calls || parsed.toolCalls;
+      if (Array.isArray(calls)) {
+        const allowed = new Set(TOOLS.map((tool) => tool.name));
+        const toolCalls = calls
+          .filter((call) => call && allowed.has(call.name))
+          .map((call, index) => ({
+            id: String(call.id || `cursor-${index + 1}`),
+            name: call.name,
+            arguments: parseToolArguments(call.args || call.arguments)
+          }));
+        if (toolCalls.length) return { text: "", toolCalls };
+      }
+    } catch {
+      // A normal sentence is the answer.
+    }
+  }
+  return { text: String(text || "").trim(), toolCalls: [] };
+}
+
+async function cursorJson(request, url, options) {
+  const response = await request(url, options);
+  if (!response.ok) throw providerError(response.status);
+  return response.json();
+}
+
+async function waitForCursorRun(request, origin, headers, agentId, runId, signal, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) {
+      const err = new Error("The provider timed out.");
+      err.name = "AbortError";
+      throw err;
+    }
+    const body = await cursorJson(
+      request,
+      `${origin}/v1/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}`,
+      { method: "GET", headers, signal }
+    );
+    const status = String(body.status || "").toUpperCase();
+    if (status === "FINISHED") return String(body.result || "");
+    if (status === "ERROR" || status === "FAILED" || status === "CANCELLED" || status === "EXPIRED") {
+      throw new AiMcpError("The selected AI provider is unavailable.", 502, "provider_unavailable");
+    }
+    await delay(1000);
+  }
+  throw new AiMcpError("The provider timed out.", 504, "provider_timeout");
+}
+
+async function completeCursor({ config, messages, request, signal }) {
+  const origin = cursorOrigin(config);
+  const headers = {
+    "content-type": "application/json",
+    authorization: `Bearer ${config.keys.cursor}`
+  };
+  const created = await cursorJson(request, `${origin}/v1/agents`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      name: "ConnectCMS assistant",
+      model: { id: config.models.cursor },
+      prompt: { text: cursorPrompt(messages) }
+    }),
+    signal
+  });
+  const agentId = created?.agent?.id;
+  const runId = created?.run?.id;
+  if (!agentId || !runId) {
+    throw new AiMcpError("The selected AI provider is unavailable.", 502, "provider_unavailable");
+  }
+  try {
+    const text = await waitForCursorRun(
+      request,
+      origin,
+      headers,
+      agentId,
+      runId,
+      signal,
+      config.cursorTimeoutMs || 120000
+    );
+    return parseCursorReply(text);
+  } finally {
+    await request(`${origin}/v1/agents/${encodeURIComponent(agentId)}`, {
+      method: "DELETE",
+      headers,
+      signal
+    }).catch(() => {});
+  }
+}
+
 function parseGemini(payload) {
   const parts = payload?.candidates?.[0]?.content?.parts || [];
   const text = parts.map((part) => part.text || "").join("\n").trim();
@@ -246,8 +374,11 @@ async function completeChat({ provider, config, messages, fetchImpl }) {
   }
   const request = fetchImpl || postJson;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  const timer = setTimeout(() => controller.abort(), provider === "cursor" ? (config.cursorTimeoutMs || 120000) : config.timeoutMs);
   try {
+    if (provider === "cursor") {
+      return await completeCursor({ config, messages, request, signal: controller.signal });
+    }
     const response = await request(requestUrl(provider, config), {
       method: "POST",
       headers: requestHeaders(provider, config),
