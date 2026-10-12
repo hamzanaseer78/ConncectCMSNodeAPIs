@@ -24,6 +24,7 @@ const {
   unsupportedAnswer
 } = require("./conversation-context");
 const { formatInsights, selectAnalyticsTool, drilldownFromRows } = require("./analytics-plugin");
+const { assessKnowledge, assembleEvidence, knowledgeState } = require("./application-knowledge");
 const {
   decideResolution,
   executionPlan,
@@ -1855,10 +1856,10 @@ async function answerScoped(scope, range, classified) {
   };
 }
 
-async function answerQuestion(auth, message, history, clientState, stateProvided, conversationId) {
+async function answerQuestion(auth, message, history, clientState, stateProvided, conversationId, options = {}) {
   const traceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   try {
-    return await answerWithinTrace(auth, message, history, clientState, stateProvided, conversationId, traceId);
+    return await answerWithinTrace(auth, message, history, clientState, stateProvided, conversationId, traceId, options);
   } catch (err) {
     if (err?.status && Number(err.status) < 500) throw err;
     logger.error("intelligence.tool_failed", {
@@ -1877,8 +1878,65 @@ async function answerQuestion(auth, message, history, clientState, stateProvided
   }
 }
 
-async function answerWithinTrace(auth, message, history, clientState, stateProvided, conversationId, traceId) {
+async function answerWithinTrace(auth, message, history, clientState, stateProvided, conversationId, traceId, options = {}) {
   const priorHistory = chatSession.canonicalizeHistory(history, message);
+  const priorState = chatSession.stateFor(auth, clientState, Boolean(stateProvided), conversationId);
+  const knowledge = assessKnowledge(message, priorState);
+  if (knowledge) {
+    const started = Date.now();
+    let written = assembleEvidence(message, knowledge.facts);
+    if (typeof options.synthesize === "function") {
+      try {
+        const model = await options.synthesize({
+          message,
+          evidence: knowledge.facts.map((fact) => fact.text).join("\n\n"),
+          factIds: knowledge.facts.map((fact) => fact.id)
+        });
+        if (model?.text) written = { text: model.text, generatedBy: model.generatedBy || "model" };
+      } catch (err) {
+        written = { ...written, modelError: String(err?.code || err?.status || "model_error").slice(0, 40) };
+      }
+    }
+    const state = knowledgeState(priorState, knowledge);
+    logger.info("intelligence.turn", {
+      traceId,
+      conversationId: chatSession.conversationKey(conversationId),
+      messageLength: String(message || "").length,
+      historyMessages: priorHistory.length,
+      handled: true,
+      intent: state.intent,
+      entity: state.entity,
+      kind: knowledge.kind,
+      module: knowledge.module,
+      knowledgeSources: knowledge.facts.map((fact) => fact.id),
+      tool: null,
+      toolExecuted: false,
+      generatedBy: written.generatedBy,
+      usedLiveData: false,
+      fallbackReason: null,
+      cache: "miss",
+      retry: 0,
+      latencyMs: Date.now() - started
+    });
+    return finishAnswer(auth, message, {
+      kind: knowledge.kind,
+      responseType: "explanation",
+      answer: written.text,
+      suggestions: [],
+      charts: [],
+      tables: [],
+      conversationState: state,
+      traceId,
+      cache: "miss",
+      retry: 0,
+      generatedBy: written.generatedBy,
+      modules: [knowledge.module],
+      knowledgeSources: knowledge.facts.map((fact) => fact.id),
+      usedLiveData: false,
+      fallbackReason: null,
+      source: { tool: null, executed: false }
+    }, conversationId);
+  }
   const resolution = resolveConversation(
     message,
     chatSession.stateFor(auth, clientState, Boolean(stateProvided), conversationId)

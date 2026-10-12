@@ -480,6 +480,57 @@ async function chatClaude({ apiKey, message, history, auth }) {
   providerError("Claude did not finish within the tool limit");
 }
 
+const EVIDENCE_PROMPT = [
+  "You are the Connect CMS assistant.",
+  "Answer only from the evidence provided.",
+  "Say what is verified. Do not invent approval rules, profit formulas, or relationships that the evidence does not state.",
+  "If the evidence does not cover part of the question, say it is not verified.",
+  "Do not mention a date range or a live total unless the evidence includes one.",
+  "Write plain sentences for the user's actual question."
+].join(" ");
+
+async function completeFromEvidence({ provider, apiKey, message, evidence }) {
+  const prompt = `${EVIDENCE_PROMPT}\n\nEvidence:\n${evidence}\n\nQuestion:\n${message}`;
+  if (provider === "gemini") {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel())}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: EVIDENCE_PROMPT }] },
+          contents: [{ role: "user", parts: [{ text: `Evidence:\n${evidence}\n\nQuestion:\n${message}` }] }]
+        })
+      }
+    );
+    const body = await readJson(response);
+    if (!response.ok) providerError(providerFailureMessage(body, "Gemini request failed"), response.status);
+    const text = (body?.candidates?.[0]?.content?.parts || []).map((part) => part.text || "").join("").trim();
+    return { text, generatedBy: "model" };
+  }
+  if (provider === "openai" || provider === "claude") {
+    const response = await fetch(
+      provider === "claude" ? "https://api.anthropic.com/v1/messages" : "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: provider === "claude"
+          ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" }
+          : { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(provider === "claude"
+          ? { model: "claude-3-5-haiku-20241022", max_tokens: 800, system: EVIDENCE_PROMPT, messages: [{ role: "user", content: prompt }] }
+          : { model: "gpt-4o-mini", messages: [{ role: "system", content: EVIDENCE_PROMPT }, { role: "user", content: prompt }] })
+      }
+    );
+    const body = await readJson(response);
+    if (!response.ok) providerError(providerFailureMessage(body, "Model request failed"), response.status);
+    const text = provider === "claude"
+      ? (body?.content || []).map((block) => block.text || "").join("").trim()
+      : String(body?.choices?.[0]?.message?.content || "").trim();
+    return { text, generatedBy: "model" };
+  }
+  providerError(`Unsupported provider ${provider}`, 400);
+}
+
 async function completeOrganizationChat({ provider, apiKey, message, history, auth }) {
   if (provider === "gemini") {
     return chatGemini({ apiKey, message, history, auth });
@@ -498,6 +549,7 @@ async function completeOrganizationChat({ provider, apiKey, message, history, au
 
 module.exports = {
   completeOrganizationChat,
+  completeFromEvidence,
   providerFailureMessage,
   parseCursorToolCalls,
   cursorApiOrigin

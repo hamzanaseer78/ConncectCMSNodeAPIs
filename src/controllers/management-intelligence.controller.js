@@ -1,4 +1,5 @@
 const intelligence = require("../services/management-intelligence.service");
+const { evidenceSynthesizer } = require("../services/knowledge-synthesizer");
 
 function forward(err, next) {
   if (err.status) err.statusCode = err.status;
@@ -30,13 +31,20 @@ async function askQuestion(req, res, next) {
       throw err;
     }
     const stateProvided = Boolean(req.body) && Object.prototype.hasOwnProperty.call(req.body, "conversationState");
+    let synthesize = null;
+    try {
+      synthesize = await evidenceSynthesizer(req.auth);
+    } catch (err) {
+      synthesize = null;
+    }
     res.status(200).json(await intelligence.answerQuestion(
       req.auth,
       message,
       req.body?.history,
       req.body?.conversationState,
       stateProvided,
-      req.body?.conversationId
+      req.body?.conversationId,
+      synthesize ? { synthesize } : {}
     ));
   } catch (err) {
     forward(err, next);

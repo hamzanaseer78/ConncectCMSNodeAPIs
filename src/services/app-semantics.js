@@ -44,7 +44,13 @@ const JOB = Object.freeze({
 const CONCEPTS = Object.freeze([JOB]);
 
 function getConcept(id) {
-  return CONCEPTS.find((concept) => concept.id === id) || null;
+  const key = id === "jobs" ? "job" : id;
+  const found = CONCEPTS.find((concept) => concept.id === key);
+  if (found) return found;
+  if (["expenses", "collections", "revenue", "attendance", "cpair", "technicians", "customers"].includes(key)) {
+    return { id: key, entity: key === "customers" ? "jobs" : key };
+  }
+  return null;
 }
 
 function findPhrase(text) {

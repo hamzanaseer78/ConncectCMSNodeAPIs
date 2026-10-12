@@ -206,7 +206,7 @@ function detectGroup(text) {
 function detectEntity(text) {
   if (/\b(attendance|checked in|check-?in|absent|on the way|on location|on break)\b/.test(text)) return "attendance";
   if (/\b(revenue|amount to collect)\b/.test(text)) return "revenue";
-  if (/\bexpenses?\b/.test(text)) return "expenses";
+  if (/\b(expenses?|spent|spend)\b/.test(text)) return "expenses";
   if (/\b(collected|collections?)\b/.test(text)) return "collections";
   if (/\bc-?pair\b/.test(text)) return "cpair";
   if (/\b(jobs?|complaints?|service requests?|job performance)\b/.test(text)) return "jobs";
