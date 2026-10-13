@@ -34,7 +34,90 @@ function directTools(text) {
   if (expenses) return [{ name: "total_expenses", arguments: { period } }];
   if (collect) return [{ name: "total_amount_to_collect", arguments: { period } }];
   if (/\battendance\b/.test(source)) return [{ name: "attendance_summary", arguments: {} }];
+  if (/\bjobs?\b/.test(source) && /\b(chart|graph|plot|report|list|table)\b/.test(source)) {
+    return [{ name: "search_jobs", arguments: { limit: 20 } }];
+  }
   return null;
+}
+
+function wantsChart(text) {
+  return /\b(chart|graph|plot)\b/i.test(text);
+}
+
+function wantsReport(text) {
+  return /\b(report|table|list)\b/i.test(text);
+}
+
+function barChart(title, categories, data) {
+  return {
+    options: {
+      chart: { type: "bar", toolbar: { show: false }, fontFamily: "inherit" },
+      plotOptions: { bar: { horizontal: categories.length > 4, borderRadius: 4, distributed: true } },
+      colors: ["#1B4D3E", "#3D7A6A", "#C4A35A", "#4C6E8C", "#8C5A4C"],
+      dataLabels: { enabled: false },
+      legend: { show: false },
+      xaxis: { categories },
+      title: { text: title }
+    },
+    series: [{ name: title, data }]
+  };
+}
+
+function presentTool(tool, text) {
+  const result = tool.result || {};
+  const chart = wantsChart(text);
+  const report = wantsReport(text);
+  const charts = [];
+  const tables = [];
+  const metrics = [];
+  if (typeof result.amountToCollect === "number") metrics.push(["Amount to Collect", result.amountToCollect]);
+  if (typeof result.cashCollected === "number") metrics.push(["Cash collected", result.cashCollected]);
+  if (typeof result.totalExpenses === "number") metrics.push(["Total Expenses", result.totalExpenses]);
+  if (typeof result.checkedIn === "number") {
+    metrics.push(["Checked in", result.checkedIn]);
+    metrics.push(["On break", Number(result.onBreak || 0)]);
+    metrics.push(["Checked out", Number(result.checkedOut || 0)]);
+  }
+  const jobs = Array.isArray(result.jobs) ? result.jobs : null;
+  const title = result.label ? `Monthly Financial Summary — ${result.label}` : "Report";
+  if (chart && metrics.length) charts.push(barChart(title, metrics.map((row) => row[0]), metrics.map((row) => row[1])));
+  if (chart && jobs?.length) {
+    charts.push(barChart(
+      "Job costs",
+      jobs.slice(0, 8).map((job) => job.code || `Job ${job.jobId}`),
+      jobs.slice(0, 8).map((job) => job.totalCost)
+    ));
+  }
+  if (report && metrics.length) {
+    tables.push({
+      title,
+      columns: [
+        { key: "metric", label: "Metric" },
+        { key: "amount", label: "Amount", align: "right" }
+      ],
+      rows: metrics.map(([metric, amount]) => ({ metric, amount }))
+    });
+  }
+  if (report && jobs) {
+    tables.push({
+      title: "Jobs",
+      columns: [
+        { key: "code", label: "Job" },
+        { key: "date", label: "Date" },
+        { key: "customerName", label: "Customer" },
+        { key: "amount", label: "Amount to Collect", align: "right" }
+      ],
+      rows: jobs.map((job) => ({
+        id: job.jobId,
+        jobId: job.jobId,
+        code: job.code,
+        date: job.date,
+        customerName: job.customerName,
+        amount: job.totalCost
+      }))
+    });
+  }
+  return { charts, tables };
 }
 
 function moneyText(value) {
@@ -68,10 +151,13 @@ async function answerDirect(text, auth, deps) {
     const result = await executeTool(call.name, call.arguments, auth, deps);
     tools.push({ name: call.name, result });
   }
+  const presented = tools.map((tool) => presentTool(tool, text));
   return {
     answer: tools.map(formatDirectAnswer).filter(Boolean).join("\n\n"),
     provider: "database",
     tools,
+    charts: presented.flatMap((item) => item.charts),
+    tables: presented.flatMap((item) => item.tables),
     generatedFromTools: true
   };
 }
