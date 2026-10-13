@@ -1,4 +1,5 @@
 const jobsListReportService = require("../services/jobs-list-report.service");
+const technicianAgingReportService = require("../services/technician-aging-report.service");
 const jobsSummaryReportService = require("../services/jobs-summary-report.service");
 const technicianMonthlyBillsReportService = require("../services/technician-monthly-bills-report.service");
 const jobRevenueReportService = require("../services/job-revenue-report.service");
@@ -498,6 +499,28 @@ input JobsReportFilterInput {
   assignedto: Int
   technicianId: Int
   technicianAffiliation: String
+  """
+  Exclusive resolution-time bucket for the Jobs List drill-down:
+  single_day, three_days, five_days, seven_days, over_seven_days.
+  """
+  resolutionBucket: String
+  assignedToUnassigned: Boolean
+}
+
+type TechnicianAgingReportRow {
+  technicianId: Int
+  technicianName: String
+  singleDay: Int!
+  threeDays: Int!
+  fiveDays: Int!
+  sevenDays: Int!
+  overSevenDays: Int!
+}
+
+type TechnicianAgingReportResult {
+  mode: String!
+  data: [TechnicianAgingReportRow!]!
+  pageInfo: PageInfo!
 }
 `;
 
@@ -520,6 +543,15 @@ const reportQueryFields = `
   Column chooser configuration for Jobs list detail report.
   """
   jobsListReportColumns: JobsListReportColumnsResult!
+  """
+  Technician-wise aging of resolved jobs. Each job is counted in one column
+  from assignment (or first response / created / job date) to resolvedat.
+  """
+  technicianAgingReport(
+    page: Int = 1
+    pageSize: Int = 25
+    filter: JobsReportFilterInput
+  ): TechnicianAgingReportResult!
   """
   Technician monthly bills summary (cash collected vs job expenses by technician).
   """
@@ -656,6 +688,11 @@ function registerReportResolvers(resolvers) {
   resolvers.updateJobsListReportColumns = async ({ columns }, context) => {
     const auth = requireAuth(context);
     return jobsListReportService.updateColumns(auth, columns || []);
+  };
+
+  resolvers.technicianAgingReport = async (args, context) => {
+    const auth = requireAuth(context);
+    return technicianAgingReportService.getReport(auth, args);
   };
 
   resolvers.technicianMonthlyBillsSummaryReport = async (args, context) => {

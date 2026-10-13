@@ -540,6 +540,15 @@ class JobsListService {
 
     appendJobDetailsCreatedByFilter(where, query);
 
+    if (query.assignedToUnassigned === true || query.assignedToUnassigned === "true") {
+      where.assignedto = null;
+    }
+
+    if (Array.isArray(query.recnoIn)) {
+      const ids = [...new Set(query.recnoIn.map(Number).filter((id) => Number.isFinite(id)))];
+      where.recno = { in: ids.length ? ids : [-1] };
+    }
+
     const kpiKey = query.kpi ?? query.statsKpi;
     if (kpiKey != null && String(kpiKey).trim() !== "") {
       const parsedKpi = parseJobStatsKpiKey(kpiKey);

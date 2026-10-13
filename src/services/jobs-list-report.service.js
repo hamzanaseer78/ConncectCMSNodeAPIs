@@ -2,6 +2,8 @@ const JobsListService = require("./jobs-list.service");
 const { GRAPHQL_MAX_PAGE_SIZE } = require("../graphql/pagination");
 const { canManageBranchJobs } = require("../utils/job-access");
 const { graphqlJobsFilterToQuery } = require("../utils/graphql-jobs-report-filter");
+const { isResolutionBucket } = require("../utils/job-resolution-aging");
+const { listJobIdsForResolutionBucket } = require("./technician-aging-report.service");
 const reportColumnsService = require("./report-columns.service");
 const {
   JOBS_LIST_REPORT_KEY,
@@ -45,6 +47,19 @@ class JobsListReportService {
     const query = graphqlJobsFilterToQuery(args.filter, args, {
       sortFieldMap: JOBS_LIST_REPORT_SORT_FIELD_MAP
     });
+    const bucket = query.resolutionBucket != null ? String(query.resolutionBucket) : "";
+    delete query.resolutionBucket;
+    if (bucket) {
+      if (!isResolutionBucket(bucket)) {
+        const err = new Error(
+          "resolutionBucket must be one of: single_day, three_days, five_days, seven_days, over_seven_days"
+        );
+        err.status = 400;
+        throw err;
+      }
+      const where = await service.applyFilters(auth, query);
+      query.recnoIn = await listJobIdsForResolutionBucket(where, bucket);
+    }
     query.maxPageSize = GRAPHQL_MAX_PAGE_SIZE;
     const result = await service.list(auth, query);
 

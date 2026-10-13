@@ -23,6 +23,15 @@ function buildJobsReportsCatalog() {
       detailDataQuery: null
     },
     {
+      reportKey: "technician_aging",
+      title: "Technician wise Aging Report",
+      kind: "summary",
+      dataQuery: "technicianAgingReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
       reportKey: TECHNICIAN_MONTHLY_BILLS_SUMMARY_KEY,
       title: "Technician Monthly Bills (Summary)",
       kind: "summary",
