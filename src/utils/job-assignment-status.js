@@ -20,6 +20,11 @@ function isCancelledStatusTitle(title) {
   return normalized === "cancelled" || normalized === "cancel" || normalized === "canceled";
 }
 
+function isResolvedStatusTitle(title) {
+  const normalized = normalizeStatusTitle(title);
+  return normalized === "resolved" || normalized === "resolve";
+}
+
 async function findUnassignedJobStatus(tx, tenantid) {
   const rows = await tx.jobstatuses.findMany({
     where: { tenantid: Number(tenantid) },
@@ -74,6 +79,14 @@ async function findCompletedJobStatus(tx, tenantid) {
   });
 
   return rows.find((row) => isCompletedStatusTitle(row.title)) || null;
+}
+
+async function findResolvedJobStatus(tx, tenantid) {
+  return tx.jobstatuses.findFirst({
+    where: { tenantid: Number(tenantid), isresolvedstatus: true },
+    orderBy: [{ sort: "asc" }, { recno: "asc" }],
+    select: { recno: true, title: true }
+  });
 }
 
 /**
@@ -151,6 +164,47 @@ async function applyCancelledJobStatus(tx, scope, job, auth, { changedAt, remark
 }
 
 /**
+ * Move job to the tenant's resolved status and write a status log entry.
+ */
+async function applyResolvedJobStatus(tx, scope, job, auth, { changedAt, remarks } = {}) {
+  const resolved = await findResolvedJobStatus(tx, scope.tenantid);
+  if (!resolved) {
+    const err = new Error("No resolved job status configured for this tenant");
+    err.status = 400;
+    throw err;
+  }
+
+  const toStatus = resolved.recno;
+  const fromStatus = job.statusid ?? null;
+  const alreadyThere = Number(fromStatus) === Number(toStatus);
+
+  if (!alreadyThere) {
+    await tx.jobstatuslog.create({
+      data: {
+        jobid: Number(job.recno),
+        ...scope,
+        fromstatus: fromStatus,
+        tostatus: Number(toStatus),
+        remarks: remarks || "Job resolved",
+        changedby: Number(auth.userid),
+        changedat: changedAt
+      }
+    });
+  }
+
+  await tx.job.update({
+    where: { recno: Number(job.recno) },
+    data: { statusid: Number(toStatus), isresolved: true }
+  });
+
+  if (alreadyThere) {
+    return null;
+  }
+
+  return { fromStatus, toStatus: Number(toStatus) };
+}
+
+/**
  * Pick status on job create: un-assigned when no technician, otherwise explicit/first status.
  */
 async function resolveInitialJobStatusId(tx, tenantid, { assignedto, explicitStatusId } = {}) {
@@ -206,11 +260,14 @@ module.exports = {
   isUnassignedStatusTitle,
   isCompletedStatusTitle,
   isCancelledStatusTitle,
+  isResolvedStatusTitle,
   findUnassignedJobStatus,
   findCancelledJobStatus,
   findCompletedJobStatus,
+  findResolvedJobStatus,
   resolveInitialJobStatusId,
   syncJobStatusWithAssignment,
   applyCompletedJobStatus,
-  applyCancelledJobStatus
+  applyCancelledJobStatus,
+  applyResolvedJobStatus
 };

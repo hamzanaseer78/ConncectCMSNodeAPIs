@@ -80,7 +80,16 @@ function buildJobListInclude() {
     users: {
       select: buildAssignedUserSelect()
     },
-    jobstatuses: { select: { recno: true, title: true, color: true } },
+    jobstatuses: {
+      select: {
+        recno: true,
+        title: true,
+        color: true,
+        iscompletedstatus: true,
+        isresolvedstatus: true,
+        iscancelledstatus: true
+      }
+    },
     jobcategories: {
       select: {
         categoryid: true,

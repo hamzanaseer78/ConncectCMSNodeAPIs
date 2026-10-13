@@ -49,7 +49,10 @@ const {
   syncJobStatusWithAssignment,
   applyCompletedJobStatus,
   applyCancelledJobStatus,
-  findCancelledJobStatus
+  applyResolvedJobStatus,
+  findCancelledJobStatus,
+  findCompletedJobStatus,
+  findResolvedJobStatus
 } = require("../utils/job-assignment-status");
 const {
   enrichJobApiRow,
@@ -2820,9 +2823,38 @@ class JobsWorkflowService {
     await this.ensureAssignedUser(auth, job);
     const scope = this.buildScope(auth);
     let attachmentRows = [];
+    let statusChange = null;
+    const resolveRemarks = pickRemarks(payload, "Job resolved");
+    const resolvedStatus = await findResolvedJobStatus(prisma, scope.tenantid);
+    if (!resolvedStatus) {
+      const err = new Error("No resolved job status configured for this tenant");
+      err.status = 400;
+      throw err;
+    }
+
+    if (job.iscompleted === true) {
+      const err = new Error("Job is already completed");
+      err.status = 409;
+      throw err;
+    }
+    const existingCompleted = await findCompletedJobStatus(prisma, scope.tenantid);
+    if (existingCompleted && Number(job.statusid) === Number(existingCompleted.recno)) {
+      const err = new Error("Job is already completed");
+      err.status = 409;
+      throw err;
+    }
+    const existingCancelled = await findCancelledJobStatus(prisma, scope.tenantid);
+    if (existingCancelled && Number(job.statusid) === Number(existingCancelled.recno)) {
+      const err = new Error("Job is already cancelled");
+      err.status = 409;
+      throw err;
+    }
 
     await prisma.$transaction(async (tx) => {
-      await tx.job.update({ where: { recno: job.recno }, data: { isresolved: true } });
+      statusChange = await applyResolvedJobStatus(tx, scope, job, auth, {
+        changedAt: now,
+        remarks: resolveRemarks
+      });
       await this.patchJobDetail(tx, auth, scope, job.recno, {
         resolvedby: Number(auth.userid),
         resolvedat: now,
@@ -2840,6 +2872,15 @@ class JobsWorkflowService {
 
     const attachments = attachmentRows.map(formatJobAttachmentRow);
 
+    if (statusChange) {
+      pushDispatch.onJobStatusChanged(
+        job,
+        auth,
+        statusChange.fromStatus,
+        statusChange.toStatus,
+        resolveRemarks
+      );
+    }
     pushDispatch.onJobResolved(job, auth);
     attachmentRows.forEach((row) =>
       pushDispatch.onJobAttachment(job, auth, row.attachmentname)

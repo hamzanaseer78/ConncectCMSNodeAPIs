@@ -5882,9 +5882,9 @@ module.exports = swaggerJsdoc({
       },
       "/api/jobs/{id}/actions/resolve-job": {
         post: {
-          summary: "Technician marks job resolved",
+          summary: "Mark job as resolved",
           description:
-            "Assigned technician only. Optional `attachments` or multipart files (`files` / `file`).",
+            "Assigned technician, manager, or admin. Rejected when the job is already completed or cancelled. Sets the job status to the tenant status flagged `isresolvedstatus`. Optional remarks, `attachments`, or multipart files (`files` / `file`).",
           tags: ["Jobs"],
           security: [{ bearerAuth: [] }],
           parameters: [{ in: "path", name: "id", required: true, schema: { type: "integer" } }],
@@ -5894,7 +5894,11 @@ module.exports = swaggerJsdoc({
               "multipart/form-data": { schema: { $ref: "#/components/schemas/JobActionMultipartBody" } }
             }
           },
-          responses: { 200: { description: "Job resolved (includes attachments when provided)" } }
+          responses: {
+            200: { description: "Job resolved (includes attachments when provided)" },
+            400: { description: "No resolved status configured" },
+            409: { description: "Job is already completed or cancelled" }
+          }
         }
       },
       "/api/jobs/{id}/actions/close-job": {
