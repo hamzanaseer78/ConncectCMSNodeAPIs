@@ -1,5 +1,6 @@
 const https = require("https");
 const { AiMcpError } = require("./errors");
+const { describeProvider } = require("./config");
 const { TOOLS } = require("./tools");
 
 function postJson(url, options) {
@@ -49,17 +50,37 @@ function postJson(url, options) {
   });
 }
 
-function providerError(status) {
+function sanitizeUpstream(value) {
+  return String(value || "")
+    .replace(/Bearer\s+\S+/gi, "Bearer ***")
+    .replace(/grok_[A-Za-z0-9_]+/g, "grok_***")
+    .replace(/crsr_[A-Za-z0-9]+/g, "crsr_***")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "sk-***")
+    .replace(/AIza[A-Za-z0-9_-]+/g, "AIza***")
+    .slice(0, 240);
+}
+
+function providerError(status, details = {}) {
+  const extra = { upstreamStatus: status, ...details };
   if (status === 401 || status === 403) {
-    return new AiMcpError("The configured API key was rejected.", 502, "provider_rejected");
+    return new AiMcpError("The configured API key was rejected.", 502, "provider_rejected", extra);
   }
   if (status === 429) {
-    return new AiMcpError("The provider rate limit was reached.", 503, "provider_rate_limited");
+    return new AiMcpError("The provider rate limit was reached.", 503, "provider_rate_limited", extra);
   }
   if (status === 408 || status === 504) {
-    return new AiMcpError("The provider timed out.", 504, "provider_timeout");
+    return new AiMcpError("The provider timed out.", 504, "provider_timeout", extra);
   }
-  return new AiMcpError("The selected AI provider is unavailable.", 502, "provider_unavailable");
+  return new AiMcpError("The selected AI provider is unavailable.", 502, "provider_unavailable", extra);
+}
+
+function attachProvider(err, config, provider, extra = {}) {
+  err.details = {
+    ...describeProvider(config, provider),
+    ...(err.details || {}),
+    ...extra
+  };
+  return err;
 }
 
 function parseToolArguments(value) {
@@ -286,7 +307,7 @@ function parseCursorReply(text) {
 
 async function cursorJson(request, url, options) {
   const response = await request(url, options);
-  if (!response.ok) throw providerError(response.status);
+  if (!response.ok) throw providerError(response.status, { endpoint: url });
   return response.json();
 }
 
@@ -337,7 +358,11 @@ async function completeCursor({ config, messages, request, signal }) {
   const agentId = created?.agent?.id || created?.id;
   const runId = created?.run?.id || created?.agent?.latestRunId || created?.latestRunId;
   if (!agentId || !runId) {
-    throw new AiMcpError("The selected AI provider is unavailable.", 502, "provider_unavailable");
+    throw attachProvider(
+      new AiMcpError("The selected AI provider is unavailable.", 502, "provider_unavailable"),
+      config,
+      "cursor"
+    );
   }
   try {
     const text = await waitForCursorRun(
@@ -370,12 +395,35 @@ function parseGemini(payload) {
   return { text, toolCalls };
 }
 
+function grokModels(config) {
+  return [...new Set([
+    config.models?.grok,
+    "grok-3",
+    "grok-3-mini",
+    "grok-4",
+    "grok-2-1212"
+  ].filter(Boolean))];
+}
+
+function upstreamMessageFromBody(body) {
+  if (!body || typeof body !== "object") return "";
+  return body.error?.message || body.error?.type || body.message || body.code || "";
+}
+
 async function completeChat({ provider, config, messages, fetchImpl }) {
   if (!config.providers.includes(provider)) {
-    throw new AiMcpError("That AI provider is not supported.", 400, "provider_invalid");
+    throw attachProvider(
+      new AiMcpError("That AI provider is not supported.", 400, "provider_invalid"),
+      config,
+      provider
+    );
   }
   if (!config.keys[provider]) {
-    throw new AiMcpError(`The ${provider} provider is not configured.`, 503, "provider_not_configured");
+    throw attachProvider(
+      new AiMcpError(`The ${provider} provider is not configured.`, 503, "provider_not_configured"),
+      config,
+      provider
+    );
   }
   const request = fetchImpl || postJson;
   const controller = new AbortController();
@@ -384,23 +432,64 @@ async function completeChat({ provider, config, messages, fetchImpl }) {
     if (provider === "cursor") {
       return await completeCursor({ config, messages, request, signal: controller.signal });
     }
-    const response = await request(requestUrl(provider, config), {
-      method: "POST",
-      headers: requestHeaders(provider, config),
-      body: JSON.stringify(requestBody(provider, config, messages)),
-      signal: controller.signal
-    });
-    if (!response.ok) throw providerError(response.status);
-    const payload = await response.json();
-    if (provider === "anthropic") return parseAnthropic(payload);
-    if (provider === "gemini") return parseGemini(payload);
-    return parseOpenAi(payload);
-  } catch (err) {
-    if (err instanceof AiMcpError) throw err;
-    if (err.name === "AbortError") {
-      throw new AiMcpError("The provider timed out.", 504, "provider_timeout");
+    const models = provider === "grok" ? grokModels(config) : [config.models?.[provider]];
+    let lastError = null;
+    for (const model of models) {
+      const attemptConfig = model && provider === "grok"
+        ? { ...config, models: { ...config.models, grok: model } }
+        : config;
+      const response = await request(requestUrl(provider, attemptConfig), {
+        method: "POST",
+        headers: requestHeaders(provider, attemptConfig),
+        body: JSON.stringify(requestBody(provider, attemptConfig, messages)),
+        signal: controller.signal
+      });
+      if (response.ok) {
+        const payload = await response.json();
+        if (provider === "anthropic") return parseAnthropic(payload);
+        if (provider === "gemini") return parseGemini(payload);
+        return parseOpenAi(payload);
+      }
+      let body = {};
+      try {
+        body = await response.json();
+      } catch {
+        body = {};
+      }
+      lastError = attachProvider(
+        providerError(response.status, {
+          upstreamMessage: sanitizeUpstream(upstreamMessageFromBody(body)),
+          model: attemptConfig.models?.[provider] || model || null
+        }),
+        attemptConfig,
+        provider
+      );
+      if (provider !== "grok" || (response.status !== 404 && response.status !== 400)) {
+        throw lastError;
+      }
     }
-    throw new AiMcpError("The selected AI provider is unavailable.", 502, "provider_unavailable");
+    throw lastError || attachProvider(
+      new AiMcpError("The selected AI provider is unavailable.", 502, "provider_unavailable"),
+      config,
+      provider
+    );
+  } catch (err) {
+    if (err instanceof AiMcpError) throw attachProvider(err, config, provider);
+    if (err.name === "AbortError") {
+      throw attachProvider(
+        new AiMcpError("The provider timed out.", 504, "provider_timeout"),
+        config,
+        provider
+      );
+    }
+    throw attachProvider(
+      new AiMcpError("The selected AI provider is unavailable.", 502, "provider_unavailable", {
+        upstreamCode: err.code || err.name || "request_failed",
+        upstreamMessage: sanitizeUpstream(err.message)
+      }),
+      config,
+      provider
+    );
   } finally {
     clearTimeout(timer);
   }

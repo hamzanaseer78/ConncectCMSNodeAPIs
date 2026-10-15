@@ -1,5 +1,6 @@
 const prisma = require("../database/prisma");
 const { decryptAiKey } = require("../utils/ai-key-cipher");
+const { withEnvKeySources } = require("./config");
 
 function toV2Provider(name) {
   const value = String(name || "").trim().toLowerCase();
@@ -10,7 +11,8 @@ function toV2Provider(name) {
 }
 
 async function applyOrganizationKeys(config, auth) {
-  if (!auth?.tenantid || !config) return config;
+  const base = withEnvKeySources(config);
+  if (!auth?.tenantid || !config) return base;
   try {
     const rows = await prisma.$queryRaw`
       SELECT provider, apikeycipher
@@ -19,20 +21,27 @@ async function applyOrganizationKeys(config, auth) {
       LIMIT 1
     `;
     const row = rows[0];
-    if (!row?.provider || !row?.apikeycipher) return config;
-    const provider = toV2Provider(row.provider);
+    if (!row?.provider || !row?.apikeycipher) return base;
+    let provider = toV2Provider(row.provider);
     const key = decryptAiKey(row.apikeycipher);
-    if (!provider || !key) return config;
+    if (!provider || !key) return base;
+    if (key.startsWith("grok_") && provider === "cursor") {
+      provider = "grok";
+    }
     return {
-      ...config,
+      ...base,
       defaultProvider: provider,
       keys: {
-        ...config.keys,
+        ...base.keys,
         [provider]: key
+      },
+      keySources: {
+        ...base.keySources,
+        [provider]: "organization"
       }
     };
   } catch {
-    return config;
+    return base;
   }
 }
 

@@ -21,7 +21,7 @@ function loadConfig(env = process.env) {
   const defaultProvider = preferred && keys[preferred]
     ? preferred
     : (PROVIDERS.find((name) => keys[name]) || preferred || "openai");
-  return {
+  const loaded = {
     enabled: env.AI_MCP_V2_ENABLED === "true",
     port: clampInt(env.AI_MCP_V2_PORT, 1, 65535, 3102),
     defaultProvider,
@@ -41,6 +41,7 @@ function loadConfig(env = process.env) {
     cursorTimeoutMs: clampInt(env.AI_MCP_V2_CURSOR_TIMEOUT_MS, 5000, 180000, 120000),
     databaseUrl: String(env.AI_MCP_V2_DATABASE_URL || "")
   };
+  return withEnvKeySources(loaded);
 }
 
 function configuredProviders(config) {
@@ -58,9 +59,57 @@ function resolveProvider(requested, config) {
   throw new Error("NO_PROVIDER");
 }
 
+function keyKind(key) {
+  const value = String(key || "");
+  if (!value) return "none";
+  if (value.startsWith("grok_")) return "grok";
+  if (value.startsWith("crsr_")) return "cursor";
+  if (value.startsWith("AIza")) return "gemini";
+  if (value.startsWith("sk-")) return "openai";
+  return "other";
+}
+
+function keySuffix(key) {
+  const value = String(key || "");
+  if (value.length < 4) return null;
+  return value.slice(-4);
+}
+
+function describeProvider(config, name) {
+  const provider = String(name || "");
+  const key = config?.keys?.[provider] || "";
+  const endpoints = {
+    openai: "https://api.openai.com/v1/chat/completions",
+    grok: "https://api.x.ai/v1/chat/completions",
+    anthropic: "https://api.anthropic.com/v1/messages",
+    gemini: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config?.models?.gemini || "gemini")}:generateContent`,
+    cursor: `${String(config?.cursorApiBase || "https://api.cursor.com").replace(/\/+$/, "")}/v1/agents`
+  };
+  return {
+    provider: provider || null,
+    model: provider ? config?.models?.[provider] || null : null,
+    endpoint: endpoints[provider] || null,
+    keySource: config?.keySources?.[provider] || (key ? "environment" : "none"),
+    keyKind: keyKind(key),
+    keySuffix: keySuffix(key)
+  };
+}
+
+function withEnvKeySources(config) {
+  const keySources = {};
+  (config.providers || []).forEach((name) => {
+    if (config.keys?.[name]) keySources[name] = "environment";
+  });
+  return { ...config, keySources };
+}
+
 module.exports = {
   PROVIDERS,
   loadConfig,
   configuredProviders,
-  resolveProvider
+  resolveProvider,
+  keyKind,
+  keySuffix,
+  describeProvider,
+  withEnvKeySources
 };

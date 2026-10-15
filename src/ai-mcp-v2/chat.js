@@ -182,7 +182,10 @@ async function answerQuestion({ message, provider, auth, config, deps = {} }) {
     selected = resolveProvider(provider, config);
   } catch (err) {
     if (err.message === "NO_PROVIDER") {
-      throw new AiMcpError("No AI provider is configured.", 503, "provider_not_configured");
+      throw new AiMcpError("No AI provider is configured.", 503, "provider_not_configured", {
+        requestedProvider: provider || null,
+        providersConfigured: []
+      });
     }
     throw err;
   }

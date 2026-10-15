@@ -1,7 +1,7 @@
 const express = require("express");
 const logger = require("../utils/logger");
 const { AiMcpError } = require("./errors");
-const { loadConfig } = require("./config");
+const { loadConfig, configuredProviders, describeProvider, resolveProvider } = require("./config");
 const { TOOLS, executeTool } = require("./tools");
 const { answerQuestion } = require("./chat");
 const { handleMcp } = require("./mcp-http");
@@ -13,8 +13,20 @@ function sendError(res, err) {
   const safeClientMessage = err instanceof AiMcpError
     || (status >= 400 && status < 500 && err.message && !/\b(select|insert|update|delete|prisma)\b/i.test(err.message));
   const message = safeClientMessage ? err.message : "The request could not be completed.";
-  if (status >= 500) logger.error("ai-mcp-v2.request_failed", { code });
-  res.status(status).json({ error: message, code });
+  const details = err.details && typeof err.details === "object" ? err.details : {};
+  if (status >= 500) {
+    logger.error("ai-mcp-v2.request_failed", {
+      code,
+      provider: details.provider || null,
+      model: details.model || null,
+      keySource: details.keySource || null,
+      keyKind: details.keyKind || null,
+      keySuffix: details.keySuffix || null,
+      upstreamStatus: details.upstreamStatus || null,
+      upstreamCode: details.upstreamCode || null
+    });
+  }
+  res.status(status).json({ error: message, code, ...details });
 }
 
 function createRouter(overrides = {}) {
@@ -61,6 +73,25 @@ function createRouter(overrides = {}) {
     };
   }
 
+  router.get("/runtime", secured(async (req, res) => {
+    const requestConfig = await applyOrganizationKeys(config, req.auth);
+    const requested = req.query?.provider ? String(req.query.provider).toLowerCase() : "";
+    let selected = null;
+    try {
+      selected = resolveProvider(requested, requestConfig);
+    } catch {
+      selected = null;
+    }
+    res.json({
+      requested: requested || null,
+      selected,
+      ...describeProvider(requestConfig, selected),
+      providersConfigured: configuredProviders(requestConfig),
+      defaultProvider: requestConfig.defaultProvider,
+      keySources: requestConfig.keySources || {}
+    });
+  }));
+
   router.get("/tools", secured((_req, res) => {
     res.json({
       tools: TOOLS.map((tool) => ({ name: tool.name, description: tool.description }))
@@ -82,7 +113,10 @@ function createRouter(overrides = {}) {
       config: requestConfig,
       deps
     });
-    res.json(result);
+    res.json({
+      ...result,
+      ...describeProvider(requestConfig, result.provider)
+    });
   }));
 
   router.all("/mcp", secured(async (req, res) => {
