@@ -87,7 +87,7 @@ Tools run fixed `SELECT` statements with bound parameters. The server rejects ot
 
 PostgreSQL row-level security is not enabled on these tables. Isolation is enforced by the predicates in this API. The Node process can still hold a read-write `DATABASE_URL`. For a database-level guarantee, create a role that has `SELECT` on the required tables and set `AI_MCP_V2_DATABASE_URL` to that role. The application timeout stops waiting; a role-level `statement_timeout` is what cancels the query on the server.
 
-Months use UTC. The range starts at the first day of the month and ends at the first day of the next month.
+Date ranges use UTC. Supported periods are today, yesterday, this_week, previous_week, this_month, previous_month, this_quarter, this_year, year_to_date, previous_year, all_time, and custom `from`/`to` (YYYY-MM-DD). Job lists return `totalMatched` plus a page (`limit` up to 100, `offset` for the next page). Scope is still only the JWT tenant, branch, and assigned-job rule.
 
 ## Run and test
 

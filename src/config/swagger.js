@@ -1160,7 +1160,7 @@ module.exports = swaggerJsdoc({
       "/api/v2/ai-mcp/tools/{name}": {
         post: {
           summary: "Run one AI MCP v2 tool",
-          description: "Runs a read-only tool for the authenticated tenant and branch. period is this_month or previous_month.",
+          description: "Runs a read-only tool for the authenticated tenant and branch. period includes this_year, previous_year, all_time, months, weeks, and custom from/to.",
           tags: ["AI MCP v2"],
           security: [{ bearerAuth: [] }],
           parameters: [
@@ -1178,6 +1178,7 @@ module.exports = swaggerJsdoc({
                   "branch_report",
                   "attendance_summary",
                   "search_jobs",
+                  "job_status_counts",
                   "job_details"
                 ]
               }
@@ -1190,9 +1191,29 @@ module.exports = swaggerJsdoc({
                 schema: {
                   type: "object",
                   properties: {
-                    period: { type: "string", enum: ["this_month", "previous_month"] },
+                    period: {
+                      type: "string",
+                      enum: [
+                        "today",
+                        "yesterday",
+                        "this_week",
+                        "previous_week",
+                        "this_month",
+                        "previous_month",
+                        "this_quarter",
+                        "this_year",
+                        "year_to_date",
+                        "previous_year",
+                        "all_time",
+                        "custom"
+                      ]
+                    },
+                    from: { type: "string" },
+                    to: { type: "string" },
                     search: { type: "string" },
+                    status: { type: "string" },
                     limit: { type: "integer" },
+                    offset: { type: "integer" },
                     jobId: { type: "integer" }
                   }
                 }

@@ -1,6 +1,6 @@
 const { Prisma } = require("@prisma/client");
 const { AiMcpError } = require("./errors");
-const { monthRange } = require("./range");
+const { resolvePeriod } = require("./range");
 const { money, whole, runReadQuery } = require("./sql");
 
 const NOTES = Object.freeze([
@@ -16,14 +16,29 @@ function assignedSql(scope) {
     : Prisma.sql`j.assignedto = ${scope.userid}`;
 }
 
-function jobDateSql(scope, range) {
+function jobScopeSql(scope) {
   return Prisma.sql`
     j.tenantid = ${scope.tenantid}
     AND j.branchid = ${scope.branchid}
     AND ${assignedSql(scope)}
-    AND j.date IS NOT NULL
-    AND j.date >= ${range.from}
-    AND j.date < ${range.to}
+  `;
+}
+
+function datedColumnSql(kind, range) {
+  if (range?.unbounded) return Prisma.sql`TRUE`;
+  if (kind === "expense") {
+    return Prisma.sql`e.createdat IS NOT NULL AND e.createdat >= ${range.from} AND e.createdat < ${range.to}`;
+  }
+  if (kind === "collection") {
+    return Prisma.sql`c.collectedat IS NOT NULL AND c.collectedat >= ${range.from} AND c.collectedat < ${range.to}`;
+  }
+  return Prisma.sql`j.date IS NOT NULL AND j.date >= ${range.from} AND j.date < ${range.to}`;
+}
+
+function jobDateSql(scope, range) {
+  return Prisma.sql`
+    ${jobScopeSql(scope)}
+    AND ${datedColumnSql("job", range)}
   `;
 }
 
@@ -45,9 +60,7 @@ function expenseStatement(scope, range) {
       AND e.tenantid = ${scope.tenantid}
       AND e.branchid = ${scope.branchid}
       AND ${assignedSql(scope)}
-      AND e.createdat IS NOT NULL
-      AND e.createdat >= ${range.from}
-      AND e.createdat < ${range.to}
+      AND ${datedColumnSql("expense", range)}
   `;
 }
 
@@ -61,8 +74,7 @@ function collectionStatement(scope, range) {
       AND c.tenantid = ${scope.tenantid}
       AND c.branchid = ${scope.branchid}
       AND ${assignedSql(scope)}
-      AND c.collectedat >= ${range.from}
-      AND c.collectedat < ${range.to}
+      AND ${datedColumnSql("collection", range)}
   `;
 }
 
@@ -81,7 +93,7 @@ function attendanceStatement(scope) {
   `;
 }
 
-function searchStatement(scope, literal, limit) {
+function searchFilters(scope, range, literal, statusLiteral) {
   const textFilter = literal
     ? Prisma.sql`AND (
         POSITION(${literal} IN LOWER(COALESCE(j.code, ''))) > 0
@@ -89,15 +101,31 @@ function searchStatement(scope, literal, limit) {
         OR POSITION(${literal} IN LOWER(COALESCE(c.name, ''))) > 0
       )`
     : Prisma.sql``;
+  const statusFilter = statusLiteral
+    ? Prisma.sql`AND POSITION(${statusLiteral} IN LOWER(COALESCE(st.title, ''))) > 0`
+    : Prisma.sql``;
+  return Prisma.sql`
+    ${jobDateSql(scope, range)}
+    ${textFilter}
+    ${statusFilter}
+  `;
+}
+
+function searchStatement(scope, range, literal, statusLiteral, limit, offset) {
   return Prisma.sql`
     SELECT
       j.recno AS job_id,
       j.code,
       j.date,
       j.totalcost,
+      st.title AS status_title,
       c.name AS customer_name,
-      u.name AS technician_name
+      u.name AS technician_name,
+      COUNT(*) OVER()::int AS total_matched
     FROM job j
+    LEFT JOIN jobstatuses st
+      ON st.recno = j.statusid
+      AND st.tenantid = ${scope.tenantid}
     LEFT JOIN customers c
       ON c.customerid = j.customerid
       AND c.tenantid = j.tenantid
@@ -107,12 +135,24 @@ function searchStatement(scope, literal, limit) {
       AND uo.tenantid = ${scope.tenantid}
       AND uo.branchid = ${scope.branchid}
     LEFT JOIN users u ON u.userid = uo.userid
-    WHERE j.tenantid = ${scope.tenantid}
-      AND j.branchid = ${scope.branchid}
-      AND ${assignedSql(scope)}
-      ${textFilter}
+    WHERE ${searchFilters(scope, range, literal, statusLiteral)}
     ORDER BY j.date DESC NULLS LAST, j.recno DESC
     LIMIT ${limit}
+    OFFSET ${offset}
+  `;
+}
+
+function jobStatusCountStatement(scope, range) {
+  return Prisma.sql`
+    SELECT COALESCE(st.title, 'Unknown') AS status_title, COUNT(*)::int AS jobs
+    FROM job j
+    LEFT JOIN jobstatuses st
+      ON st.recno = j.statusid
+      AND st.tenantid = ${scope.tenantid}
+    WHERE ${jobDateSql(scope, range)}
+    GROUP BY st.title
+    ORDER BY jobs DESC, status_title ASC
+    LIMIT 100
   `;
 }
 
@@ -143,10 +183,13 @@ function jobDetailStatement(scope, jobId) {
       AND uo.tenantid = ${scope.tenantid}
       AND uo.branchid = ${scope.branchid}
     LEFT JOIN users u ON u.userid = uo.userid
-    LEFT JOIN jobcollections col
-      ON col.jobid = j.recno
-      AND col.tenantid = ${scope.tenantid}
-      AND col.branchid = ${scope.branchid}
+    LEFT JOIN (
+      SELECT jobid, SUM(amount) AS amount
+      FROM jobcollections
+      WHERE tenantid = ${scope.tenantid}
+        AND branchid = ${scope.branchid}
+      GROUP BY jobid
+    ) col ON col.jobid = j.recno
     LEFT JOIN (
       SELECT jobid, SUM(amount) AS amount
       FROM jobexpenses
@@ -162,12 +205,21 @@ function jobDetailStatement(scope, jobId) {
   `;
 }
 
-function periodOf(args, now) {
-  const period = args?.period || "this_month";
-  if (period !== "this_month" && period !== "previous_month") {
-    throw new AiMcpError("period must be this_month or previous_month.", 400, "invalid_period");
+function periodOf(args, now, fallbackPeriod) {
+  const next = { ...(args || {}) };
+  if (!next.period && !next.from && !next.dateFrom && fallbackPeriod) {
+    next.period = fallbackPeriod;
   }
-  return monthRange(period, now);
+  return resolvePeriod(next, now);
+}
+
+function rangeMeta(range) {
+  return {
+    period: range.period,
+    label: range.label,
+    from: range.fromDate,
+    toExclusive: range.toExclusive
+  };
 }
 
 function searchLiteral(value) {
@@ -190,6 +242,15 @@ function rowLimit(value, maxRows) {
   return Math.min(maxRows, requested);
 }
 
+function rowOffset(value) {
+  if (value == null || value === "") return 0;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0 || number > 1000000) {
+    throw new AiMcpError("offset is invalid.", 400, "invalid_argument");
+  }
+  return number;
+}
+
 async function readOne(db, statement, timeoutMs) {
   const rows = await runReadQuery(db, statement, timeoutMs);
   return rows?.[0] || {};
@@ -209,10 +270,7 @@ async function financialFigures(scope, range, db, timeoutMs) {
     readOne(db, collectionStatement(scope, range), timeoutMs)
   ]);
   return {
-    period: range.period,
-    label: range.label,
-    from: range.from.toISOString().slice(0, 10),
-    toExclusive: range.to.toISOString().slice(0, 10),
+    ...rangeMeta(range),
     amountToCollect: money(jobs.amount),
     jobsInPeriod: whole(jobs.jobs),
     totalExpenses: money(expenses.amount),
@@ -231,9 +289,7 @@ async function totalAmountToCollect(scope, args, db, options) {
   const range = periodOf(args, options.now);
   const row = await readOne(db, amountToCollectStatement(scope, range), options.queryTimeoutMs);
   return {
-    label: range.label,
-    from: range.from.toISOString().slice(0, 10),
-    toExclusive: range.to.toISOString().slice(0, 10),
+    ...rangeMeta(range),
     amountToCollect: money(row.amount),
     jobsInPeriod: whole(row.jobs),
     notes: [NOTES[0], NOTES[3]]
@@ -244,9 +300,7 @@ async function totalExpenses(scope, args, db, options) {
   const range = periodOf(args, options.now);
   const row = await readOne(db, expenseStatement(scope, range), options.queryTimeoutMs);
   return {
-    label: range.label,
-    from: range.from.toISOString().slice(0, 10),
-    toExclusive: range.to.toISOString().slice(0, 10),
+    ...rangeMeta(range),
     totalExpenses: money(row.amount),
     expenseCount: whole(row.rows),
     notes: [NOTES[2], NOTES[3]]
@@ -257,9 +311,7 @@ async function collectionSummary(scope, args, db, options) {
   const range = periodOf(args, options.now);
   const row = await readOne(db, collectionStatement(scope, range), options.queryTimeoutMs);
   return {
-    label: range.label,
-    from: range.from.toISOString().slice(0, 10),
-    toExclusive: range.to.toISOString().slice(0, 10),
+    ...rangeMeta(range),
     cashCollected: money(row.amount),
     collectionCount: whole(row.rows),
     notes: [NOTES[1], NOTES[3]]
@@ -295,18 +347,53 @@ async function attendanceSummary(scope, db, options) {
 }
 
 async function searchJobs(scope, args, db, options) {
+  const range = periodOf(args, options.now, "all_time");
   const literal = searchLiteral(args.search);
+  const statusLiteral = searchLiteral(args.status);
   const limit = rowLimit(args.limit, options.maxRows);
-  const rows = await runReadQuery(db, searchStatement(scope, literal, limit), options.queryTimeoutMs);
+  const offset = rowOffset(args.offset);
+  const rows = await runReadQuery(
+    db,
+    searchStatement(scope, range, literal, statusLiteral, limit, offset),
+    options.queryTimeoutMs
+  );
+  const totalMatched = whole(rows?.[0]?.total_matched);
   return {
+    ...rangeMeta(range),
+    search: literal || null,
+    status: statusLiteral || null,
+    totalMatched,
+    offset,
+    limit,
+    hasMore: offset + (rows || []).length < totalMatched,
     jobs: (rows || []).map((row) => ({
       jobId: whole(row.job_id),
       code: row.code || null,
       date: dated(row.date),
+      status: row.status_title || null,
       totalCost: money(row.totalcost),
       customerName: row.customer_name || null,
       technicianName: row.technician_name || null
-    }))
+    })),
+    notes: [
+      "Rows are the authorized jobs for this token only.",
+      "Use offset with the same filters when hasMore is true. totalMatched is the full authorized count, not this page."
+    ]
+  };
+}
+
+async function jobStatusCounts(scope, args, db, options) {
+  const range = periodOf(args, options.now, "all_time");
+  const rows = await runReadQuery(db, jobStatusCountStatement(scope, range), options.queryTimeoutMs);
+  const statuses = (rows || []).map((row) => ({
+    status: row.status_title || "Unknown",
+    jobs: whole(row.jobs)
+  }));
+  return {
+    ...rangeMeta(range),
+    totalJobs: statuses.reduce((sum, row) => sum + row.jobs, 0),
+    statuses,
+    notes: ["Counts use the same authorized job scope as the job list."]
   };
 }
 
@@ -340,6 +427,7 @@ module.exports = {
   collectionStatement,
   attendanceStatement,
   searchStatement,
+  jobStatusCountStatement,
   jobDetailStatement,
   monthlyFinancialSummary,
   totalAmountToCollect,
@@ -348,5 +436,6 @@ module.exports = {
   branchReport,
   attendanceSummary,
   searchJobs,
+  jobStatusCounts,
   jobDetails
 };

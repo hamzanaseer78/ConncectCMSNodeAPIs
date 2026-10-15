@@ -27,7 +27,7 @@ function loadConfig(env = process.env) {
     defaultProvider,
     timeoutMs: clampInt(env.AI_MCP_V2_TIMEOUT_MS, 1000, 60000, 20000),
     queryTimeoutMs: clampInt(env.AI_MCP_V2_QUERY_TIMEOUT_MS, 100, 30000, 8000),
-    maxRows: clampInt(env.AI_MCP_V2_MAX_ROWS, 1, 25, 20),
+    maxRows: clampInt(env.AI_MCP_V2_MAX_ROWS, 1, 100, 50),
     providers: PROVIDERS,
     keys,
     models: {

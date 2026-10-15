@@ -69,6 +69,14 @@ function providerError(status, details = {}) {
       : "The configured API key was rejected.";
     return new AiMcpError(message, 401, "provider_rejected", extra);
   }
+  if (/usage_limit_exceeded|free trial usage limit/i.test(upstream)) {
+    return new AiMcpError(
+      "The Cursor plan has no remaining Cloud Agent usage. Upgrade at https://www.cursor.com/pricing or use Gemini/Grok for chat.",
+      402,
+      "provider_usage_limit",
+      extra
+    );
+  }
   if (status === 429) {
     return new AiMcpError("The provider rate limit was reached.", 503, "provider_rate_limited", extra);
   }
@@ -327,7 +335,7 @@ function cursorPrompt(messages) {
     messages.find((message) => message.role === "system")?.content || "",
     "You are a no-repo assistant. Do not edit files, run commands, or browse a repository.",
     "When you need authorized business figures, reply with only this JSON shape:",
-    '{"tool_calls":[{"name":"total_expenses","args":{"period":"this_month"}}]}',
+    '{"tool_calls":[{"name":"search_jobs","args":{"period":"this_year","limit":50,"offset":0}}]}',
     "Allowed tools:",
     toolLines,
     "When the tool results are enough, reply in plain text. Do not invent amounts.",
@@ -363,7 +371,18 @@ function parseCursorReply(text) {
 
 async function cursorJson(request, url, options) {
   const response = await request(url, options);
-  if (!response.ok) throw providerError(response.status, { endpoint: url });
+  if (!response.ok) {
+    let body = {};
+    try {
+      body = await response.json();
+    } catch {
+      body = {};
+    }
+    throw providerError(response.status, {
+      endpoint: url,
+      upstreamMessage: sanitizeUpstream(upstreamMessageFromBody(body) || body.error?.code || "")
+    });
+  }
   return response.json();
 }
 
