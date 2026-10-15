@@ -6534,7 +6534,7 @@ module.exports = swaggerJsdoc({
           type: "object",
           required: ["provider", "apiKey"],
           properties: {
-            provider: { type: "string", enum: ["openai", "gemini", "claude", "cursor"], example: "gemini" },
+            provider: { type: "string", enum: ["openai", "gemini", "claude", "cursor", "grok"], example: "gemini" },
             apiKey: { type: "string", description: "Provider API key. Stored encrypted and not returned." }
           }
         },

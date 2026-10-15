@@ -1,4 +1,4 @@
-const PROVIDERS = Object.freeze(["openai", "anthropic", "gemini", "cursor"]);
+const PROVIDERS = Object.freeze(["openai", "anthropic", "gemini", "grok", "cursor"]);
 
 function clampInt(value, min, max, fallback) {
   const number = Number(value);
@@ -7,11 +7,14 @@ function clampInt(value, min, max, fallback) {
 }
 
 function loadConfig(env = process.env) {
+  const rawCursor = String(env.AI_MCP_V2_CURSOR_API_KEY || "");
+  const grokMisfiled = rawCursor.startsWith("grok_") ? rawCursor : "";
   const keys = {
     openai: String(env.AI_MCP_V2_OPENAI_API_KEY || ""),
     anthropic: String(env.AI_MCP_V2_ANTHROPIC_API_KEY || ""),
     gemini: String(env.AI_MCP_V2_GEMINI_API_KEY || env.GEMINI_API_KEY || ""),
-    cursor: String(env.AI_MCP_V2_CURSOR_API_KEY || "")
+    grok: String(env.AI_MCP_V2_GROK_API_KEY || env.XAI_API_KEY || grokMisfiled || ""),
+    cursor: grokMisfiled ? "" : rawCursor
   };
   const requested = String(env.AI_MCP_V2_DEFAULT_PROVIDER || "").trim().toLowerCase();
   const preferred = PROVIDERS.includes(requested) ? requested : "";
@@ -31,6 +34,7 @@ function loadConfig(env = process.env) {
       openai: String(env.AI_MCP_V2_OPENAI_MODEL || "gpt-4o-mini"),
       anthropic: String(env.AI_MCP_V2_ANTHROPIC_MODEL || "claude-sonnet-4-5"),
       gemini: String(env.AI_MCP_V2_GEMINI_MODEL || "gemini-2.5-flash"),
+      grok: String(env.AI_MCP_V2_GROK_MODEL || env.XAI_MODEL || "grok-3"),
       cursor: String(env.AI_MCP_V2_CURSOR_MODEL || env.CURSOR_MODEL || "composer-2.5")
     },
     cursorApiBase: String(env.AI_MCP_V2_CURSOR_API_BASE || env.CURSOR_API_BASE || "https://api.cursor.com"),
@@ -44,7 +48,7 @@ function configuredProviders(config) {
 }
 
 function resolveProvider(requested, config) {
-  const aliases = { claude: "anthropic", chatgpt: "openai" };
+  const aliases = { claude: "anthropic", chatgpt: "openai", xai: "grok" };
   const raw = String(requested || "").trim().toLowerCase();
   const name = aliases[raw] || raw;
   if (name && config.providers.includes(name) && config.keys[name]) return name;

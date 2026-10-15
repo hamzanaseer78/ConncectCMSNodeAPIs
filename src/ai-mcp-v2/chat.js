@@ -1,5 +1,5 @@
 const { AiMcpError } = require("./errors");
-const { resolveProvider } = require("./config");
+const { configuredProviders, resolveProvider } = require("./config");
 const { completeChat } = require("./providers");
 const { TOOLS, executeTool } = require("./tools");
 
@@ -191,14 +191,36 @@ async function answerQuestion({ message, provider, auth, config, deps = {} }) {
     { role: "user", content: text }
   ];
   const tools = [];
+  const retryable = new Set(["provider_unavailable", "provider_rejected", "provider_timeout"]);
+
+  async function completeOrFallback(provider) {
+    try {
+      const response = await completeChat({
+        provider,
+        config,
+        messages,
+        fetchImpl: deps.fetchImpl
+      });
+      return { provider, response };
+    } catch (err) {
+      if (!(err instanceof AiMcpError) || !retryable.has(err.code)) throw err;
+      const next = configuredProviders(config).find((name) => name !== provider && name !== "cursor")
+        || configuredProviders(config).find((name) => name !== provider);
+      if (!next) throw err;
+      const response = await completeChat({
+        provider: next,
+        config,
+        messages,
+        fetchImpl: deps.fetchImpl
+      });
+      return { provider: next, response };
+    }
+  }
 
   for (let round = 0; round < 4; round += 1) {
-    const response = await completeChat({
-      provider: selected,
-      config,
-      messages,
-      fetchImpl: deps.fetchImpl
-    });
+    const completed = await completeOrFallback(selected);
+    selected = completed.provider;
+    const response = completed.response;
     if (response.toolCalls.length) {
       messages.push({ role: "assistant", content: response.text || "", toolCalls: response.toolCalls });
       for (const call of response.toolCalls) {

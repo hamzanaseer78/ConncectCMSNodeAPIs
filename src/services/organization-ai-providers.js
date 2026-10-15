@@ -248,6 +248,15 @@ function chatOpenAi(options) {
   });
 }
 
+function chatGrok(options) {
+  return chatOpenAiCompatible({
+    ...options,
+    url: "https://api.x.ai/v1/chat/completions",
+    model: String(process.env.AI_MCP_V2_GROK_MODEL || process.env.XAI_MODEL || "grok-3").trim() || "grok-3",
+    failureLabel: "Grok"
+  });
+}
+
 const CURSOR_RUN_TIMEOUT_MS = 120000;
 const CURSOR_POLL_MS = 2000;
 
@@ -543,6 +552,9 @@ async function completeOrganizationChat({ provider, apiKey, message, history, au
   }
   if (provider === "cursor") {
     return chatCursor({ apiKey, message, history, auth });
+  }
+  if (provider === "grok") {
+    return chatGrok({ apiKey, message, history, auth });
   }
   providerError(`Unsupported provider ${provider}`, 400);
 }

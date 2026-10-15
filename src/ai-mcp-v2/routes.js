@@ -5,6 +5,7 @@ const { loadConfig } = require("./config");
 const { TOOLS, executeTool } = require("./tools");
 const { answerQuestion } = require("./chat");
 const { handleMcp } = require("./mcp-http");
+const { applyOrganizationKeys } = require("./org-keys");
 
 function sendError(res, err) {
   const status = Number(err.status) || 500;
@@ -73,11 +74,12 @@ function createRouter(overrides = {}) {
 
   router.post("/ask", secured(async (req, res) => {
     const provider = req.body?.provider ? String(req.body.provider).toLowerCase() : undefined;
+    const requestConfig = await applyOrganizationKeys(config, req.auth);
     const result = await answerQuestion({
       message: req.body?.message,
       provider,
       auth: req.auth,
-      config,
+      config: requestConfig,
       deps
     });
     res.json(result);

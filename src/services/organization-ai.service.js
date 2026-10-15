@@ -63,22 +63,22 @@ async function saveSetup(auth, body = {}) {
   const provider = normalizeAiProvider(body.provider);
   const apiKey = String(body.apiKey || body.apikey || body.key || "").trim();
   if (!provider) {
-    httpError("provider must be openai, gemini, claude, or cursor", 400);
-  }
-  if (!apiKey) {
-    httpError("apiKey is required", 400);
+    httpError("provider must be openai, gemini, claude, cursor, or grok", 400);
   }
 
   const now = utcNow();
   const tenantid = Number(auth.tenantid);
+  const existing = await loadSettings(tenantid);
+  if (!apiKey && (!existing?.apikeycipher || existing.provider !== provider)) {
+    httpError("apiKey is required", 400);
+  }
+
   const data = {
     provider,
-    apikeycipher: encryptAiKey(apiKey),
+    apikeycipher: apiKey ? encryptAiKey(apiKey) : existing.apikeycipher,
     lastupdatedby: Number(auth.userid),
     lastupdatedat: now
   };
-
-  const existing = await loadSettings(tenantid);
   if (existing) {
     await prisma.$executeRaw`
       UPDATE organizationaisettings

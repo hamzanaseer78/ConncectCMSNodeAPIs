@@ -313,12 +313,17 @@ async function waitForCursorRun(request, origin, headers, agentId, runId, signal
   throw new AiMcpError("The provider timed out.", 504, "provider_timeout");
 }
 
+function cursorHeaders(config) {
+  const key = String(config.keys.cursor || "");
+  return {
+    "content-type": "application/json",
+    authorization: `Basic ${Buffer.from(`${key}:`, "utf8").toString("base64")}`
+  };
+}
+
 async function completeCursor({ config, messages, request, signal }) {
   const origin = cursorOrigin(config);
-  const headers = {
-    "content-type": "application/json",
-    authorization: `Bearer ${config.keys.cursor}`
-  };
+  const headers = cursorHeaders(config);
   const created = await cursorJson(request, `${origin}/v1/agents`, {
     method: "POST",
     headers,
@@ -329,8 +334,8 @@ async function completeCursor({ config, messages, request, signal }) {
     }),
     signal
   });
-  const agentId = created?.agent?.id;
-  const runId = created?.run?.id;
+  const agentId = created?.agent?.id || created?.id;
+  const runId = created?.run?.id || created?.agent?.latestRunId || created?.latestRunId;
   if (!agentId || !runId) {
     throw new AiMcpError("The selected AI provider is unavailable.", 502, "provider_unavailable");
   }
@@ -403,6 +408,7 @@ async function completeChat({ provider, config, messages, fetchImpl }) {
 
 function requestUrl(provider, config) {
   if (provider === "openai") return "https://api.openai.com/v1/chat/completions";
+  if (provider === "grok") return "https://api.x.ai/v1/chat/completions";
   if (provider === "anthropic") return "https://api.anthropic.com/v1/messages";
   return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.models.gemini)}:generateContent`;
 }
@@ -412,6 +418,12 @@ function requestHeaders(provider, config) {
     return {
       "content-type": "application/json",
       authorization: `Bearer ${config.keys.openai}`
+    };
+  }
+  if (provider === "grok") {
+    return {
+      "content-type": "application/json",
+      authorization: `Bearer ${config.keys.grok}`
     };
   }
   if (provider === "anthropic") {
@@ -430,6 +442,7 @@ function requestHeaders(provider, config) {
 function requestBody(provider, config, messages) {
   if (provider === "anthropic") return anthropicBody(config.models.anthropic, messages, TOOLS);
   if (provider === "gemini") return geminiBody(messages, TOOLS);
+  if (provider === "grok") return openAiBody(config.models.grok, messages, TOOLS);
   return openAiBody(config.models.openai, messages, TOOLS);
 }
 
