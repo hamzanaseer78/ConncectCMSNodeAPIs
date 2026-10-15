@@ -19,37 +19,62 @@ function resolutionDetail(job) {
   return job.jobdetails ?? null;
 }
 
-function resolutionHours(job) {
+function jobClockStart(job) {
   const detail = resolutionDetail(job);
-  if (!detail?.resolvedat) return null;
+  return (
+    detail?.assignedat ??
+    detail?.firstresponseat ??
+    detail?.createdat ??
+    (job?.date ? new Date(job.date) : null)
+  );
+}
 
-  const end = new Date(detail.resolvedat);
-  const startSource =
-    detail.assignedat ??
-    detail.firstresponseat ??
-    detail.createdat ??
-    (job.date ? new Date(job.date) : null);
-
-  if (!startSource || Number.isNaN(end.getTime())) return null;
-
+function hoursBetween(startSource, endSource) {
+  if (!startSource || !endSource) return null;
   const start = new Date(startSource);
-  if (Number.isNaN(start.getTime())) return null;
-
+  const end = new Date(endSource);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
   const hours = (end.getTime() - start.getTime()) / 3600000;
   return hours >= 0 ? hours : null;
 }
 
-function resolutionBucketId(jobOrHours) {
-  const hours = typeof jobOrHours === "number" ? jobOrHours : resolutionHours(jobOrHours);
-  if (hours == null) return null;
+function resolutionHours(job) {
+  const detail = resolutionDetail(job);
+  if (!detail?.resolvedat) return null;
+  return hoursBetween(jobClockStart(job), detail.resolvedat);
+}
 
+function openHours(job, now = new Date()) {
+  const detail = resolutionDetail(job);
+  if (detail?.resolvedat) return null;
+  return hoursBetween(jobClockStart(job), now);
+}
+
+function firstResponseHours(job) {
+  const detail = resolutionDetail(job);
+  if (!detail?.firstresponseat) return null;
+  const start = job?.date ? new Date(job.date) : detail.createdat;
+  return hoursBetween(start, detail.firstresponseat);
+}
+
+function hoursToBucketId(hours) {
+  if (hours == null) return null;
   for (const bucket of RESOLUTION_BUCKETS) {
     if (bucket.maxHours == null || hours <= bucket.maxHours) {
       return bucket.id;
     }
   }
-
   return "over_seven_days";
+}
+
+function resolutionBucketId(jobOrHours) {
+  const hours = typeof jobOrHours === "number" ? jobOrHours : resolutionHours(jobOrHours);
+  return hoursToBucketId(hours);
+}
+
+function openAgingBucketId(jobOrHours, now) {
+  const hours = typeof jobOrHours === "number" ? jobOrHours : openHours(jobOrHours, now);
+  return hoursToBucketId(hours);
 }
 
 function isResolutionBucket(value) {
@@ -74,8 +99,12 @@ module.exports = {
   RESOLUTION_BUCKETS,
   RESOLUTION_BUCKET_IDS,
   resolutionHours,
+  openHours,
+  firstResponseHours,
   resolutionBucketId,
+  openAgingBucketId,
   isResolutionBucket,
   emptyBucketCounts,
-  bucketField
+  bucketField,
+  jobClockStart
 };

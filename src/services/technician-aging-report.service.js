@@ -5,6 +5,7 @@ const { graphqlJobsFilterToQuery } = require("../utils/graphql-jobs-report-filte
 const { GRAPHQL_MAX_PAGE_SIZE } = require("../graphql/pagination");
 const {
   resolutionBucketId,
+  openAgingBucketId,
   emptyBucketCounts,
   bucketField
 } = require("../utils/job-resolution-aging");
@@ -123,6 +124,13 @@ async function listJobIdsForResolutionBucket(where, bucketId) {
   return jobs.filter((job) => resolutionBucketId(job) === bucketId).map((job) => job.recno);
 }
 
+async function listJobIdsForOpenAgingBucket(where, bucketId) {
+  const jobs = await listJobsForAging(where);
+  const now = new Date();
+  return jobs.filter((job) => openAgingBucketId(job, now) === bucketId).map((job) => job.recno);
+}
+
 module.exports = new TechnicianAgingReportService();
 module.exports.listJobIdsForResolutionBucket = listJobIdsForResolutionBucket;
+module.exports.listJobIdsForOpenAgingBucket = listJobIdsForOpenAgingBucket;
 module.exports.listJobsForAging = listJobsForAging;

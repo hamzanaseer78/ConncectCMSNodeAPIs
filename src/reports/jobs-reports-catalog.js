@@ -32,6 +32,105 @@ function buildJobsReportsCatalog() {
       detailDataQuery: "jobsListReport"
     },
     {
+      reportKey: "open_job_aging",
+      title: "Open Job Aging",
+      kind: "summary",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
+      reportKey: "technician_performance",
+      title: "Technician Performance",
+      kind: "summary",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
+      reportKey: "outstanding_collections",
+      title: "Outstanding Collections",
+      kind: "summary",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
+      reportKey: "expenses_by_technician",
+      title: "Expenses by Technician",
+      kind: "summary",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
+      reportKey: "first_response_sla",
+      title: "First Response / SLA",
+      kind: "detail",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
+      reportKey: "on_the_way_on_location",
+      title: "On the Way / On Location",
+      kind: "detail",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
+      reportKey: "cancelled_jobs",
+      title: "Cancelled Jobs",
+      kind: "detail",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
+      reportKey: "repeat_jobs",
+      title: "Repeat Jobs",
+      kind: "summary",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
+      reportKey: "quotation_funnel",
+      title: "Quotation Funnel",
+      kind: "summary",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
+      reportKey: "parts_used",
+      title: "Parts Used on Jobs",
+      kind: "detail",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
+      reportKey: "cpair_aging",
+      title: "C-pair Aging",
+      kind: "cpair",
+      dataQuery: "opsReport",
+      columnsQuery: null,
+      updateColumnsMutation: null,
+      detailDataQuery: "jobsListReport"
+    },
+    {
       reportKey: TECHNICIAN_MONTHLY_BILLS_SUMMARY_KEY,
       title: "Technician Monthly Bills (Summary)",
       kind: "summary",
@@ -102,7 +201,11 @@ function buildJobsReportsCatalog() {
     });
   });
 
-  return items;
+  return items.map((item) => ({
+    ...item,
+    columnsQuery: item.columnsQuery || "",
+    updateColumnsMutation: item.updateColumnsMutation || ""
+  }));
 }
 
 module.exports = {

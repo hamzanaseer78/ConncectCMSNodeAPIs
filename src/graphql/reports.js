@@ -1,5 +1,6 @@
 const jobsListReportService = require("../services/jobs-list-report.service");
 const technicianAgingReportService = require("../services/technician-aging-report.service");
+const opsReportsService = require("../services/ops-reports.service");
 const jobsSummaryReportService = require("../services/jobs-summary-report.service");
 const technicianMonthlyBillsReportService = require("../services/technician-monthly-bills-report.service");
 const jobRevenueReportService = require("../services/job-revenue-report.service");
@@ -94,6 +95,11 @@ type JobsReportDrillDownFilter {
   customerId: Int
   assignedToId: Int
   isInWarranty: Boolean
+  jobId: Int
+  quotationStatus: String
+  resolutionBucket: String
+  openAgingBucket: String
+  assignedToUnassigned: Boolean
 }
 
 type JobsSummaryReportRow {
@@ -504,6 +510,7 @@ input JobsReportFilterInput {
   single_day, three_days, five_days, seven_days, over_seven_days.
   """
   resolutionBucket: String
+  openAgingBucket: String
   assignedToUnassigned: Boolean
 }
 
@@ -520,6 +527,52 @@ type TechnicianAgingReportRow {
 type TechnicianAgingReportResult {
   mode: String!
   data: [TechnicianAgingReportRow!]!
+  pageInfo: PageInfo!
+}
+
+type OpsReportRow {
+  id: String!
+  name: String
+  technicianId: Int
+  technicianName: String
+  customerId: Int
+  customerName: String
+  jobId: Int
+  jobCode: String
+  jobDate: String
+  status: String
+  sessionType: String
+  startedAt: String
+  quotationStatus: String
+  serialNumber: String
+  productName: String
+  qty: Float
+  hours: Float
+  avgResolutionHours: Float
+  assignedJobs: Int
+  resolvedJobs: Int
+  completedJobs: Int
+  cancelledJobs: Int
+  openJobs: Int
+  jobCount: Int
+  singleDay: Int
+  threeDays: Int
+  fiveDays: Int
+  sevenDays: Int
+  overSevenDays: Int
+  amountToCollect: Float
+  collectedAmount: Float
+  outstanding: Float
+  expenses: Float
+  pendingReceiveQty: Int
+  pendingIssueQty: Int
+  drillDownFilter: JobsReportDrillDownFilter
+}
+
+type OpsReportResult {
+  mode: String!
+  reportKey: String!
+  data: [OpsReportRow!]!
   pageInfo: PageInfo!
 }
 `;
@@ -552,6 +605,15 @@ const reportQueryFields = `
     pageSize: Int = 25
     filter: JobsReportFilterInput
   ): TechnicianAgingReportResult!
+  """
+  Operational reports: open aging, technician performance, collections, expenses, SLA, live sessions, cancelled, repeats, quotations, parts, C-pair aging.
+  """
+  opsReport(
+    reportKey: String!
+    page: Int = 1
+    pageSize: Int = 25
+    filter: JobsReportFilterInput
+  ): OpsReportResult!
   """
   Technician monthly bills summary (cash collected vs job expenses by technician).
   """
@@ -693,6 +755,11 @@ function registerReportResolvers(resolvers) {
   resolvers.technicianAgingReport = async (args, context) => {
     const auth = requireAuth(context);
     return technicianAgingReportService.getReport(auth, args);
+  };
+
+  resolvers.opsReport = async (args, context) => {
+    const auth = requireAuth(context);
+    return opsReportsService.getReport(auth, args.reportKey, args);
   };
 
   resolvers.technicianMonthlyBillsSummaryReport = async (args, context) => {

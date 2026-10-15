@@ -3,7 +3,10 @@ const { GRAPHQL_MAX_PAGE_SIZE } = require("../graphql/pagination");
 const { canManageBranchJobs } = require("../utils/job-access");
 const { graphqlJobsFilterToQuery } = require("../utils/graphql-jobs-report-filter");
 const { isResolutionBucket } = require("../utils/job-resolution-aging");
-const { listJobIdsForResolutionBucket } = require("./technician-aging-report.service");
+const {
+  listJobIdsForResolutionBucket,
+  listJobIdsForOpenAgingBucket
+} = require("./technician-aging-report.service");
 const reportColumnsService = require("./report-columns.service");
 const {
   JOBS_LIST_REPORT_KEY,
@@ -48,7 +51,9 @@ class JobsListReportService {
       sortFieldMap: JOBS_LIST_REPORT_SORT_FIELD_MAP
     });
     const bucket = query.resolutionBucket != null ? String(query.resolutionBucket) : "";
+    const openBucket = query.openAgingBucket != null ? String(query.openAgingBucket) : "";
     delete query.resolutionBucket;
+    delete query.openAgingBucket;
     if (bucket) {
       if (!isResolutionBucket(bucket)) {
         const err = new Error(
@@ -59,6 +64,16 @@ class JobsListReportService {
       }
       const where = await service.applyFilters(auth, query);
       query.recnoIn = await listJobIdsForResolutionBucket(where, bucket);
+    } else if (openBucket) {
+      if (!isResolutionBucket(openBucket)) {
+        const err = new Error(
+          "openAgingBucket must be one of: single_day, three_days, five_days, seven_days, over_seven_days"
+        );
+        err.status = 400;
+        throw err;
+      }
+      const where = await service.applyFilters(auth, query);
+      query.recnoIn = await listJobIdsForOpenAgingBucket(where, openBucket);
     }
     query.maxPageSize = GRAPHQL_MAX_PAGE_SIZE;
     const result = await service.list(auth, query);
