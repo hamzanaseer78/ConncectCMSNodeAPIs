@@ -55,6 +55,7 @@ function createRouter(overrides = {}) {
     res.json({
       service: "ai-mcp-v2",
       enabled: true,
+      defaultProvider: config.defaultProvider,
       providersConfigured: config.providers.filter((name) => Boolean(config.keys[name])),
       mcpPath: "mcp",
       clients: ["cursor", "claude.ai"]

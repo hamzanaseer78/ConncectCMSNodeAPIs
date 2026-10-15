@@ -62,8 +62,12 @@ function sanitizeUpstream(value) {
 
 function providerError(status, details = {}) {
   const extra = { upstreamStatus: status, ...details };
-  if (status === 401 || status === 403) {
-    return new AiMcpError("The configured API key was rejected.", 502, "provider_rejected", extra);
+  const upstream = String(extra.upstreamMessage || "");
+  if (status === 401 || status === 403 || /incorrect api key/i.test(upstream)) {
+    const message = /incorrect api key/i.test(upstream)
+      ? "The Grok (xAI) API key is invalid. Create a key at https://console.x.ai and save it in AI Setup."
+      : "The configured API key was rejected.";
+    return new AiMcpError(message, 401, "provider_rejected", extra);
   }
   if (status === 429) {
     return new AiMcpError("The provider rate limit was reached.", 503, "provider_rate_limited", extra);
@@ -458,6 +462,7 @@ function grokModels(config) {
 
 function upstreamMessageFromBody(body) {
   if (!body || typeof body !== "object") return "";
+  if (typeof body.error === "string") return body.error;
   return body.error?.message || body.error?.type || body.message || body.code || "";
 }
 
@@ -515,7 +520,8 @@ async function completeChat({ provider, config, messages, fetchImpl }) {
         attemptConfig,
         provider
       );
-      if (provider !== "grok" || (response.status !== 404 && response.status !== 400)) {
+      const upstream = String(lastError.details?.upstreamMessage || "");
+      if (provider !== "grok" || (response.status !== 404 && response.status !== 400) || /incorrect api key/i.test(upstream)) {
         throw lastError;
       }
     }
