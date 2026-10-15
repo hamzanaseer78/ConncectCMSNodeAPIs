@@ -121,6 +121,58 @@ function openAiMessages(messages) {
   });
 }
 
+function grokParameters(schema) {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return { type: "object", properties: {} };
+  }
+  const unsupported = new Set([
+    "additionalProperties",
+    "maxLength",
+    "minLength",
+    "minimum",
+    "maximum",
+    "minItems",
+    "maxItems",
+    "minContains",
+    "maxContains",
+    "exclusiveMinimum",
+    "exclusiveMaximum"
+  ]);
+  const next = {};
+  Object.entries(schema).forEach(([key, value]) => {
+    if (unsupported.has(key)) return;
+    if (key === "properties" && value && typeof value === "object" && !Array.isArray(value)) {
+      const properties = {};
+      Object.entries(value).forEach(([name, property]) => {
+        properties[name] = grokParameters(property);
+      });
+      next.properties = properties;
+      return;
+    }
+    next[key] = value;
+  });
+  if (!next.type && (next.properties || schema.type === "object")) next.type = "object";
+  if (next.type === "object" && next.properties && !Object.keys(next.properties).length) {
+    delete next.properties;
+  }
+  return next;
+}
+
+function grokBody(model, messages, tools) {
+  return {
+    model,
+    messages: openAiMessages(messages),
+    tools: tools.map((tool) => ({
+      type: "function",
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: grokParameters(tool.parameters)
+      }
+    }))
+  };
+}
+
 function openAiBody(model, messages, tools) {
   return {
     model,
@@ -398,10 +450,9 @@ function parseGemini(payload) {
 function grokModels(config) {
   return [...new Set([
     config.models?.grok,
-    "grok-3",
-    "grok-3-mini",
     "grok-4",
-    "grok-2-1212"
+    "grok-3",
+    "grok-3-mini"
   ].filter(Boolean))];
 }
 
@@ -531,7 +582,7 @@ function requestHeaders(provider, config) {
 function requestBody(provider, config, messages) {
   if (provider === "anthropic") return anthropicBody(config.models.anthropic, messages, TOOLS);
   if (provider === "gemini") return geminiBody(messages, TOOLS);
-  if (provider === "grok") return openAiBody(config.models.grok, messages, TOOLS);
+  if (provider === "grok") return grokBody(config.models.grok, messages, TOOLS);
   return openAiBody(config.models.openai, messages, TOOLS);
 }
 
@@ -540,5 +591,7 @@ module.exports = {
   parseOpenAi,
   parseAnthropic,
   parseGemini,
-  providerError
+  providerError,
+  grokParameters,
+  grokBody
 };

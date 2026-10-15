@@ -252,7 +252,7 @@ function chatGrok(options) {
   return chatOpenAiCompatible({
     ...options,
     url: "https://api.x.ai/v1/chat/completions",
-    model: String(process.env.AI_MCP_V2_GROK_MODEL || process.env.XAI_MODEL || "grok-3").trim() || "grok-3",
+    model: String(process.env.AI_MCP_V2_GROK_MODEL || process.env.XAI_MODEL || "grok-4").trim() || "grok-4",
     failureLabel: "Grok"
   });
 }

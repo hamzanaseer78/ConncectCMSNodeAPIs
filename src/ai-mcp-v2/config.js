@@ -34,7 +34,7 @@ function loadConfig(env = process.env) {
       openai: String(env.AI_MCP_V2_OPENAI_MODEL || "gpt-4o-mini"),
       anthropic: String(env.AI_MCP_V2_ANTHROPIC_MODEL || "claude-sonnet-4-5"),
       gemini: String(env.AI_MCP_V2_GEMINI_MODEL || "gemini-2.5-flash"),
-      grok: String(env.AI_MCP_V2_GROK_MODEL || env.XAI_MODEL || "grok-3"),
+      grok: String(env.AI_MCP_V2_GROK_MODEL || env.XAI_MODEL || "grok-4"),
       cursor: String(env.AI_MCP_V2_CURSOR_MODEL || env.CURSOR_MODEL || "composer-2.5")
     },
     cursorApiBase: String(env.AI_MCP_V2_CURSOR_API_BASE || env.CURSOR_API_BASE || "https://api.cursor.com"),
