@@ -8,8 +8,8 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "start": "node api.js && node src/server.js",
+    "dev": "node api.js && nodemon src/server.js",
     "build": "npm run clean && npm run db:generate && npm run check && npm run optimize",
     "optimize": "node scripts/optimize.js",
     "check": "node scripts/check-syntax.js",

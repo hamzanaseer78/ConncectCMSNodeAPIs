@@ -198,6 +198,8 @@ module.exports = {
   JOB_STATS_KPI_LABELS,
   buildJobStatusKpiContext,
   buildJobKpiWhere,
+  buildNotInTerminalStatusesWhere,
+  buildNotCompletedStatusWhere,
   buildNewJobsWhere,
   buildAssignedJobsWhere,
   buildResolvedJobsWhere,
