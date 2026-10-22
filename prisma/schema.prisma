@@ -1816,3 +1816,12 @@ model organizationaisettings {
 
   @@index([tenantid], map: "idx_organizationaisettings_tenantid")
 }
+
+model organizationaiusage {
+  recno    Int      @id @default(autoincrement())
+  tenantid Int
+  userid   Int
+  askedat  DateTime @db.Timestamp(6)
+
+  @@index([tenantid, askedat], map: "idx_organizationaiusage_tenant_askedat")
+}

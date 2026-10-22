@@ -2,133 +2,32 @@ const { z } = require("zod");
 const logger = require("../utils/logger");
 const { AiMcpError } = require("./errors");
 const { sanitizeArgs, resolveAccess } = require("./scope");
-const { PERIODS } = require("./range");
-const queries = require("./queries");
-
-const periodShape = {
-  period: z.enum(PERIODS).optional(),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
-};
-
-const periodProperties = {
-  period: { type: "string", enum: [...PERIODS] },
-  from: { type: "string", description: "Inclusive start date YYYY-MM-DD for period=custom" },
-  to: { type: "string", description: "Inclusive end date YYYY-MM-DD for period=custom" }
-};
+const { inspectSchema } = require("./schema-catalog");
+const { runAuthorizedSelect } = require("./execute-select");
 
 const TOOLS = Object.freeze([
   {
-    name: "monthly_financial_summary",
-    description: "Amount to collect, cash collected, and expenses for the authenticated branch in any period (this_year, previous_year, custom from/to, all_time, months, weeks). Amount to collect is job cost, not money received, and the figures are not profit.",
-    zod: periodShape,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: periodProperties
-    },
-    run: queries.monthlyFinancialSummary
-  },
-  {
-    name: "total_amount_to_collect",
-    description: "Sum of job.totalcost for jobs dated in the period, including yearly and custom ranges. This is amount to collect, not cash collected.",
-    zod: periodShape,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: periodProperties
-    },
-    run: queries.totalAmountToCollect
-  },
-  {
-    name: "total_expenses",
-    description: "Sum of jobexpenses.amount whose createdat falls in the period for the authenticated branch. Supports yearly and custom ranges.",
-    zod: periodShape,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: periodProperties
-    },
-    run: queries.totalExpenses
-  },
-  {
-    name: "collection_summary",
-    description: "Sum of jobcollections.amount whose collectedat falls in the period. This is cash collected. Supports yearly and custom ranges.",
-    zod: periodShape,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: periodProperties
-    },
-    run: queries.collectionSummary
-  },
-  {
-    name: "branch_report",
-    description: "Job count, amount to collect, cash collected, and expenses for the authenticated branch only, for any supported period.",
-    zod: periodShape,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: periodProperties
-    },
-    run: queries.branchReport
-  },
-  {
-    name: "attendance_summary",
-    description: "Open attendance session counts for the authenticated branch. No open session is not an absence.",
+    name: "inspect_schema",
+    description: "List authorized tables and columns for the signed-in tenant and branch. Use this before writing SQL.",
     zod: {},
     parameters: { type: "object", additionalProperties: false, properties: {} },
-    run: (scope, _args, db, options) => queries.attendanceSummary(scope, db, options)
+    run: async (scope) => inspectSchema(scope)
   },
   {
-    name: "search_jobs",
-    description: "List authorized jobs for this token. Filter by period (this_year, all_time, custom from/to, and others), customer or job-code search, and status title. Returns totalMatched plus a page; use offset when hasMore is true. Never invent jobs outside the result.",
+    name: "run_select",
+    description: "Run one read-only SELECT against authorized tables. The server applies tenant, branch, and assignee restrictions. Do not put tenantid, branchid, or userid in the SQL. Return only SELECT/WITH queries.",
     zod: {
-      ...periodShape,
-      search: z.string().max(80).optional(),
-      status: z.string().max(80).optional(),
-      limit: z.number().int().positive().max(100).optional(),
-      offset: z.number().int().min(0).max(1000000).optional()
+      sql: z.string().min(1).max(8000)
     },
     parameters: {
       type: "object",
       additionalProperties: false,
+      required: ["sql"],
       properties: {
-        ...periodProperties,
-        search: { type: "string", maxLength: 80 },
-        status: { type: "string", maxLength: 80, description: "Status title fragment, for example completed" },
-        limit: { type: "integer", minimum: 1, maximum: 100 },
-        offset: { type: "integer", minimum: 0 }
+        sql: { type: "string", description: "A single PostgreSQL SELECT or WITH query." }
       }
     },
-    run: queries.searchJobs
-  },
-  {
-    name: "job_status_counts",
-    description: "Count authorized jobs grouped by status title for the period, including yearly and all_time.",
-    zod: periodShape,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: periodProperties
-    },
-    run: queries.jobStatusCounts
-  },
-  {
-    name: "job_details",
-    description: "One job in the authenticated branch, including its cost, cash collected, and expenses. Missing or out-of-scope jobs are not returned.",
-    zod: {
-      jobId: z.number().int().positive()
-    },
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["jobId"],
-      properties: {
-        jobId: { type: "integer", minimum: 1 }
-      }
-    },
-    run: queries.jobDetails
+    run: (scope, args, db, options) => runAuthorizedSelect(db, args.sql, scope, options)
   }
 ]);
 
@@ -154,7 +53,7 @@ async function executeTool(name, args, auth, deps = {}) {
     throw new AiMcpError("That tool is not available.", 404, "unknown_tool");
   }
   const scope = await resolveAccess(auth, deps);
-  const clean = sanitizeArgs(args);
+  const clean = name === "run_select" ? { sql: String(args?.sql || "") } : sanitizeArgs(args);
   const options = {
     now: deps.now || new Date(),
     queryTimeoutMs: deps.queryTimeoutMs || 8000,
@@ -171,5 +70,6 @@ async function executeTool(name, args, auth, deps = {}) {
 
 module.exports = {
   TOOLS,
-  executeTool
+  executeTool,
+  databaseFor
 };

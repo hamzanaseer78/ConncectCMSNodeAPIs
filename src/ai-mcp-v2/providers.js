@@ -335,7 +335,7 @@ function cursorPrompt(messages) {
     messages.find((message) => message.role === "system")?.content || "",
     "You are a no-repo assistant. Do not edit files, run commands, or browse a repository.",
     "When you need authorized business figures, reply with only this JSON shape:",
-    '{"tool_calls":[{"name":"search_jobs","args":{"period":"this_year","limit":50,"offset":0}}]}',
+    '{"tool_calls":[{"name":"inspect_schema","args":{}}]}',
     "Allowed tools:",
     toolLines,
     "When the tool results are enough, reply in plain text. Do not invent amounts.",

@@ -20,6 +20,16 @@ async function saveAiSetup(req, res, next) {
   }
 }
 
+async function deleteAiSetup(req, res, next) {
+  try {
+    const data = await organizationAiService.deleteSetup(req.auth);
+    res.status(200).json(data);
+  } catch (err) {
+    if (err.status) err.statusCode = err.status;
+    next(err);
+  }
+}
+
 async function askAi(req, res, next) {
   try {
     const data = await organizationAiService.ask(req.auth, req.body || {});
@@ -42,5 +52,6 @@ async function askAi(req, res, next) {
 module.exports = {
   getAiSetup,
   saveAiSetup,
+  deleteAiSetup,
   askAi
 };

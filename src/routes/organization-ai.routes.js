@@ -8,6 +8,7 @@ router.use(authenticateJwt);
 
 router.get("/setup", organizationAiController.getAiSetup);
 router.put("/setup", organizationAiController.saveAiSetup);
+router.delete("/setup/key", organizationAiController.deleteAiSetup);
 router.post("/chat", organizationAiController.askAi);
 
 module.exports = router;
