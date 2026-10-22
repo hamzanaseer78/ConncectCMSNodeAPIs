@@ -75,8 +75,9 @@ async function answerQuestion({ message, provider, auth, config, deps = {} }) {
       return { provider: current, response };
     } catch (err) {
       if (!(err instanceof AiMcpError) || !retryable.has(err.code)) throw err;
-      const next = configuredProviders(config).find((name) => name !== current && name !== "cursor")
-        || configuredProviders(config).find((name) => name !== current);
+      const next = configuredProviders(config).find((name) => (
+        name !== current && name !== "cursor" && config.keySources?.[name] === "organization"
+      )) || configuredProviders(config).find((name) => name !== current && name !== "cursor");
       if (!next) throw err;
       const response = await completeChat({
         provider: next,

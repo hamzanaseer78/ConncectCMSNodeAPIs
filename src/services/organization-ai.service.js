@@ -61,8 +61,11 @@ async function getSetup(auth) {
 
 async function saveSetup(auth, body = {}) {
   await ensureAdmin(auth);
-  const provider = normalizeAiProvider(body.provider);
   const apiKey = String(body.apiKey || body.apikey || body.key || "").trim();
+  let provider = normalizeAiProvider(body.provider);
+  if (apiKey.startsWith("grok_") || apiKey.startsWith("xai-")) {
+    provider = "grok";
+  }
   if (!provider) {
     httpError("provider must be openai, gemini, claude, cursor, or grok", 400);
   }

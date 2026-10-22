@@ -1,6 +1,7 @@
 const prisma = require("../database/prisma");
 const { decryptAiKey } = require("../utils/ai-key-cipher");
 const { withEnvKeySources } = require("./config");
+const logger = require("../utils/logger");
 
 function toV2Provider(name) {
   const value = String(name || "").trim().toLowerCase();
@@ -25,7 +26,7 @@ async function applyOrganizationKeys(config, auth) {
     let provider = toV2Provider(row.provider);
     const key = decryptAiKey(row.apikeycipher);
     if (!provider || !key) return base;
-    if (key.startsWith("grok_") && provider === "cursor") {
+    if ((key.startsWith("grok_") || key.startsWith("xai-")) && provider !== "grok") {
       provider = "grok";
     }
     return {
@@ -40,7 +41,8 @@ async function applyOrganizationKeys(config, auth) {
         [provider]: "organization"
       }
     };
-  } catch {
+  } catch (err) {
+    logger.error("ai-mcp-v2.org_keys_failed", { code: err.code || err.name || "org_keys_failed" });
     return base;
   }
 }

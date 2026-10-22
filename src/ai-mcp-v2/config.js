@@ -48,10 +48,17 @@ function configuredProviders(config) {
   return config.providers.filter((name) => config.keys[name]);
 }
 
+function organizationProvider(config) {
+  const sources = config?.keySources || {};
+  return (config?.providers || []).find((name) => sources[name] === "organization" && config.keys?.[name]) || null;
+}
+
 function resolveProvider(requested, config) {
   const aliases = { claude: "anthropic", chatgpt: "openai", xai: "grok" };
   const raw = String(requested || "").trim().toLowerCase();
   const name = aliases[raw] || raw;
+  const org = organizationProvider(config);
+  if (org) return org;
   if (name && config.providers.includes(name) && config.keys[name]) return name;
   const available = configuredProviders(config);
   if (available.includes(config.defaultProvider)) return config.defaultProvider;
@@ -62,7 +69,7 @@ function resolveProvider(requested, config) {
 function keyKind(key) {
   const value = String(key || "");
   if (!value) return "none";
-  if (value.startsWith("grok_")) return "grok";
+  if (value.startsWith("grok_") || value.startsWith("xai-")) return "grok";
   if (value.startsWith("crsr_")) return "cursor";
   if (value.startsWith("AIza")) return "gemini";
   if (value.startsWith("sk-")) return "openai";
@@ -107,6 +114,7 @@ module.exports = {
   PROVIDERS,
   loadConfig,
   configuredProviders,
+  organizationProvider,
   resolveProvider,
   keyKind,
   keySuffix,
