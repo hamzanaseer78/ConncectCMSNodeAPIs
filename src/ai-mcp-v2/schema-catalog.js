@@ -39,10 +39,10 @@ const TABLES = Object.freeze([
   },
   {
     name: "userattendancesession",
-    columns: ["recno", "tenantid", "branchid", "userid", "status", "isopen", "checkintime"],
+    columns: ["recno", "tenantid", "branchid", "userid", "status", "isopen", "checkinat"],
     sql(scope) {
       const who = scope.manageBranch ? "TRUE" : `userid = ${scope.userid}`;
-      return `SELECT recno, tenantid, branchid, userid, status, isopen, checkintime FROM public.userattendancesession WHERE tenantid = ${scope.tenantid} AND branchid = ${scope.branchid} AND ${who}`;
+      return `SELECT recno, tenantid, branchid, userid, status, isopen, checkinat FROM public.userattendancesession WHERE tenantid = ${scope.tenantid} AND branchid = ${scope.branchid} AND ${who}`;
     }
   },
   {
@@ -82,8 +82,11 @@ function inspectSchema(scope) {
   };
 }
 
-function authorizedWithSql(scope) {
-  return TABLES.map((table) => `"${table.name}" AS (${table.sql(scope)})`).join(",\n");
+function authorizedWithSql(scope, names) {
+  const wanted = Array.isArray(names) && names.length
+    ? TABLES.filter((table) => names.includes(table.name))
+    : TABLES;
+  return wanted.map((table) => `"${table.name}" AS (${table.sql(scope)})`).join(",\n");
 }
 
 module.exports = {

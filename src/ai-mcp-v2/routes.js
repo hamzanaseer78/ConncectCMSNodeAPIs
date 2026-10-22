@@ -8,12 +8,13 @@ const { handleMcp } = require("./mcp-http");
 const { applyOrganizationKeys } = require("./org-keys");
 
 function sendError(res, err) {
-  const status = Number(err.status) || 500;
-  const code = err.code || (status === 401 ? "unauthorized" : "error");
-  const safeClientMessage = err instanceof AiMcpError
-    || (status >= 400 && status < 500 && err.message && !/\b(select|insert|update|delete|prisma)\b/i.test(err.message));
+  const prismaCode = typeof err.code === "string" && /^P\d{4}$/.test(err.code);
+  const status = prismaCode ? 500 : (Number(err.status) || 500);
+  const code = prismaCode ? "query_failed" : (err.code || (status === 401 ? "unauthorized" : "error"));
+  const safeClientMessage = !prismaCode && (err instanceof AiMcpError
+    || (status >= 400 && status < 500 && err.message && !/\b(select|insert|update|delete|prisma)\b/i.test(err.message)));
   const message = safeClientMessage ? err.message : "The request could not be completed.";
-  const details = err.details && typeof err.details === "object" ? err.details : {};
+  const details = !prismaCode && err.details && typeof err.details === "object" ? err.details : {};
   if (status >= 500) {
     logger.error("ai-mcp-v2.request_failed", {
       code,

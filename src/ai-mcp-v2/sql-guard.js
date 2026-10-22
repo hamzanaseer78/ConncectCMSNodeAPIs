@@ -154,15 +154,22 @@ function wrapAuthorizedSelect(sql, scope, maxRows) {
     throw new AiMcpError("Authenticated tenant, branch, and user are required.", 403, "scope_required");
   }
   const safe = assertSafeSelect(sql);
-  const ctes = authorizedWithSql({
+  const cteNames = extractCteNames(safe);
+  const needed = [...new Set(
+    extractTables(safe).filter((name) => TABLE_BY_NAME.has(name) && !cteNames.has(name))
+  )];
+  const scopeSql = {
     tenantid,
     branchid,
     userid,
     manageBranch: Boolean(scope.manageBranch)
-  });
-  const inner = /^with\b/i.test(safe)
-    ? `WITH ${ctes},\n${safe.replace(/^with\s+/i, "")}`
-    : `WITH ${ctes}\n${safe}`;
+  };
+  const ctes = needed.length ? authorizedWithSql(scopeSql, needed) : "";
+  const inner = ctes
+    ? (/^with\b/i.test(safe)
+      ? `WITH ${ctes},\n${safe.replace(/^with\s+/i, "")}`
+      : `WITH ${ctes}\n${safe}`)
+    : safe;
   const limit = Math.min(Math.max(Number(maxRows) || 50, 1), 200);
   return `SELECT * FROM (\n${inner}\n) AS __cms_q LIMIT ${limit}`;
 }

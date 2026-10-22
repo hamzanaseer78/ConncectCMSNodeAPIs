@@ -35,7 +35,13 @@ async function answerQuestion({ message, provider, auth, config, deps = {} }) {
 
   const db = databaseFor(deps);
   const orgKey = Boolean(config?.keySources && Object.values(config.keySources).includes("organization"));
-  const quota = await beginQuota(db, auth, orgKey, deps.now || new Date());
+  let quota;
+  try {
+    quota = await beginQuota(db, auth, orgKey, deps.now || new Date());
+  } catch (err) {
+    if (err instanceof AiMcpError) throw err;
+    throw new AiMcpError("The request could not be completed.", 500, "query_failed");
+  }
 
   let selected;
   try {
