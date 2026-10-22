@@ -3,6 +3,7 @@ const {
   formatNarrativeDates,
   formatNumber
 } = require("./format-values");
+const { headingFor } = require("./column-labels");
 
 const ALLOWED_TAGS = new Set([
   "h1", "h2", "h3", "p", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td",
@@ -61,11 +62,22 @@ function cell(value, column) {
   return escapeHtml(formatted.text);
 }
 
-function tableHtml(rows) {
+function resolveColumns(rows, columns, sourceTable) {
+  if (Array.isArray(columns) && columns.length) {
+    return columns.filter((column) => column && column.label);
+  }
+  return Object.keys(rows[0] || {}).map((key) => {
+    const label = headingFor(key, { sourceTable });
+    return label ? { key, label } : null;
+  }).filter(Boolean);
+}
+
+function tableHtml(rows, columns, sourceTable) {
   if (!rows.length) return "";
-  const columns = Object.keys(rows[0]);
-  const head = columns.map((col) => `<th>${escapeHtml(col)}</th>`).join("");
-  const body = rows.map((row) => `<tr>${columns.map((col) => `<td>${cell(row[col], col)}</td>`).join("")}</tr>`).join("");
+  const cols = resolveColumns(rows, columns, sourceTable);
+  if (!cols.length) return "";
+  const head = cols.map((col) => `<th>${escapeHtml(col.label)}</th>`).join("");
+  const body = rows.map((row) => `<tr>${cols.map((col) => `<td>${cell(row[col.key], col.key)}</td>`).join("")}</tr>`).join("");
   return `<div class="cms-ai-table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
@@ -88,7 +100,7 @@ function wantsChart(question, rows) {
   return asked || (rows.length >= 2 && rows.length <= 24 && distinct > 1);
 }
 
-function chartHtml(rows) {
+function chartHtml(rows, columns, sourceTable) {
   if (!rows.length) return "";
   const valueKey = numericKey(rows);
   if (!valueKey) return "";
@@ -126,7 +138,7 @@ function dedupeRepeatedTables(html) {
   });
 }
 
-function buildHtml({ question, narrative, rows, includeEmptyNotice = true }) {
+function buildHtml({ question, narrative, rows, columns, sourceTable, includeEmptyNotice = true }) {
   const data = Array.isArray(rows) ? rows : [];
   const explanation = formatNarrativeDates(stripVisualBlocks(narrative));
   const heading = `<h2>${escapeHtml(question || "Results")}</h2>`;
@@ -139,8 +151,8 @@ function buildHtml({ question, narrative, rows, includeEmptyNotice = true }) {
       : "";
     return dedupeRepeatedTables(["<section class=\"cms-ai-report\">", heading, story, empty, "</section>"].filter(Boolean).join(""));
   }
-  const chart = wantsChart(question, data) ? chartHtml(data) : "";
-  const table = tableHtml(data);
+  const chart = wantsChart(question, data) ? chartHtml(data, columns, sourceTable) : "";
+  const table = tableHtml(data, columns, sourceTable);
   return dedupeRepeatedTables([
     "<section class=\"cms-ai-report\">",
     heading,

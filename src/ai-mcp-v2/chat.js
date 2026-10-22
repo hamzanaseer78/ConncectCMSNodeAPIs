@@ -25,9 +25,8 @@ function toolMessage(call, content) {
   };
 }
 
-function lastSelectRows(tools) {
-  const run = [...tools].reverse().find((tool) => tool.name === "run_select" && Array.isArray(tool.result?.rows));
-  return Array.isArray(run?.result?.rows) ? run.result.rows : [];
+function lastSelect(tools) {
+  return [...tools].reverse().find((tool) => tool.name === "run_select" && Array.isArray(tool.result?.rows)) || null;
 }
 
 async function answerQuestion({ message, provider, auth, config, deps = {} }) {
@@ -117,7 +116,8 @@ async function answerQuestion({ message, provider, auth, config, deps = {} }) {
         }
         continue;
       }
-      const rows = lastSelectRows(tools);
+      const select = lastSelect(tools);
+      const rows = Array.isArray(select?.result?.rows) ? select.result.rows : [];
       const ranSelect = tools.some((tool) => tool.name === "run_select" && !tool.result?.error);
       if (!tools.length) {
         throw new AiMcpError(
@@ -130,6 +130,8 @@ async function answerQuestion({ message, provider, auth, config, deps = {} }) {
         question: text,
         narrative: sanitizeHtml(response.text) || response.text,
         rows,
+        columns: select?.result?.columns,
+        sourceTable: select?.result?.sourceTable,
         includeEmptyNotice: ranSelect
       });
       return {

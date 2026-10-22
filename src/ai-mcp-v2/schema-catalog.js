@@ -1,10 +1,12 @@
-const TABLES = Object.freeze([
+const { CATALOG } = require("./prisma-relations");
+
+const CORE_TABLES = [
   {
     name: "job",
-    columns: ["recno", "tenantid", "branchid", "code", "date", "assignedto", "followupby", "customerid", "statusid", "priority", "totalcost", "complaintby", "iscompleted", "isresolved", "manualjobno", "quotationstatus", "city", "area", "groupid", "serviceid", "faultid"],
+    columns: ["recno", "tenantid", "branchid", "code", "date", "assignedto", "followupby", "customerid", "statusid", "priority", "totalcost", "complaintby", "iscompleted", "isresolved", "manualjobno", "quotationstatus", "city", "area", "groupid", "serviceid", "faultid", "brandid", "jobtypeid", "jobsourceid", "erpproductid"],
     sql(scope) {
       const assigned = scope.manageBranch ? "TRUE" : `assignedto = ${scope.userid}`;
-      return `SELECT recno, tenantid, branchid, code, date, assignedto, followupby, customerid, statusid, priority, totalcost, complaintby, iscompleted, isresolved, manualjobno, quotationstatus, city, area, groupid, serviceid, faultid FROM public.job WHERE tenantid = ${scope.tenantid} AND branchid = ${scope.branchid} AND ${assigned}`;
+      return `SELECT recno, tenantid, branchid, code, date, assignedto, followupby, customerid, statusid, priority, totalcost, complaintby, iscompleted, isresolved, manualjobno, quotationstatus, city, area, groupid, serviceid, faultid, brandid, jobtypeid, jobsourceid, erpproductid FROM public.job WHERE tenantid = ${scope.tenantid} AND branchid = ${scope.branchid} AND ${assigned}`;
     }
   },
   {
@@ -66,7 +68,41 @@ const TABLES = Object.freeze([
       return `SELECT branchid, tenantid, name FROM public.branches WHERE tenantid = ${scope.tenantid} AND branchid = ${scope.branchid}`;
     }
   }
-]);
+];
+
+function lookupSql(model, scope) {
+  const pk = model.idField;
+  const display = model.displayFields[0] || "name";
+  const extras = [];
+  if (model.hasTenantid) extras.push("tenantid");
+  if (model.hasBranchid) extras.push("branchid");
+  const columns = [pk, display, ...extras].filter((name, index, list) => name && list.indexOf(name) === index);
+  const where = [];
+  if (model.hasTenantid) where.push(`tenantid = ${scope.tenantid}`);
+  if (model.hasBranchid) where.push(`branchid = ${scope.branchid}`);
+  const filter = where.length ? ` WHERE ${where.join(" AND ")}` : "";
+  return `SELECT ${columns.join(", ")} FROM public.${model.name}${filter}`;
+}
+
+function lookupTables() {
+  const have = new Set(CORE_TABLES.map((table) => table.name));
+  const extra = [];
+  CATALOG.models.forEach((model) => {
+    if (have.has(model.name)) return;
+    const targeted = CATALOG.relations.some((relation) => relation.targetTable === model.name);
+    if (!targeted || !model.idField || !model.displayFields.length) return;
+    extra.push({
+      name: model.name,
+      columns: [model.idField, ...model.displayFields],
+      sql(scope) {
+        return lookupSql(model, scope);
+      }
+    });
+  });
+  return extra;
+}
+
+const TABLES = Object.freeze([...CORE_TABLES, ...lookupTables()]);
 
 const TABLE_BY_NAME = new Map(TABLES.map((table) => [table.name, table]));
 

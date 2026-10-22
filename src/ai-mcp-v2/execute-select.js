@@ -2,6 +2,7 @@ const { Prisma } = require("@prisma/client");
 const { AiMcpError } = require("./errors");
 const { wrapAuthorizedSelect } = require("./sql-guard");
 const { inspectSchema } = require("./schema-catalog");
+const { enrichRows } = require("./result-enrichment");
 
 function serializeRows(rows, maxRows) {
   const list = Array.isArray(rows) ? rows.slice(0, maxRows) : [];
@@ -37,10 +38,18 @@ async function runAuthorizedSelect(db, sql, scope, options = {}) {
   try {
     const rows = await Promise.race([run(), timeout]);
     const data = serializeRows(rows, maxRows);
+    let enriched = { rows: data, rawRows: data, columns: [], sourceTable: null };
+    try {
+      enriched = await enrichRows(db, data, scope, options);
+    } catch {
+      enriched = { rows: data, rawRows: data, columns: [], sourceTable: null };
+    }
     return {
       rowCount: data.length,
       truncated: Array.isArray(rows) && rows.length > maxRows,
-      rows: data
+      rows: enriched.rows,
+      columns: enriched.columns,
+      sourceTable: enriched.sourceTable
     };
   } catch (err) {
     if (err instanceof AiMcpError) throw err;

@@ -163,6 +163,7 @@ model branches {
   faceapprovalrequests                faceapprovalrequests[]
   jobquotationsettings                jobquotationsettings[]
   jobformsettings                     jobformsettings[]
+  jobcardtemplates                    jobcardtemplates[]
   jobcodesettings                     jobcodesettings[]
   jobcashsettings                     jobcashsettings[]
   jobcollections                      jobcollections[]
@@ -412,6 +413,7 @@ model organizations {
   faceapprovalrequests                     faceapprovalrequests[]
   jobquotationsettings                     jobquotationsettings[]
   jobformsettings                          jobformsettings[]
+  jobcardtemplates                         jobcardtemplates[]
   jobcodesettings                          jobcodesettings[]
   jobcashsettings                          jobcashsettings[]
   jobcollections                           jobcollections[]
@@ -903,6 +905,26 @@ model jobformsettings {
 
   @@unique([tenantid, branchid, formtype], map: "uq_jobformsettings_tenant_branch_formtype")
   @@index([tenantid, branchid], map: "idx_jobformsettings_tenant_branch")
+}
+
+model jobcardtemplates {
+  recno           Int           @id @default(autoincrement())
+  tenantid        Int
+  branchid        Int
+  name            String        @db.VarChar(120)
+  documenttype    String        @db.VarChar(40)
+  schemaversion   Int           @default(1)
+  templatejson    String
+  isselected      Boolean       @default(false)
+  createdby       Int?
+  createdat       DateTime?     @db.Timestamp(6)
+  lastupdatedby   Int?
+  lastupdatedat   DateTime?     @db.Timestamp(6)
+  branches        branches      @relation(fields: [branchid], references: [branchid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jobcardtemplates_branch")
+  organizations   organizations @relation(fields: [tenantid], references: [tenantid], onDelete: NoAction, onUpdate: NoAction, map: "fk_jobcardtemplates_tenant")
+
+  @@index([tenantid, branchid], map: "idx_jobcardtemplates_tenant_branch")
+  @@index([tenantid, branchid, isselected], map: "idx_jobcardtemplates_selected")
 }
 
 model jobcollections {

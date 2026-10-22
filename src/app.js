@@ -16,6 +16,7 @@ const orgBranchRoutes = require("./routes/orgbranch.routes");
 const createDropdownRoutes = require("./routes/dropdowns.routes");
 const jobRoutes = require("./routes/job.routes");
 const jobFormSettingsRoutes = require("./routes/job-form-settings.routes");
+const jobCardTemplatesRoutes = require("./routes/job-card-templates.routes");
 const jobCodeSettingsRoutes = require("./routes/job-code-settings.routes");
 const settingsRoutes = require("./routes/settings.routes");
 const organizationAiRoutes = require("./routes/organization-ai.routes");
@@ -213,6 +214,7 @@ if (process.env.AI_MCP_V2_ENABLED === "true") {
 }
 app.use("/api/jobs/form", jobFormSettingsRoutes);
 app.use("/api/jobs/code", jobCodeSettingsRoutes);
+app.use("/api/jobs/card", jobCardTemplatesRoutes);
 app.use("/api/jobs", jobRoutes);
 if (!app.locals.features) app.locals.features = {};
 app.locals.features.jobCodeSettingsApi = true;
