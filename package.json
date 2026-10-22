@@ -8,9 +8,9 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
-    "build": "npm run clean && npm run db:generate && npm run check && npm run optimize",
+    "start": "node api.js && node src/server.js",
+    "dev": "node api.js && nodemon src/server.js",
+    "build": "node api.js && npm run clean && npm run db:generate && npm run check && npm run optimize",
     "optimize": "node scripts/optimize.js",
     "check": "node scripts/check-syntax.js",
     "clean": "node scripts/clean.js",
@@ -26,8 +26,9 @@
     "ai-mcp-v2:start": "node src/ai-mcp-v2/standalone.js",
     "test:ai-mcp-v2": "node tests/ai-mcp-v2.test.js && node tests/intelligence-ui-contract.test.js",
     "test:jobs-list-report": "node tests/jobs-list-report-filter.test.js",
+    "test:job-card-docforge": "node tests/job-card-docforge.test.js",
     "postinstall": "prisma generate",
-    "test": "node tests/default-organization-policies.test.js && node tests/user-create-authorization.test.js && node tests/admin-users-authorization.test.js && node tests/customer-addresses.test.js && node tests/definition-uniqueness.test.js && node tests/face-approval-authorization.test.js && node tests/jobs-list-filters.test.js && node tests/job-attachments-payload.test.js && node tests/attendance-users-filters.test.js && node tests/job-status-log.test.js && node tests/job-timeline.test.js && node tests/public-job-stats.test.js && node tests/dropdown-query.test.js && node tests/product-dropdown-payload.test.js && node tests/product-payload.test.js && node tests/user-dropdown-payload.test.js && node tests/user-manager.test.js && node tests/user-tracking.test.js && node tests/job-quotation-settings.test.js && node tests/job-assignment-status.test.js && node tests/job-stats-kpis.test.js && node tests/job-cash.test.js && node tests/job-collections-list.test.js && node tests/job-cpair.test.js && node tests/tracking-query.test.js && node tests/dashboard-job-summary.test.js && node tests/organization-ai-cursor.test.js && node tests/intelligence-range.test.js && node tests/conversation-context.test.js && node tests/entity-resolution.test.js && node tests/request-interpretation.test.js && node tests/chart-engine.test.js && node tests/assistant-routing.test.js && node tests/analytics-plugin.test.js && node tests/mcp-register.test.js && node tests/semantics-intent.test.js && node tests/application-knowledge.test.js && node tests/monthly-money.test.js",
+    "test": "node tests/default-organization-policies.test.js && node tests/user-create-authorization.test.js && node tests/admin-users-authorization.test.js && node tests/customer-addresses.test.js && node tests/definition-uniqueness.test.js && node tests/face-approval-authorization.test.js && node tests/jobs-list-filters.test.js && node tests/job-attachments-payload.test.js && node tests/attendance-users-filters.test.js && node tests/job-status-log.test.js && node tests/job-timeline.test.js && node tests/public-job-stats.test.js && node tests/dropdown-query.test.js && node tests/product-dropdown-payload.test.js && node tests/product-payload.test.js && node tests/user-dropdown-payload.test.js && node tests/user-manager.test.js && node tests/user-tracking.test.js && node tests/job-quotation-settings.test.js && node tests/job-assignment-status.test.js && node tests/job-stats-kpis.test.js && node tests/job-cash.test.js && node tests/job-collections-list.test.js && node tests/job-cpair.test.js && node tests/tracking-query.test.js && node tests/dashboard-job-summary.test.js && node tests/organization-ai-cursor.test.js && node tests/intelligence-range.test.js && node tests/conversation-context.test.js && node tests/entity-resolution.test.js && node tests/request-interpretation.test.js && node tests/chart-engine.test.js && node tests/assistant-routing.test.js && node tests/analytics-plugin.test.js && node tests/mcp-register.test.js && node tests/semantics-intent.test.js && node tests/application-knowledge.test.js && node tests/monthly-money.test.js && node tests/job-card-docforge.test.js",
     "lint": "node scripts/check-syntax.js",
     "schema:export": "node scripts/export-graphql-schema.js",
     "pre-deploy": "npm run build && npm run cleanup && npm prune --production"
@@ -43,6 +44,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@arslankhan/doc-forge": "^0.1.6",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",

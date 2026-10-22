@@ -3,6 +3,7 @@ const authenticateJwt = require("../middlewares/auth.middleware");
 const { uploadJobActionFiles } = require("../middlewares/upload.middleware");
 const jobController = require("../controllers/job.controller");
 const settingsController = require("../controllers/settings.controller");
+const jobCardTemplatesController = require("../controllers/job-card-templates.controller");
 
 const router = express.Router();
 
@@ -43,6 +44,8 @@ router.post("/:id/approval/submit", jobController.submitJobApproval);
 router.post("/:id/approval/approve", jobController.approveJob);
 router.post("/:id/approval/reject", jobController.rejectJob);
 
+router.get("/:id/card-data", jobCardTemplatesController.getCardData);
+router.post("/:id/card-render", jobCardTemplatesController.renderCard);
 router.get("/:id/details", jobController.getJobDetails);
 router.get("/:id/quotation", jobController.getQuotationDetails);
 router.get("/:id/quotation-status", jobController.getQuotationStatus);
