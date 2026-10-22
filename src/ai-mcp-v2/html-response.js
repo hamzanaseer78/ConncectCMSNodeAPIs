@@ -1,4 +1,13 @@
-const ALLOWED_TAGS = new Set(["h1", "h2", "h3", "p", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td", "strong", "em", "div", "span", "section", "br", "svg", "rect", "text", "g"]);
+const {
+  formatDisplay,
+  formatNarrativeDates,
+  formatNumber
+} = require("./format-values");
+
+const ALLOWED_TAGS = new Set([
+  "h1", "h2", "h3", "p", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td",
+  "strong", "em", "div", "span", "section", "br", "svg", "rect", "text", "g"
+]);
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -37,61 +46,120 @@ function sanitizeHtml(html) {
   });
 }
 
-function cell(value) {
-  if (value == null) return "—";
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Number.isInteger(value) ? String(value) : value.toFixed(2);
-  }
-  return escapeHtml(value);
+function stripVisualBlocks(html) {
+  return sanitizeHtml(html)
+    .replace(/<table[\s\S]*?<\/table>/gi, "")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, "")
+    .replace(/<h1[\s\S]*?<\/h1>/gi, "")
+    .replace(/<h2[\s\S]*?<\/h2>/gi, "")
+    .replace(/(<br\s*\/?>\s*){2,}/gi, "<br>")
+    .trim();
+}
+
+function cell(value, column) {
+  const formatted = formatDisplay(value, column);
+  return escapeHtml(formatted.text);
 }
 
 function tableHtml(rows) {
-  if (!rows.length) {
-    return "<p>No matching records were found.</p>";
-  }
+  if (!rows.length) return "";
   const columns = Object.keys(rows[0]);
   const head = columns.map((col) => `<th>${escapeHtml(col)}</th>`).join("");
-  const body = rows.map((row) => `<tr>${columns.map((col) => `<td>${cell(row[col])}</td>`).join("")}</tr>`).join("");
-  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  const body = rows.map((row) => `<tr>${columns.map((col) => `<td>${cell(row[col], col)}</td>`).join("")}</tr>`).join("");
+  return `<div class="cms-ai-table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function numericKey(rows) {
+  const columns = Object.keys(rows[0] || {});
+  return columns.find((col) => rows.every((row) => row[col] == null || typeof row[col] === "number"));
+}
+
+function labelKey(rows, valueKey) {
+  const columns = Object.keys(rows[0] || {});
+  return columns.find((col) => col !== valueKey && typeof rows[0][col] === "string") || columns.find((col) => col !== valueKey) || columns[0];
+}
+
+function wantsChart(question, rows) {
+  if (!Array.isArray(rows) || rows.length < 2) return false;
+  const asked = /\b(chart|graph|plot|trend|compare|comparison|breakdown)\b/i.test(String(question || ""));
+  const valueKey = numericKey(rows);
+  if (!valueKey) return false;
+  const distinct = new Set(rows.map((row) => row[valueKey])).size;
+  return asked || (rows.length >= 2 && rows.length <= 24 && distinct > 1);
 }
 
 function chartHtml(rows) {
   if (!rows.length) return "";
-  const columns = Object.keys(rows[0]);
-  const labelKey = columns.find((col) => typeof rows[0][col] === "string") || columns[0];
-  const valueKey = columns.find((col) => typeof rows[0][col] === "number" && col !== labelKey);
+  const valueKey = numericKey(rows);
   if (!valueKey) return "";
-  const values = rows.slice(0, 12).map((row) => Number(row[valueKey]) || 0);
+  const key = labelKey(rows, valueKey);
+  const series = rows.slice(0, 12);
+  const values = series.map((row) => Number(row[valueKey]) || 0);
   const max = Math.max(...values, 1);
-  const bars = rows.slice(0, 12).map((row, index) => {
-    const height = Math.round((Number(row[valueKey]) || 0) / max * 80);
-    const x = 20 + index * 28;
-    return `<g><rect x="${x}" y="${90 - height}" width="18" height="${height}" fill="#1B4D3E"></rect><text x="${x}" y="108" font-size="7">${escapeHtml(String(row[labelKey] || "").slice(0, 8))}</text></g>`;
+  const width = Math.max(240, 36 + series.length * 36);
+  const bars = series.map((row, index) => {
+    const height = Math.round((Number(row[valueKey]) || 0) / max * 88);
+    const x = 28 + index * 36;
+    const label = formatDisplay(row[key], key).text.slice(0, 10);
+    const amount = formatDisplay(row[valueKey], valueKey).text;
+    return `<g><rect x="${x}" y="${100 - height}" width="22" height="${height}" fill="#1B4D3E"></rect><text x="${x}" y="114">${escapeHtml(label)}</text><text x="${x}" y="${Math.max(12, 96 - height)}">${escapeHtml(amount)}</text></g>`;
   }).join("");
-  return `<svg viewBox="0 0 ${Math.max(160, 20 + values.length * 28)} 120" role="img" width="100%">${bars}</svg>`;
+  return `<svg class="cms-ai-chart" viewBox="0 0 ${width} 128" role="img" width="100%" aria-label="Chart">${bars}</svg>`;
 }
 
-function buildHtml({ question, narrative, rows }) {
-  const safeNarrative = sanitizeHtml(narrative) || `<p>${escapeHtml(narrative || "Results from authorized records.")}</p>`;
+function normalizeTable(html) {
+  return String(html || "")
+    .replace(/\s+/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function dedupeRepeatedTables(html) {
+  const seen = new Set();
+  return String(html || "").replace(/<div class="cms-ai-table-wrap">[\s\S]*?<\/div>|<table[\s\S]*?<\/table>/gi, (block) => {
+    const key = normalizeTable(block);
+    if (!key) return block;
+    if (seen.has(key)) return "";
+    seen.add(key);
+    return block;
+  });
+}
+
+function buildHtml({ question, narrative, rows, includeEmptyNotice = true }) {
   const data = Array.isArray(rows) ? rows : [];
-  const empty = data.length === 0
-    ? "<p>No matching records were found for the authorized tenant and branch.</p>"
-    : "";
-  return [
-    "<section>",
-    `<h2>${escapeHtml(question || "Results")}</h2>`,
-    safeNarrative,
-    empty || chartHtml(data),
-    empty || tableHtml(data),
+  const explanation = formatNarrativeDates(stripVisualBlocks(narrative));
+  const heading = `<h2>${escapeHtml(question || "Results")}</h2>`;
+  const story = explanation
+    ? explanation
+    : (data.length ? "<p>Results from authorized records.</p>" : "");
+  if (!data.length) {
+    const empty = includeEmptyNotice
+      ? "<p>No matching records were found for the authorized tenant and branch.</p>"
+      : "";
+    return dedupeRepeatedTables(["<section class=\"cms-ai-report\">", heading, story, empty, "</section>"].filter(Boolean).join(""));
+  }
+  const chart = wantsChart(question, data) ? chartHtml(data) : "";
+  const table = tableHtml(data);
+  return dedupeRepeatedTables([
+    "<section class=\"cms-ai-report\">",
+    heading,
+    story,
+    chart,
+    table,
     "</section>"
-  ].filter(Boolean).join("");
+  ].filter(Boolean).join(""));
 }
 
 module.exports = {
   escapeHtml,
   escapeAttr,
   sanitizeHtml,
+  stripVisualBlocks,
   tableHtml,
   chartHtml,
-  buildHtml
+  wantsChart,
+  dedupeRepeatedTables,
+  buildHtml,
+  formatNumber
 };

@@ -147,7 +147,7 @@ async function ask(auth, body = {}) {
     });
     return {
       html: result.html,
-      answer: result.answer,
+      requestId: result.requestId,
       provider: result.provider,
       questionLimit: FREE_QUESTION_LIMIT,
       questionsUsed: result.questionsUsed,

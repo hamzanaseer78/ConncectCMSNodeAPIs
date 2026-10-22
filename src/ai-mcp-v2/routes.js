@@ -116,7 +116,12 @@ function createRouter(overrides = {}) {
       deps
     });
     res.json({
-      ...result,
+      html: result.html,
+      requestId: result.requestId,
+      provider: result.provider,
+      questionsUsed: result.questionsUsed,
+      questionsRemaining: result.questionsRemaining,
+      generatedFromTools: result.generatedFromTools,
       ...describeProvider(requestConfig, result.provider)
     });
   }));
