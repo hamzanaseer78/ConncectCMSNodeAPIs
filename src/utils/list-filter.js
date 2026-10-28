@@ -1,4 +1,16 @@
 const { coerceValue, hasCreatedByField } = require("./prisma-metadata");
+const { startOfUtcDay, endOfUtcDay } = require("./date");
+
+const GEO_FILTER_ALIASES = {
+  countryId: "country",
+  countryid: "country",
+  cityId: "city",
+  cityid: "city",
+  areaId: "area",
+  areaid: "area"
+};
+
+const CUSTOMER_PARTIAL_FIELDS = new Set(["name", "contactno", "email", "address"]);
 
 const PARTIAL_MATCH_FIELDS = new Set(["name"]);
 
@@ -88,17 +100,50 @@ function appendJobDetailsCreatedByToDetailFilter(detailFilter, query = {}) {
   return detailFilter;
 }
 
-function usesPartialStringMatch(field) {
-  return field?.type === "String" && PARTIAL_MATCH_FIELDS.has(field.name);
+function parseFilterDay(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function buildListFilterCondition(field, value) {
+function applyCreatedAtRangeFilter(where, query = {}) {
+  const from = parseFilterDay(query.fromDate ?? query.FromDate);
+  const to = parseFilterDay(query.toDate ?? query.ToDate);
+  if (!from && !to) {
+    return where;
+  }
+  const range = {};
+  if (from) range.gte = startOfUtcDay(from);
+  if (to) range.lt = endOfUtcDay(to);
+  where.createdat = range;
+  return where;
+}
+
+function applyGeoFilterAliases(where, query = {}, coerceField) {
+  Object.entries(GEO_FILTER_ALIASES).forEach(([alias, field]) => {
+    if (where[field] !== undefined) return;
+    const value = query[alias];
+    if (value === undefined || value === null || value === "") return;
+    where[field] = typeof coerceField === "function" ? coerceField(field, value) : value;
+  });
+  return where;
+}
+
+function usesPartialStringMatch(field, resourceName) {
+  if (field?.type !== "String") return false;
+  if (resourceName === "customers" && CUSTOMER_PARTIAL_FIELDS.has(field.name)) return true;
+  return PARTIAL_MATCH_FIELDS.has(field.name);
+}
+
+function buildListFilterCondition(field, value, resourceName) {
   const coerced = coerceValue(field, value);
   if (coerced === undefined) {
     return undefined;
   }
 
-  if (usesPartialStringMatch(field)) {
+  if (usesPartialStringMatch(field, resourceName)) {
     const term = String(coerced).trim();
     if (!term) {
       return undefined;
@@ -109,8 +154,8 @@ function buildListFilterCondition(field, value) {
   return coerced;
 }
 
-function listFilterOperators(field) {
-  return usesPartialStringMatch(field) ? ["contains"] : ["equals"];
+function listFilterOperators(field, resourceName) {
+  return usesPartialStringMatch(field, resourceName) ? ["contains"] : ["equals"];
 }
 
 function listFilterDescription(field) {
@@ -132,7 +177,9 @@ function buildNameContainsFilter(value) {
 }
 
 module.exports = {
+  applyCreatedAtRangeFilter,
   applyDirectCreatedByFilter,
+  applyGeoFilterAliases,
   appendJobDetailsCreatedByFilter,
   appendJobDetailsCreatedByToDetailFilter,
   buildListFilterCondition,

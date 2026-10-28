@@ -22,6 +22,8 @@ const {
   buildListFilterCondition,
   listFilterOperators,
   applyDirectCreatedByFilter,
+  applyCreatedAtRangeFilter,
+  applyGeoFilterAliases,
   getCreatedByFilterMeta
 } = require("../../utils/list-filter");
 const { normalizeProductPayload, resolveProductForeignKeys, enrichProductResponse } = require("../../utils/product-payload");
@@ -779,7 +781,7 @@ class GenericService {
       const value = query[field.name];
 
       if (value !== undefined) {
-        const condition = buildListFilterCondition(field, value);
+        const condition = buildListFilterCondition(field, value, this.resourceName);
         if (condition !== undefined) {
           where[field.name] = condition;
         }
@@ -795,6 +797,15 @@ class GenericService {
       }
     });
 
+    applyGeoFilterAliases(where, query, (fieldName, value) => {
+      const field = this.scalarFieldMap.get(fieldName);
+      return field ? coerceValue(field, value) : value;
+    });
+
+    if (this.scalarFieldMap.has("createdat")) {
+      applyCreatedAtRangeFilter(where, query);
+    }
+
     if (hasCreatedByField(this.resourceName)) {
       applyDirectCreatedByFilter(where, query);
     }
@@ -806,7 +817,7 @@ class GenericService {
     const scalarFilters = this.listFilterFields.map((field) => ({
       field: field.name,
       type: field.type,
-      operators: listFilterOperators(field)
+      operators: listFilterOperators(field, this.resourceName)
     }));
 
     const relationFilters = Object.keys(this.config.listRelations || {}).map((sourceField) => {

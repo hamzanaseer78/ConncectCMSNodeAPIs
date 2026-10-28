@@ -104,7 +104,7 @@ async function listTemplates(auth) {
     return { data: rows.map((row) => formatRow(row)) };
   } catch (err) {
     if (isMissingTableError(err)) {
-      throw clientError("Job card templates are not available. Run the jobcardtemplates migration.", 503);
+      return { data: [] };
     }
     throw err;
   }

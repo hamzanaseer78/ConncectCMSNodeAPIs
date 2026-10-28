@@ -249,45 +249,102 @@ function anthropicBody(model, messages, tools) {
     messages: conversation
   };
 }
+function sanitizeGeminiSchema(schema) {
+  if (Array.isArray(schema)) {
+    return schema.map(sanitizeGeminiSchema);
+  }
+
+  if (!schema || typeof schema !== "object") {
+    return schema;
+  }
+
+  const unsupportedFields = new Set([
+    "additionalProperties",
+    "$schema",
+    "$id",
+    "$defs",
+    "definitions",
+    "$ref",
+    "default",
+    "examples",
+    "title",
+  ]);
+
+  const result = {};
+
+  for (const [key, value] of Object.entries(schema)) {
+    if (unsupportedFields.has(key)) {
+      continue;
+    }
+
+    result[key] = sanitizeGeminiSchema(value);
+  }
+
+  return result;
+}
 
 function geminiBody(messages, tools) {
-  const system = messages.filter((message) => message.role === "system").map((message) => message.content).join("\n");
-  const contents = messages.filter((message) => message.role !== "system").map((message) => {
-    if (message.role === "tool") {
-      return {
-        role: "user",
-        parts: [{
-          functionResponse: {
-            name: message.name,
-            response: { result: message.content }
-          }
-        }]
-      };
-    }
-    if (message.toolCalls?.length) {
-      return {
-        role: "model",
-        parts: message.toolCalls.map((call) => ({
-          functionCall: { name: call.name, args: call.arguments || {} }
-        }))
-      };
-    }
-    return {
-      role: message.role === "assistant" ? "model" : "user",
-      parts: [{ text: message.content }]
-    };
-  });
-  return {
-    systemInstruction: { parts: [{ text: system }] },
-    tools: [{
-      functionDeclarations: tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters
-      }))
-    }],
-    contents
+  const system = messages
+      .filter((message) => message.role === "system")
+      .map((message) => message.content)
+      .join("\n");
+
+  const contents = messages
+      .filter((message) => message.role !== "system")
+      .map((message) => {
+        if (message.role === "tool") {
+          return {
+            role: "user",
+            parts: [
+              {
+                functionResponse: {
+                  name: message.name,
+                  response: { result: message.content },
+                },
+              },
+            ],
+          };
+        }
+
+        if (message.toolCalls?.length) {
+          return {
+            role: "model",
+            parts: message.toolCalls.map((call) => ({
+              functionCall: {
+                name: call.name,
+                args: call.arguments || {},
+              },
+            })),
+          };
+        }
+
+        return {
+          role: message.role === "assistant" ? "model" : "user",
+          parts: [{ text: message.content }],
+        };
+      });
+
+  const body = {
+    contents,
+    tools: [
+      {
+        functionDeclarations: tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          parameters: sanitizeGeminiSchema(tool.parameters),
+        })),
+      },
+    ],
   };
+
+  // Only include systemInstruction when a system prompt exists.
+  if (system.trim()) {
+    body.systemInstruction = {
+      parts: [{ text: system }],
+    };
+  }
+
+  return body;
 }
 
 function parseOpenAi(payload) {
