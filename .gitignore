@@ -5,6 +5,7 @@ yarn.lock
 
 # Environment
 .env.*.local
+.env
 
 # Firebase service account keys (never commit)
 config/firebase/*.json
