@@ -8,6 +8,39 @@ const {
 
 const base = new PrismaClient();
 
+const WRITE_OPS = new Set(["create", "update", "delete", "upsert", "createMany", "updateMany", "deleteMany"]);
+const CACHE_MODELS = new Set([
+  "job",
+  "jobexpenses",
+  "jobcollections",
+  "customers",
+  "jobstatuses",
+  "userattendancesession",
+  "userorganizations",
+  "users"
+]);
+
+function wrapCacheDelegate(delegate, modelName) {
+  if (!delegate || !CACHE_MODELS.has(String(modelName))) return delegate;
+  return new Proxy(delegate, {
+    get(target, prop) {
+      const original = target[prop];
+      if (typeof original !== "function" || !WRITE_OPS.has(String(prop))) {
+        return typeof original === "function" ? original.bind(target) : original;
+      }
+      return async (args) => {
+        const result = await original.call(target, args);
+        try {
+          await require("../ai-mcp-v2/business-cache").invalidateFromWrite(modelName, args);
+        } catch {
+          // Cache invalidation must not fail the write.
+        }
+        return result;
+      };
+    }
+  });
+}
+
 function wrapModelDelegate(delegate, client, modelName) {
   if (!delegate || !getAutoincrementConfig(modelName)) {
     return delegate;
@@ -61,8 +94,12 @@ function wrapClient(client) {
         return value.bind(target);
       }
 
-      if (value && typeof value === "object" && getAutoincrementConfig(String(prop))) {
-        return wrapModelDelegate(value, target, String(prop));
+      if (value && typeof value === "object") {
+        let next = value;
+        if (getAutoincrementConfig(String(prop))) {
+          next = wrapModelDelegate(next, target, String(prop));
+        }
+        return wrapCacheDelegate(next, String(prop));
       }
 
       return value;

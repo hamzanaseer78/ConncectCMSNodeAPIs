@@ -170,35 +170,43 @@ function grokParameters(schema) {
   return next;
 }
 
+function toolPayload(tools) {
+  return (Array.isArray(tools) ? tools : []).map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }
+  }));
+}
+
 function grokBody(model, messages, tools) {
-  return {
+  const body = {
     model,
-    messages: openAiMessages(messages),
-    tools: tools.map((tool) => ({
-      type: "function",
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: grokParameters(tool.parameters)
-      }
-    }))
+    messages: openAiMessages(messages)
   };
+  const mapped = (Array.isArray(tools) ? tools : []).map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: grokParameters(tool.parameters)
+    }
+  }));
+  if (mapped.length) body.tools = mapped;
+  return body;
 }
 
 function openAiBody(model, messages, tools) {
-  return {
+  const body = {
     model,
     temperature: 0,
-    messages: openAiMessages(messages),
-    tools: tools.map((tool) => ({
-      type: "function",
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters
-      }
-    }))
+    messages: openAiMessages(messages)
   };
+  const mapped = toolPayload(tools);
+  if (mapped.length) body.tools = mapped;
+  return body;
 }
 
 function anthropicBody(model, messages, tools) {
@@ -236,114 +244,61 @@ function anthropicBody(model, messages, tools) {
       content: message.content
     });
   });
-  return {
+  const body = {
     model,
-    max_tokens: 1200,
+    max_tokens: 1600,
     temperature: 0,
     system,
-    tools: tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.parameters
-    })),
     messages: conversation
   };
-}
-function sanitizeGeminiSchema(schema) {
-  if (Array.isArray(schema)) {
-    return schema.map(sanitizeGeminiSchema);
-  }
-
-  if (!schema || typeof schema !== "object") {
-    return schema;
-  }
-
-  const unsupportedFields = new Set([
-    "additionalProperties",
-    "$schema",
-    "$id",
-    "$defs",
-    "definitions",
-    "$ref",
-    "default",
-    "examples",
-    "title",
-  ]);
-
-  const result = {};
-
-  for (const [key, value] of Object.entries(schema)) {
-    if (unsupportedFields.has(key)) {
-      continue;
-    }
-
-    result[key] = sanitizeGeminiSchema(value);
-  }
-
-  return result;
+  const mapped = (Array.isArray(tools) ? tools : []).map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.parameters
+  }));
+  if (mapped.length) body.tools = mapped;
+  return body;
 }
 
 function geminiBody(messages, tools) {
-  const system = messages
-      .filter((message) => message.role === "system")
-      .map((message) => message.content)
-      .join("\n");
-
-  const contents = messages
-      .filter((message) => message.role !== "system")
-      .map((message) => {
-        if (message.role === "tool") {
-          return {
-            role: "user",
-            parts: [
-              {
-                functionResponse: {
-                  name: message.name,
-                  response: { result: message.content },
-                },
-              },
-            ],
-          };
-        }
-
-        if (message.toolCalls?.length) {
-          return {
-            role: "model",
-            parts: message.toolCalls.map((call) => ({
-              functionCall: {
-                name: call.name,
-                args: call.arguments || {},
-              },
-            })),
-          };
-        }
-
-        return {
-          role: message.role === "assistant" ? "model" : "user",
-          parts: [{ text: message.content }],
-        };
-      });
-
-  const body = {
-    contents,
-    tools: [
-      {
-        functionDeclarations: tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          parameters: sanitizeGeminiSchema(tool.parameters),
-        })),
-      },
-    ],
-  };
-
-  // Only include systemInstruction when a system prompt exists.
-  if (system.trim()) {
-    body.systemInstruction = {
-      parts: [{ text: system }],
+  const system = messages.filter((message) => message.role === "system").map((message) => message.content).join("\n");
+  const contents = messages.filter((message) => message.role !== "system").map((message) => {
+    if (message.role === "tool") {
+      return {
+        role: "user",
+        parts: [{
+          functionResponse: {
+            name: message.name,
+            response: { result: message.content }
+          }
+        }]
+      };
+    }
+    if (message.toolCalls?.length) {
+      return {
+        role: "model",
+        parts: message.toolCalls.map((call) => ({
+          functionCall: { name: call.name, args: call.arguments || {} }
+        }))
+      };
+    }
+    return {
+      role: message.role === "assistant" ? "model" : "user",
+      parts: [{ text: message.content }]
     };
+  });
+  const body = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents
+  };
+  const declarations = (Array.isArray(tools) ? tools : []).map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters
+  }));
+  if (declarations.length) {
+    body.tools = [{ functionDeclarations: declarations }];
   }
-
   return body;
 }
 
@@ -542,7 +497,7 @@ function upstreamMessageFromBody(body) {
   return body.error?.message || body.error?.type || body.message || body.code || "";
 }
 
-async function completeChat({ provider, config, messages, fetchImpl }) {
+async function completeChat({ provider, config, messages, fetchImpl, tools = TOOLS }) {
   if (!config.providers.includes(provider)) {
     throw attachProvider(
       new AiMcpError("That AI provider is not supported.", 400, "provider_invalid"),
@@ -573,7 +528,7 @@ async function completeChat({ provider, config, messages, fetchImpl }) {
       const response = await request(requestUrl(provider, attemptConfig), {
         method: "POST",
         headers: requestHeaders(provider, attemptConfig),
-        body: JSON.stringify(requestBody(provider, attemptConfig, messages)),
+        body: JSON.stringify(requestBody(provider, attemptConfig, messages, tools)),
         signal: controller.signal
       });
       if (response.ok) {
@@ -661,11 +616,12 @@ function requestHeaders(provider, config) {
   };
 }
 
-function requestBody(provider, config, messages) {
-  if (provider === "anthropic") return anthropicBody(config.models.anthropic, messages, TOOLS);
-  if (provider === "gemini") return geminiBody(messages, TOOLS);
-  if (provider === "grok") return grokBody(config.models.grok, messages, TOOLS);
-  return openAiBody(config.models.openai, messages, TOOLS);
+function requestBody(provider, config, messages, tools = TOOLS) {
+  const list = Array.isArray(tools) ? tools : TOOLS;
+  if (provider === "anthropic") return anthropicBody(config.models.anthropic, messages, list);
+  if (provider === "gemini") return geminiBody(messages, list);
+  if (provider === "grok") return grokBody(config.models.grok, messages, list);
+  return openAiBody(config.models.openai, messages, list);
 }
 
 module.exports = {

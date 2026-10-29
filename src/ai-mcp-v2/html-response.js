@@ -4,47 +4,10 @@ const {
   formatNumber
 } = require("./format-values");
 const { headingFor } = require("./column-labels");
-
-const ALLOWED_TAGS = new Set([
-  "h1", "h2", "h3", "p", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td",
-  "strong", "em", "div", "span", "section", "br", "svg", "rect", "text", "g"
-]);
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+const { escapeHtml, sanitizeHtml } = require("./html-sanitize");
 
 function escapeAttr(value) {
   return escapeHtml(value).replace(/`/g, "");
-}
-
-function sanitizeHtml(html) {
-  const source = String(html || "");
-  if (!source.trim()) return "";
-  const without = source
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "")
-    .replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, "")
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/javascript:/gi, "")
-    .replace(/data:/gi, "");
-  return without.replace(/<\/?([a-zA-Z0-9]+)([^>]*)>/g, (full, tag, attrs) => {
-    const name = String(tag).toLowerCase();
-    const closing = /^<\//.test(full);
-    if (!ALLOWED_TAGS.has(name)) return "";
-    if (closing) return `</${name}>`;
-    const safeAttrs = String(attrs || "")
-      .replace(/javascript:/gi, "")
-      .split(/\s+/)
-      .filter((part) => /^(class|colspan|rowspan|width|height|x|y|fill|viewbox|role|aria-[\w-]+)=/i.test(part))
-      .join(" ");
-    return safeAttrs ? `<${name} ${safeAttrs}>` : `<${name}>`;
-  });
 }
 
 function stripVisualBlocks(html) {
@@ -100,81 +63,24 @@ function wantsChart(question, rows) {
   return asked || (rows.length >= 2 && rows.length <= 24 && distinct > 1);
 }
 
-
 function chartHtml(rows, columns, sourceTable) {
   if (!rows.length) return "";
-
   const valueKey = numericKey(rows);
   if (!valueKey) return "";
-
   const key = labelKey(rows, valueKey);
   const series = rows.slice(0, 12);
   const values = series.map((row) => Number(row[valueKey]) || 0);
   const max = Math.max(...values, 1);
-
-  const barWidth = 28;
-  const gap = 24;
-  const left = 12;
-  const chartHeight = 120;
-  const labelY = 148;
-  const width = Math.max(
-      240,
-      left * 2 + series.length * (barWidth + gap)
-  );
-  const height = 166;
-
+  const width = Math.max(240, 36 + series.length * 36);
   const bars = series.map((row, index) => {
-    const value = Number(row[valueKey]) || 0;
-    const barHeight = Math.round((value / max) * chartHeight);
-    const x = left + index * (barWidth + gap);
-    const y = chartHeight - barHeight;
-    const label = formatDisplay(row[key], key).text.slice(0, 14);
-    const amount = formatDisplay(value, valueKey).text;
-
-    return `
-      <g>
-        <rect
-          x="${x}"
-          y="${y}"
-          width="${barWidth}"
-          height="${barHeight}"
-          rx="2"
-          fill="#1B4D3E"
-        />
-        <text
-          x="${x + barWidth / 2}"
-          y="${Math.max(12, y - 6)}"
-          text-anchor="middle"
-          font-size="10"
-          fill="#26332D"
-        >${escapeHtml(amount)}</text>
-        <text
-          x="${x + barWidth / 2}"
-          y="${labelY}"
-          text-anchor="middle"
-          font-size="9"
-          fill="#26332D"
-        >${escapeHtml(label)}</text>
-      </g>
-    `;
+    const height = Math.round((Number(row[valueKey]) || 0) / max * 88);
+    const x = 28 + index * 36;
+    const label = formatDisplay(row[key], key).text.slice(0, 10);
+    const amount = formatDisplay(row[valueKey], valueKey).text;
+    return `<g><rect x="${x}" y="${100 - height}" width="22" height="${height}" fill="#1B4D3E"></rect><text x="${x}" y="114">${escapeHtml(label)}</text><text x="${x}" y="${Math.max(12, 96 - height)}">${escapeHtml(amount)}</text></g>`;
   }).join("");
-
-  return `
-    <div class="cms-ai-chart-container">
-      <svg
-        class="cms-ai-chart"
-        viewBox="0 0 ${width} ${height}"
-        role="img"
-        width="100%"
-        aria-label="Chart"
-        style="display:block;max-width:100%;height:auto;font-family:Arial,sans-serif"
-      >
-        ${bars}
-      </svg>
-    </div>
-  `;
+  return `<svg class="cms-ai-chart" viewBox="0 0 ${width} 128" role="img" width="100%" aria-label="Chart">${bars}</svg>`;
 }
-
 
 function normalizeTable(html) {
   return String(html || "")
@@ -212,7 +118,7 @@ function buildHtml({ question, narrative, rows, columns, sourceTable, includeEmp
   const table = tableHtml(data, columns, sourceTable);
   return dedupeRepeatedTables([
     "<section class=\"cms-ai-report\">",
-    // heading,
+    heading,
     story,
     chart,
     table,

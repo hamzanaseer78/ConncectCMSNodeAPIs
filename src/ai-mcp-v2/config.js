@@ -7,14 +7,14 @@ function clampInt(value, min, max, fallback) {
 }
 
 function loadConfig(env = process.env) {
-  // const rawCursor = String(env.AI_MCP_V2_CURSOR_API_KEY || "");
-  // const grokMisfiled = rawCursor.startsWith("grok_") ? rawCursor : "";
+  const rawCursor = String(env.AI_MCP_V2_CURSOR_API_KEY || "");
+  const grokMisfiled = rawCursor.startsWith("grok_") ? rawCursor : "";
   const keys = {
-    // openai: String(env.AI_MCP_V2_OPENAI_API_KEY || ""),
-    // anthropic: String(env.AI_MCP_V2_ANTHROPIC_API_KEY || ""),
+    openai: String(env.AI_MCP_V2_OPENAI_API_KEY || ""),
+    anthropic: String(env.AI_MCP_V2_ANTHROPIC_API_KEY || ""),
     gemini: String(env.AI_MCP_V2_GEMINI_API_KEY || env.GEMINI_API_KEY || ""),
-    // grok: String(env.AI_MCP_V2_GROK_API_KEY || env.XAI_API_KEY || grokMisfiled || ""),
-    // cursor: grokMisfiled ? "" : rawCursor
+    grok: String(env.AI_MCP_V2_GROK_API_KEY || env.XAI_API_KEY || grokMisfiled || ""),
+    cursor: grokMisfiled ? "" : rawCursor
   };
   const requested = String(env.AI_MCP_V2_DEFAULT_PROVIDER || "").trim().toLowerCase();
   const preferred = PROVIDERS.includes(requested) ? requested : "";
@@ -39,7 +39,11 @@ function loadConfig(env = process.env) {
     },
     cursorApiBase: String(env.AI_MCP_V2_CURSOR_API_BASE || env.CURSOR_API_BASE || "https://api.cursor.com"),
     cursorTimeoutMs: clampInt(env.AI_MCP_V2_CURSOR_TIMEOUT_MS, 5000, 180000, 120000),
-    databaseUrl: String(env.AI_MCP_V2_DATABASE_URL || "")
+    databaseUrl: String(env.AI_MCP_V2_DATABASE_URL || ""),
+    cacheTtlMs: clampInt(env.AI_MCP_V2_CACHE_TTL_MS, 1000, 60 * 60 * 1000, 5 * 60 * 1000),
+    cacheMaxRowsPerTable: clampInt(env.AI_MCP_V2_CACHE_MAX_ROWS, 50, 20000, 2000),
+    cacheBatchSize: clampInt(env.AI_MCP_V2_CACHE_BATCH_SIZE, 50, 2000, 500),
+    cacheLookbackDays: clampInt(env.AI_MCP_V2_CACHE_LOOKBACK_DAYS, 7, 730, 120)
   };
   return withEnvKeySources(loaded);
 }

@@ -56,9 +56,9 @@ const CORE_TABLES = [
   },
   {
     name: "users",
-    columns: ["userid", "name"],
+    columns: ["userid", "name", "usertype"],
     sql(scope) {
-      return `SELECT u.userid, u.name FROM public.users u INNER JOIN public.userorganizations uo ON uo.userid = u.userid WHERE uo.tenantid = ${scope.tenantid} AND uo.branchid = ${scope.branchid}`;
+      return `SELECT u.userid, u.name, u.usertype FROM public.users u INNER JOIN public.userorganizations uo ON uo.userid = u.userid WHERE uo.tenantid = ${scope.tenantid} AND uo.branchid = ${scope.branchid}`;
     }
   },
   {

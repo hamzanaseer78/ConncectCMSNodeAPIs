@@ -4,6 +4,9 @@ const { AiMcpError } = require("./errors");
 const { loadConfig, configuredProviders, describeProvider, resolveProvider } = require("./config");
 const { TOOLS, executeTool } = require("./tools");
 const { answerQuestion } = require("./chat");
+const { refreshBusinessCache } = require("./business-cache");
+const { resolveAccess } = require("./scope");
+const { databaseFor } = require("./tools");
 const { handleMcp } = require("./mcp-http");
 const { applyOrganizationKeys } = require("./org-keys");
 
@@ -113,7 +116,8 @@ function createRouter(overrides = {}) {
       provider,
       auth: req.auth,
       config: requestConfig,
-      deps
+      deps,
+      conversationId: req.body?.conversationId
     });
     res.json({
       html: result.html,
@@ -123,6 +127,23 @@ function createRouter(overrides = {}) {
       questionsRemaining: result.questionsRemaining,
       generatedFromTools: result.generatedFromTools,
       ...describeProvider(requestConfig, result.provider)
+    });
+  }));
+
+  router.post("/cache/refresh", secured(async (req, res) => {
+    const scope = await resolveAccess(req.auth, deps);
+    const snapshot = await refreshBusinessCache({
+      db: databaseFor(deps),
+      scope,
+      config,
+      deps,
+      now: deps.now || new Date()
+    });
+    res.json({
+      complete: Boolean(snapshot?.complete),
+      loadedAt: snapshot?.loadedAt || null,
+      truncatedTables: snapshot?.truncatedTables || [],
+      failedTables: snapshot?.failedTables || []
     });
   }));
 

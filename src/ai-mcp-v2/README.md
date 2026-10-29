@@ -19,8 +19,12 @@ Mounted at `/api/v2/ai-mcp` on the existing API process, and on the optional sta
 `POST /ask` body:
 
 ```json
-{ "message": "What is my total revenue and expense this month?", "provider": "openai" }
+{ "message": "What is my total revenue and expense this month?", "provider": "openai", "conversationId": "optional-chat-id" }
 ```
+
+The assistant answers greetings and general questions without querying PostgreSQL. Business questions use a tenant-scoped cache first, then the existing read-only `run_select` fallback. The `html` field is model-generated and sanitized on the server.
+
+`POST /cache/refresh` rebuilds the authorized tenant/branch cache for the signed-in user.
 
 `provider` is optional. Supported values are `openai`, `anthropic`, and `gemini`.
 
@@ -57,6 +61,11 @@ Environment variables, all optional except the enable flag:
 - `AI_MCP_V2_TIMEOUT_MS`
 - `AI_MCP_V2_QUERY_TIMEOUT_MS`
 - `AI_MCP_V2_MAX_ROWS`
+- `AI_MCP_V2_CACHE_URL` or `REDIS_URL` (optional shared cache; memory is used when unset)
+- `AI_MCP_V2_CACHE_TTL_MS` (default 300000)
+- `AI_MCP_V2_CACHE_MAX_ROWS` (per table, default 2000)
+- `AI_MCP_V2_CACHE_BATCH_SIZE` (default 500)
+- `AI_MCP_V2_CACHE_LOOKBACK_DAYS` (transactional tables, default 120)
 
 Keys stay in the server environment. They are not returned, written into prompts, or logged.
 
