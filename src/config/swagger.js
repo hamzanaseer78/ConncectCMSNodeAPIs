@@ -518,8 +518,8 @@ function paginationParameters(resourceName, config) {
     {
       in: "query",
       name: "pageSize",
-      schema: { type: "integer", default: 25, minimum: 1, maximum: 100 },
-      description: "Records per page"
+      schema: { type: "integer", default: 25, minimum: 1, maximum: 10000 },
+      description: "Records per page (maximum 10000)"
     },
     {
       in: "query",

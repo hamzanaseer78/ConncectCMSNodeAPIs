@@ -52,9 +52,10 @@ const { applyTechnicianAffiliationFields } = require("../../utils/technician-aff
 const { applyManagerFields, formatManagerFields } = require("../../utils/user-manager");
 const { syncPostgresSequence } = require("../../utils/postgres-sequence");
 const { buildResourceScopeWhere, requiresTenantScope } = require("../../utils/resource-scope");
+const CONSTANTS = require("../../utils/constants");
 const bcrypt = require("bcryptjs");
 
-const MAX_PAGE_SIZE = 100;
+const MAX_PAGE_SIZE = CONSTANTS.PAGINATION.MAX_PAGE_SIZE;
 
 const CATALOG_PRODUCT_HANDLERS = {
   products: {
