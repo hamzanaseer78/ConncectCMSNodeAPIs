@@ -1,4 +1,5 @@
 const { CATALOG } = require("./prisma-relations");
+const { OUTPUT_RULES } = require("./output-rules");
 
 const CORE_TABLES = [
   {
@@ -111,7 +112,8 @@ function inspectSchema(scope) {
     notes: [
       "Queries run only against these authorized tables.",
       "Tenant and branch are applied by the server. Do not add tenantid, branchid, or userid from the question.",
-      "Amount to collect is SUM(job.totalcost) by job.date. Cash collected is SUM(jobcollections.amount) by collectedat. Expenses are SUM(jobexpenses.amount) by createdat. Do not call the difference profit."
+      "Amount to collect is SUM(job.totalcost) by job.date. Cash collected is SUM(jobcollections.amount) by collectedat. Expenses are SUM(jobexpenses.amount) by createdat. Do not call the difference profit.",
+      OUTPUT_RULES
     ],
     manageBranch: Boolean(scope.manageBranch),
     tables: TABLES.map((table) => ({ name: table.name, columns: table.columns }))

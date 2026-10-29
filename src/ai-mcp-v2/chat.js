@@ -16,6 +16,7 @@ const {
 } = require("./entity-match");
 const { loadConversation, saveConversation } = require("./conversation");
 const { HTML_SYSTEM, factsPrompt, fallbackHtml, finalizeHtml } = require("./html-generate");
+const { OUTPUT_RULES } = require("./output-rules");
 
 const TOOL_SYSTEM = [
   "You answer Connect CMS questions from authorized tool results or verified cached facts only.",
@@ -24,7 +25,8 @@ const TOOL_SYSTEM = [
   "Do not invent amounts, counts, or rows. If tools return no rows, say no matching records were found.",
   "Amount to collect is SUM(job.totalcost) by job.date. Cash collected is SUM(jobcollections.amount) by collectedat. Expenses are SUM(jobexpenses.amount) by createdat. Do not call the difference profit.",
   "If the question is a greeting or does not need business data, do not call tools.",
-  "If the question is ambiguous, ask one concise clarification question instead of guessing."
+  "If the question is ambiguous, ask one concise clarification question instead of guessing.",
+  OUTPUT_RULES
 ].join(" ");
 
 function toolMessage(call, content) {

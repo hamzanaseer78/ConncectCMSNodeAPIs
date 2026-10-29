@@ -17,6 +17,7 @@ const WORDS = Object.freeze({
   jobsourceid: "Job Source",
   erpproductid: "Product",
   assignedto: "Assigned To",
+  code: "Job Number",
   followupby: "Follow Up By",
   createdby: "Created By",
   lastupdatedby: "Last Updated By",

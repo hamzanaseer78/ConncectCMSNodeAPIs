@@ -351,6 +351,7 @@ function cursorPrompt(messages) {
     "Allowed tools:",
     toolLines,
     "When the tool results are enough, reply in plain text. Do not invent amounts.",
+    "Interpret the user's requested output precisely. Job lists must be individual job records, not status counts. Status-wise means grouped by status. A named status means matching job rows. A count means the count.",
     conversation
   ].filter(Boolean).join("\n\n");
 }

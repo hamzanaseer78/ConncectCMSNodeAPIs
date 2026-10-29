@@ -15,7 +15,7 @@ const TOOLS = Object.freeze([
   },
   {
     name: "run_select",
-    description: "Run one read-only SELECT against authorized tables. The server applies tenant, branch, and assignee restrictions. Do not put tenantid, branchid, or userid in the SQL. Return only SELECT/WITH queries.",
+    description: "Run one read-only SELECT against authorized tables. The server applies tenant, branch, and assignee restrictions. Do not put tenantid, branchid, or userid in the SQL. Return only SELECT/WITH queries. For a job list, select individual job rows (code, customer, technician, status, date). Use GROUP BY only for status-wise or technician-wise summaries, or when the user asked for a count.",
     zod: {
       sql: z.string().min(1).max(8000)
     },

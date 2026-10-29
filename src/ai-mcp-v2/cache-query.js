@@ -36,6 +36,24 @@ function columnsFrom(rows, sourceTable) {
   }).filter(Boolean);
 }
 
+function statusTitleOf(snapshot, job) {
+  return String(displayOf(snapshot, "jobstatuses", job.statusid, "") || "").toLowerCase();
+}
+
+function jobMatchesStatus(snapshot, job, statusFilter) {
+  if (!statusFilter) return true;
+  const wanted = String(statusFilter).toLowerCase();
+  const title = statusTitleOf(snapshot, job);
+  if (wanted === "resolved") return Boolean(job.isresolved) || title.includes("resolved");
+  if (wanted === "completed") return Boolean(job.iscompleted) || title.includes("complet");
+  if (wanted === "pending" || wanted === "open") {
+    if (job.isresolved || job.iscompleted) return false;
+    return !title || title.includes("pend") || title.includes("open") || title.includes("new");
+  }
+  if (wanted === "cancelled" || wanted === "canceled") return title.includes("cancel");
+  return title.includes(wanted);
+}
+
 function filterJobs(snapshot, options = {}) {
   const jobs = tableRows(snapshot, "job");
   return jobs.filter((job) => {
@@ -43,8 +61,7 @@ function filterJobs(snapshot, options = {}) {
     if (options.assignedto != null && Number(job.assignedto) !== Number(options.assignedto)) return false;
     if (options.customerid != null && Number(job.customerid) !== Number(options.customerid)) return false;
     if (options.statusid != null && Number(job.statusid) !== Number(options.statusid)) return false;
-    if (options.statusFilter === "resolved" && !job.isresolved) return false;
-    if (options.statusFilter === "pending" && (job.isresolved || job.iscompleted)) return false;
+    if (!jobMatchesStatus(snapshot, job, options.statusFilter)) return false;
     return true;
   });
 }
@@ -52,6 +69,7 @@ function filterJobs(snapshot, options = {}) {
 function enrichJob(snapshot, job) {
   return {
     recno: job.recno,
+    code: job.code || job.manualjobno || job.recno,
     date: job.date,
     assignedto: displayOf(snapshot, "users", job.assignedto, job.assignedto),
     customerid: displayOf(snapshot, "customers", job.customerid, job.customerid),
@@ -142,17 +160,42 @@ function queryFinancial(snapshot, options = {}) {
   };
 }
 
+const LIST_PAGE_SIZE = 50;
+
 function queryEntityJobs(snapshot, options = {}) {
   const jobs = filterJobs(snapshot, options).map((job) => enrichJob(snapshot, job));
+  const offset = Math.max(0, Number(options.offset) || 0);
+  const page = jobs.slice(offset, offset + LIST_PAGE_SIZE);
   return {
-    report: "entity_jobs",
+    report: "jobs",
     verified: true,
     source: "cache",
     sourceTable: "job",
     count: jobs.length,
-    rows: jobs.slice(0, 50),
-    columns: columnsFrom(jobs, "job"),
-    truncated: Boolean(snapshot?.tables?.job?.truncated) || jobs.length > 50
+    totalMatched: jobs.length,
+    displayed: page.length,
+    offset,
+    rows: page,
+    columns: columnsFrom(page, "job"),
+    truncated: Boolean(snapshot?.tables?.job?.truncated) || jobs.length > offset + LIST_PAGE_SIZE
+  };
+}
+
+function queryJobCount(snapshot, options = {}) {
+  const jobs = filterJobs(snapshot, options);
+  return {
+    report: "job_count",
+    verified: true,
+    source: "cache",
+    sourceTable: "job",
+    count: jobs.length,
+    totalMatched: jobs.length,
+    rows: [{ metric: "Jobs", count: jobs.length }],
+    columns: [
+      { key: "metric", label: "Metric" },
+      { key: "count", label: "Count" }
+    ],
+    truncated: Boolean(snapshot?.tables?.job?.truncated)
   };
 }
 
@@ -160,7 +203,8 @@ function queryFromCache(snapshot, intent, subject) {
   if (!snapshot?.complete) return null;
   const options = {
     range: intent.range,
-    statusFilter: intent.statusFilter
+    statusFilter: intent.statusFilter,
+    offset: intent.offset
   };
   if (subject?.type === "customer") options.customerid = subject.id;
   if (subject && ["technician", "manager", "admin", "user"].includes(subject.type)) {
@@ -169,10 +213,10 @@ function queryFromCache(snapshot, intent, subject) {
   if (intent.report === "technician_jobs") return queryTechnicianJobs(snapshot, options);
   if (intent.report === "status_jobs") return queryStatusJobs(snapshot, options);
   if (intent.report === "financial") return queryFinancial(snapshot, options);
-  if (intent.report === "entity_jobs" || (subject && intent.report === "jobs")) {
+  if (intent.report === "job_count") return queryJobCount(snapshot, options);
+  if (intent.report === "entity_jobs" || intent.report === "jobs") {
     return queryEntityJobs(snapshot, options);
   }
-  if (intent.report === "jobs") return queryStatusJobs(snapshot, options);
   return null;
 }
 

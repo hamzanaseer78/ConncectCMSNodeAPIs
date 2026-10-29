@@ -31,12 +31,16 @@ function classifyIntent(message, session = {}, now = new Date()) {
 
   const range = parseRangeFromText(text, session, now);
   const mention = extractMention(text);
-  const statusFilter = /\bonly\s+resolved\b|\bresolved\s+ones\b/i.test(text)
+  const namedStatus = text.match(/\b(pending|completed|resolved|cancelled|canceled|open)\b/i);
+  const statusFilter = /\bonly\s+resolved\b|\bresolved\s+ones\b|\bresolved\s+jobs?\b/i.test(text)
     ? "resolved"
-    : (/\bonly\s+pending\b|\bpending\s+ones\b/i.test(text) ? "pending" : session?.status || null);
+    : (/\bonly\s+pending\b|\bpending\s+ones\b|\bpending\s+jobs?\b/i.test(text)
+      ? "pending"
+      : (namedStatus && /\bjobs?\b/i.test(text) ? namedStatus[1].toLowerCase() : (session?.status || null)));
+  const wantsCount = /\b(how many|number of|count of|\bcount\b)\b/i.test(text);
 
   if (/\btechnician[- ]wise\b|\bjobs?\s+by\s+technicians?\b/i.test(text)) {
-    return { kind: "data", report: "technician_jobs", range, mention, statusFilter };
+    return { kind: "data", report: wantsCount ? "job_count" : "technician_jobs", range, mention, statusFilter };
   }
   if (/\bstatus[- ]wise\b|\bjobs?\s+by\s+status\b/i.test(text)) {
     return { kind: "data", report: "status_jobs", range, mention, statusFilter };
@@ -44,11 +48,14 @@ function classifyIntent(message, session = {}, now = new Date()) {
   if (/amount to collect|totalcost|expenses?|collections?|cash collected|financial|revenue/i.test(text)) {
     return { kind: "data", report: "financial", range: range || parseRangeFromText("this month", {}, now), mention };
   }
+  if (wantsCount && /\bjobs?\b/i.test(text)) {
+    return { kind: "data", report: "job_count", range, mention, statusFilter };
+  }
   if (mention) {
     return { kind: "data", report: "entity_jobs", range, mention, statusFilter };
   }
-  if (/\bjobs?\b|\battendance\b|\bcustomers?\b|\btechnicians?\b|\binventory\b|\bstock\b|\btotals?\b|\bsum\b|\bcount\b|\bhow many\b/i.test(text)) {
-    return { kind: "data", report: session?.report || (/total|sum|amount/i.test(text) ? "financial" : "jobs"), range, mention, statusFilter };
+  if (/\bjobs?\b|\battendance\b|\bcustomers?\b|\btechnicians?\b|\binventory\b|\bstock\b|\btotals?\b|\bsum\b/i.test(text)) {
+    return { kind: "data", report: (/total|sum|amount/i.test(text) ? "financial" : "jobs"), range, mention, statusFilter };
   }
   if (session?.report && /\b(same report|last month|previous|only |those|them|that)\b/i.test(text)) {
     return {
