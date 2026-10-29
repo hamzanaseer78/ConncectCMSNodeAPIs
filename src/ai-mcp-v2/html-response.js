@@ -100,24 +100,81 @@ function wantsChart(question, rows) {
   return asked || (rows.length >= 2 && rows.length <= 24 && distinct > 1);
 }
 
+
 function chartHtml(rows, columns, sourceTable) {
   if (!rows.length) return "";
+
   const valueKey = numericKey(rows);
   if (!valueKey) return "";
+
   const key = labelKey(rows, valueKey);
   const series = rows.slice(0, 12);
   const values = series.map((row) => Number(row[valueKey]) || 0);
   const max = Math.max(...values, 1);
-  const width = Math.max(240, 36 + series.length * 36);
+
+  const barWidth = 28;
+  const gap = 24;
+  const left = 12;
+  const chartHeight = 120;
+  const labelY = 148;
+  const width = Math.max(
+      240,
+      left * 2 + series.length * (barWidth + gap)
+  );
+  const height = 166;
+
   const bars = series.map((row, index) => {
-    const height = Math.round((Number(row[valueKey]) || 0) / max * 88);
-    const x = 28 + index * 36;
-    const label = formatDisplay(row[key], key).text.slice(0, 10);
-    const amount = formatDisplay(row[valueKey], valueKey).text;
-    return `<g><rect x="${x}" y="${100 - height}" width="22" height="${height}" fill="#1B4D3E"></rect><text x="${x}" y="114">${escapeHtml(label)}</text><text x="${x}" y="${Math.max(12, 96 - height)}">${escapeHtml(amount)}</text></g>`;
+    const value = Number(row[valueKey]) || 0;
+    const barHeight = Math.round((value / max) * chartHeight);
+    const x = left + index * (barWidth + gap);
+    const y = chartHeight - barHeight;
+    const label = formatDisplay(row[key], key).text.slice(0, 14);
+    const amount = formatDisplay(value, valueKey).text;
+
+    return `
+      <g>
+        <rect
+          x="${x}"
+          y="${y}"
+          width="${barWidth}"
+          height="${barHeight}"
+          rx="2"
+          fill="#1B4D3E"
+        />
+        <text
+          x="${x + barWidth / 2}"
+          y="${Math.max(12, y - 6)}"
+          text-anchor="middle"
+          font-size="10"
+          fill="#26332D"
+        >${escapeHtml(amount)}</text>
+        <text
+          x="${x + barWidth / 2}"
+          y="${labelY}"
+          text-anchor="middle"
+          font-size="9"
+          fill="#26332D"
+        >${escapeHtml(label)}</text>
+      </g>
+    `;
   }).join("");
-  return `<svg class="cms-ai-chart" viewBox="0 0 ${width} 128" role="img" width="100%" aria-label="Chart">${bars}</svg>`;
+
+  return `
+    <div class="cms-ai-chart-container">
+      <svg
+        class="cms-ai-chart"
+        viewBox="0 0 ${width} ${height}"
+        role="img"
+        width="100%"
+        aria-label="Chart"
+        style="display:block;max-width:100%;height:auto;font-family:Arial,sans-serif"
+      >
+        ${bars}
+      </svg>
+    </div>
+  `;
 }
+
 
 function normalizeTable(html) {
   return String(html || "")
