@@ -96,55 +96,173 @@ function extractCteNames(sql) {
   return names;
 }
 
+// function assertSafeSelect(sql) {
+//   const raw = String(sql || "").trim();
+//   if (!raw) {
+//     throw new AiMcpError("A SELECT query is required.", 400, "invalid_sql");
+//   }
+//   if (raw.length > 8000) {
+//     throw new AiMcpError("The query is too long.", 400, "invalid_sql");
+//   }
+//   const stripped = stripComments(raw);
+//   if (stripped.includes(";")) {
+//     throw new AiMcpError("Multiple SQL statements are not allowed.", 403, "read_only");
+//   }
+//   if (!/^\s*(select|with)\b/i.test(stripped)) {
+//     throw new AiMcpError("Only read queries are allowed.", 403, "read_only");
+//   }
+//   const tokens = tokenize(stripped).map((token) => token.toLowerCase());
+//   tokens.forEach((token) => {
+//     if (FORBIDDEN.includes(token)) {
+//       throw new AiMcpError("Only read queries are allowed.", 403, "read_only");
+//     }
+//   });
+//   const lower = stripped.toLowerCase();
+//   FORBIDDEN_FUNCS.forEach((fn) => {
+//     if (lower.includes(`${fn}(`)) {
+//       throw new AiMcpError("That function is not allowed.", 403, "read_only");
+//     }
+//   });
+//   if (/\binto\s+(temp|temporary|table|outfile|dumpfile)\b/i.test(stripped)) {
+//     throw new AiMcpError("Only read queries are allowed.", 403, "read_only");
+//   }
+//   if (/\bfor\s+(update|share|no\s+key\s+update|key\s+share)\b/i.test(stripped)) {
+//     throw new AiMcpError("Locking clauses are not allowed.", 403, "read_only");
+//   }
+//   assertParsedSelect(stripped);
+//   const cteNames = extractCteNames(stripped);
+//   extractTables(stripped).forEach((name) => {
+//     const plain = name.includes(".") ? name.split(".").pop() : name;
+//     if (name.includes(".")) {
+//       throw new AiMcpError("That table is not available.", 403, "unauthorized_table");
+//     }
+//     if (plain.startsWith("pg_") || plain === "information_schema") {
+//       throw new AiMcpError("That table is not available.", 403, "unauthorized_table");
+//     }
+//     if (!TABLE_BY_NAME.has(plain) && !cteNames.has(plain)) {
+//       throw new AiMcpError("That table is not available.", 403, "unauthorized_table");
+//     }
+//   });
+//   return stripped.replace(/;+\s*$/, "").trim();
+// }
+
+
 function assertSafeSelect(sql) {
   const raw = String(sql || "").trim();
+
   if (!raw) {
-    throw new AiMcpError("A SELECT query is required.", 400, "invalid_sql");
+    throw new AiMcpError(
+        "A SELECT query is required.",
+        400,
+        "invalid_sql"
+    );
   }
+
   if (raw.length > 8000) {
-    throw new AiMcpError("The query is too long.", 400, "invalid_sql");
+    throw new AiMcpError(
+        "The query is too long.",
+        400,
+        "invalid_sql"
+    );
   }
-  const stripped = stripComments(raw);
-  if (stripped.includes(";")) {
-    throw new AiMcpError("Multiple SQL statements are not allowed.", 403, "read_only");
+
+  const stripped = stripComments(raw).trim();
+
+  if (!/^(select|with)\b/i.test(stripped)) {
+    throw new AiMcpError(
+        "Only read queries are allowed.",
+        403,
+        "read_only"
+    );
   }
-  if (!/^\s*(select|with)\b/i.test(stripped)) {
-    throw new AiMcpError("Only read queries are allowed.", 403, "read_only");
+
+  // Allow one optional trailing semicolon, but reject
+  // multiple statements and internal semicolons.
+  const normalized = stripped.replace(/;\s*$/, "").trim();
+
+  if (!normalized || normalized.includes(";")) {
+    throw new AiMcpError(
+        "Multiple SQL statements are not allowed.",
+        403,
+        "read_only"
+    );
   }
-  const tokens = tokenize(stripped).map((token) => token.toLowerCase());
+
+  const tokens = tokenize(normalized).map((token) =>
+      token.toLowerCase()
+  );
+
   tokens.forEach((token) => {
     if (FORBIDDEN.includes(token)) {
-      throw new AiMcpError("Only read queries are allowed.", 403, "read_only");
+      throw new AiMcpError(
+          "Only read queries are allowed.",
+          403,
+          "read_only"
+      );
     }
   });
-  const lower = stripped.toLowerCase();
+
+  const lower = normalized.toLowerCase();
+
   FORBIDDEN_FUNCS.forEach((fn) => {
-    if (lower.includes(`${fn}(`)) {
-      throw new AiMcpError("That function is not allowed.", 403, "read_only");
+    if (new RegExp(`\\b${fn}\\s*\\(`, "i").test(lower)) {
+      throw new AiMcpError(
+          "That function is not allowed.",
+          403,
+          "read_only"
+      );
     }
   });
-  if (/\binto\s+(temp|temporary|table|outfile|dumpfile)\b/i.test(stripped)) {
-    throw new AiMcpError("Only read queries are allowed.", 403, "read_only");
+
+  if (/\binto\s+(temp|temporary|table|outfile|dumpfile)\b/i.test(normalized)) {
+    throw new AiMcpError(
+        "Only read queries are allowed.",
+        403,
+        "read_only"
+    );
   }
-  if (/\bfor\s+(update|share|no\s+key\s+update|key\s+share)\b/i.test(stripped)) {
-    throw new AiMcpError("Locking clauses are not allowed.", 403, "read_only");
+
+  if (/\bfor\s+(update|share|no\s+key\s+update|key\s+share)\b/i.test(normalized)) {
+    throw new AiMcpError(
+        "Locking clauses are not allowed.",
+        403,
+        "read_only"
+    );
   }
-  assertParsedSelect(stripped);
-  const cteNames = extractCteNames(stripped);
-  extractTables(stripped).forEach((name) => {
-    const plain = name.includes(".") ? name.split(".").pop() : name;
-    if (name.includes(".")) {
-      throw new AiMcpError("That table is not available.", 403, "unauthorized_table");
+
+  assertParsedSelect(normalized);
+
+  const cteNames = extractCteNames(normalized);
+
+  extractTables(normalized).forEach((name) => {
+    const plain = name.includes(".")
+        ? name.split(".").pop()
+        : name;
+
+    if (
+        name.includes(".") ||
+        plain.startsWith("pg_") ||
+        plain === "information_schema"
+    ) {
+      throw new AiMcpError(
+          "That table is not available.",
+          403,
+          "unauthorized_table"
+      );
     }
-    if (plain.startsWith("pg_") || plain === "information_schema") {
-      throw new AiMcpError("That table is not available.", 403, "unauthorized_table");
-    }
+
     if (!TABLE_BY_NAME.has(plain) && !cteNames.has(plain)) {
-      throw new AiMcpError("That table is not available.", 403, "unauthorized_table");
+      throw new AiMcpError(
+          "That table is not available.",
+          403,
+          "unauthorized_table"
+      );
     }
   });
-  return stripped.replace(/;+\s*$/, "").trim();
+
+  return normalized;
 }
+
 
 function wrapAuthorizedSelect(sql, scope, maxRows) {
   const tenantid = Number(scope.tenantid);

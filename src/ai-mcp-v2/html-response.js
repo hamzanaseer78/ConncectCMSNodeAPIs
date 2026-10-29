@@ -155,7 +155,7 @@ function buildHtml({ question, narrative, rows, columns, sourceTable, includeEmp
   const table = tableHtml(data, columns, sourceTable);
   return dedupeRepeatedTables([
     "<section class=\"cms-ai-report\">",
-    heading,
+    // heading,
     story,
     chart,
     table,
