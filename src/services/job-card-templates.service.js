@@ -58,12 +58,13 @@ function parseTemplateJson(raw) {
 
 async function validateStoredTemplate(document) {
   const forge = await loadDocForge();
-  const result = forge.validateTemplate(document);
-  if (!result.valid) {
-    const first = result.errors?.[0]?.message || "The template is invalid.";
+  try {
+    const saved = forge.createDocumentSaveResult(document);
+    return forge.serializeTemplate(saved.template);
+  } catch (err) {
+    const first = err?.errors?.[0]?.message || err?.message || "The template is invalid.";
     throw clientError(first, 400, "invalid_template");
   }
-  return forge.serializeTemplate(forge.createTemplate(document));
 }
 
 function formatRow(row, template) {
@@ -268,6 +269,7 @@ async function renderCard(auth, jobId, body, jobsWorkflowService) {
     document = selected.template;
   }
   const html = forge.renderToHTML(document, payload.data, {
+    title: document.name || "Job Card",
     imageSources: {
       allowHttps: true,
       allowDataImages: true

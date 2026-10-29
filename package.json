@@ -45,7 +45,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@arslankhan/doc-forge": "^0.1.6",
+    "@arslankhan/doc-forge": "^0.1.7",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
